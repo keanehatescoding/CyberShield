@@ -16,6 +16,7 @@ google-id               = "1.2.0"
 coil                    = "2.7.0"
 serialization-json      = "1.11.0"
 foundation = "1.11.3"
+ui-text = "1.11.2"
 
 [libraries]
 # Compose BOM
@@ -72,6 +73,7 @@ turbine                 = { module = "app.cash.turbine:turbine",                
 compose-test            = { module = "androidx.compose.ui:ui-test-junit4" }
 hilt-testing            = { module = "com.google.dagger:hilt-android-testing",            version.ref = "hilt" }
 foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
+ui-text = { group = "androidx.compose.ui", name = "ui-text", version.ref = "ui-text" }
 
 [plugins]
 android-application     = { id = "com.android.application",                               version.ref = "agp" }

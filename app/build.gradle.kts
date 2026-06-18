@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.compose.activity)
     implementation(libs.foundation)
     implementation(libs.room.ktx)
+    implementation(libs.ui.text)
     debugImplementation(libs.compose.ui.tooling)
 
     // ── Lifecycle ─────────────────────────────────────────────────────
