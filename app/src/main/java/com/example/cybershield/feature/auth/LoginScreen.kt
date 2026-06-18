@@ -53,11 +53,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.example.cybershield.R
+import com.example.cybershield.ui.theme.CyberShieldTheme
+
 @Composable
 private fun LoginHeader() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -393,5 +396,18 @@ fun LoginScreen(
                 }
             )
         }
+    }
+}
+@Preview(showBackground=true, name="Login - empty")
+@Composable
+private fun LoginScreenPreview(){
+    CyberShieldTheme {
+        LoginScreen(onNavigateToRegister = {})
+    }
+}
+@Preview(showBackground=true, name= "Login - loading")
+@Composable
+private fun LoginScreenLoadingPreview(){
+    CyberShieldTheme {
     }
 }
