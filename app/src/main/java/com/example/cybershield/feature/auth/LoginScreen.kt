@@ -53,7 +53,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,7 +82,7 @@ private fun LoginHeader() {
     }
 }
 @Composable
-private fun DividerWithText(text: String) {
+internal fun DividerWithText(text: String) {
     Row(
         modifier              = Modifier.fillMaxWidth(),
         verticalAlignment     = Alignment.CenterVertically,
@@ -278,7 +277,7 @@ fun LoginScreen(
                             }
                     }
                 },
-                enabled = uiState.isLoading,
+                enabled = !uiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
