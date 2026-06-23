@@ -15,6 +15,6 @@ data class Module(
     val isPublished: Boolean = true,
 ) {
     val formattedDuration: String
-        get() = "$durationMins "
+        get() = "$durationMins"
 
 }

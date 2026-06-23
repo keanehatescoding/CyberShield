@@ -50,7 +50,7 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun getUserProfileOnce(uid: String): Result<User> =
         try {
             val snapshot = userDoc(uid).get().await()
-            val user     = snapshot.toObject<UserDto>()?.toDomain()
+            val user = snapshot.toObject<UserDto>()?.toDomain()
             if (user != null) Result.Success(user)
             else Result.Error(Exception("User not found"))
         } catch (e: Exception) {
@@ -59,23 +59,22 @@ class UserRepositoryImpl @Inject constructor(
 
     // ── Create profile (first registration) ───────────────────────────
     override suspend fun createUserProfile(
-        uid:         String,
+        uid: String,
         displayName: String,
-        email:       String,
-        photoUrl:    String?,
+        email: String,
+        photoUrl: String?,
     ): Result<Unit> = try {
         val profile = mapOf(
-            "uid"             to uid,
-            "displayName"     to displayName,
-            "email"           to email,
-            "photoUrl"        to photoUrl,
-            "xp"              to 0,
-            "level"           to 1,
-            "badges"          to emptyList<String>(),
+            "displayName" to displayName,
+            "email" to email,
+            "photoUrl" to photoUrl,
+            "lastSignedInAt" to FieldValue.serverTimestamp(),
+            "xp" to 0,
+            "level" to 1,
+            "badges" to emptyList<String>(),
             "completedQuizzes" to emptyList<String>(),
             "completedModules" to emptyList<String>(),
-            "createdAt"       to FieldValue.serverTimestamp(),
-            "lastSignedInAt"  to FieldValue.serverTimestamp(),
+            "createdAt" to FieldValue.serverTimestamp(),
         )
         userDoc(uid).set(profile).await()
         Result.Success(Unit)
@@ -85,22 +84,23 @@ class UserRepositoryImpl @Inject constructor(
 
     // ── Create profile only if it doesn't exist (Google SSO) ──────────
     override suspend fun createUserProfileIfNotExists(
-        uid:         String,
+        uid: String,
         displayName: String,
-        email:       String,
-        photoUrl:    String?,
+        email: String,
+        photoUrl: String?,
     ): Result<Unit> = try {
         val profile = mapOf(
-            "uid"             to uid,
-            "displayName"     to displayName,
-            "email"           to email,
-            "photoUrl"        to photoUrl,
-            "xp"              to 0,
-            "level"           to 1,
-            "badges"          to emptyList<String>(),
-            "completedQuizzes" to emptyList<String>(),
-            "completedModules" to emptyList<String>(),
-            "lastSignedInAt"  to FieldValue.serverTimestamp(),
+            "displayName" to displayName,
+            "email" to email,
+            "photoUrl" to photoUrl,
+            // in case a user already exists and is trying to sign in via Google then there is
+            // no need of overriding their progress
+//            "xp"              to 0,
+//            "level"           to 1,
+//            "badges"          to emptyList<String>(),
+//            "completedQuizzes" to emptyList<String>(),
+//            "completedModules" to emptyList<String>(),
+//            "lastSignedInAt"  to FieldValue.serverTimestamp(),
         )
         // merge = true → creates if missing, updates lastSignedInAt
         // if exists — never overwrites xp, badges, completedQuizzes
@@ -173,25 +173,26 @@ class UserRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Result.Error(e)
         }
-    override suspend fun saveCertificate(certificate: Certificate) {
+
+    override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
         try {
             val data = mapOf(
-                "id"         to certificate.id,
-                "userId"     to certificate.userId,
-                "userName"   to certificate.userName,
-                "moduleId"   to certificate.moduleId,
+                "id" to certificate.id,
+                "userId" to certificate.userId,
+                "userName" to certificate.userName,
+                "moduleId" to certificate.moduleId,
                 "moduleName" to certificate.moduleName,
-                "quizTitle"  to certificate.quizTitle,
-                "score"      to certificate.score,
-                "issuedAt"   to certificate.issuedAt,
+                "quizTitle" to certificate.quizTitle,
+                "score" to certificate.score,
+                "issuedAt" to certificate.issuedAt,
             )
             userDoc(certificate.userId)
                 .collection("certificates")
                 .document(certificate.id)
                 .set(data)
                 .await()
-        } catch (_: Exception) {
-            // non-fatal — cert still exists in memory for the session
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(e)
         }
-    }
 }

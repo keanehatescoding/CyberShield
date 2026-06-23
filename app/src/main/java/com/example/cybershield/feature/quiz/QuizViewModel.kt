@@ -9,7 +9,7 @@ import com.example.cybershield.core.domain.model.Quiz
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
-import com.example.cybershield.core.domain.usecase.auth.AwardXpUseCase
+import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.dataOrNull
 import com.google.firebase.auth.FirebaseAuth
@@ -187,7 +187,6 @@ class QuizViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         timerJob?.cancel()
     }
 }

@@ -20,7 +20,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.time.Duration.Companion.milliseconds
 
-
 @Composable
 fun VideoPlayerComposable(
     videoUrl:          String,

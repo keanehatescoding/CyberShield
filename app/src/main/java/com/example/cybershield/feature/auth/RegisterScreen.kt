@@ -1,5 +1,6 @@
 package com.example.cybershield.feature.auth
 
+import android.app.Activity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,14 +77,15 @@ private enum class PasswordStrength(
 }
 
 private fun evaluateStrength(password: String): PasswordStrength {
+    if (password.length < 8) return PasswordStrength.WEAK
+
     var score = 0
-    if (password.length >= 8)                          score++
     if (password.any { it.isUpperCase() })             score++
+    if (password.any { it.isLowerCase() })             score++
     if (password.any { it.isDigit() })                 score++
     if (password.any { !it.isLetterOrDigit() })        score++
     return when {
-        score <= 1 -> PasswordStrength.WEAK
-        score <= 2 -> PasswordStrength.FAIR
+        score <= 3 -> PasswordStrength.FAIR
         else       -> PasswordStrength.STRONG
     }
 }
@@ -90,14 +94,21 @@ private fun evaluateStrength(password: String): PasswordStrength {
 fun RegisterScreen(
     onNavigateBack:            () -> Unit,
     onNavigateToVerification:  () -> Unit,
+    onNavigateToMfaVerification: () -> Unit,
     viewModel: AuthViewModel = hiltViewModel(),
     googleSignInHelper: GoogleSignInHelper = viewModel.googleSignInHelper
 ) {
     val uiState     by viewModel.registerState.collectAsStateWithLifecycle()
+    val loginState  by viewModel.loginState.collectAsStateWithLifecycle()
+    val googleState by viewModel.googleSignInState.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val activity = context as? Activity
+
+    var pendingCollision by remember { mutableStateOf<AuthEvent.AccountCollision?>(null) }
+    var linkPassword by rememberSaveable { mutableStateOf("") }
 
     // ── Collect one-time events ────────────────────────────────────────
     LaunchedEffect(Unit) {
@@ -110,8 +121,20 @@ fun RegisterScreen(
                 is AuthEvent.Error -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
+                is AuthEvent.AccountCollision -> {
+                    // Previously dropped via `else -> {}` — Google sign-up
+                    // with an email that already has a password account would
+                    // silently dead-end. Now shows the same linking dialog
+                    // LoginScreen uses.
+                    pendingCollision = event
+                }
                 else -> {}
             }
+        }
+    }
+    LaunchedEffect(loginState.requiresMfa) {
+        if (loginState.requiresMfa) {
+            onNavigateToMfaVerification()
         }
     }
 
@@ -145,7 +168,7 @@ fun RegisterScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
             // ── Header ─────────────────────────────────────────────────
             Text(
@@ -214,7 +237,7 @@ fun RegisterScreen(
             Spacer(Modifier.height(8.dp))
 
             // ── Password ───────────────────────────────────────────────
-            var passwordVisible by remember { mutableStateOf(false) }
+            var passwordVisible by rememberSaveable { mutableStateOf(false) }
             OutlinedTextField(
                 value          = uiState.password,
                 onValueChange  = viewModel::onRegisterPasswordChange,
@@ -262,7 +285,7 @@ fun RegisterScreen(
             Spacer(Modifier.height(8.dp))
 
             // ── Confirm password ───────────────────────────────────────
-            var confirmVisible by remember { mutableStateOf(false) }
+            var confirmVisible by rememberSaveable { mutableStateOf(false) }
             OutlinedTextField(
                 value          = uiState.confirmPassword,
                 onValueChange  = viewModel::onRegisterConfirmPasswordChange,
@@ -380,23 +403,36 @@ fun RegisterScreen(
                             }
                     }
                 },
-                enabled  = !uiState.isLoading,
+                // Was: !uiState.isLoading, which reads registerState — but
+                // signInWithGoogle never updated registerState, so this button
+                // never actually disabled or showed a spinner during Google
+                // sign-up. Now reads the shared Google flow state.
+                enabled  = !googleState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
             ) {
-                Row(
-                    verticalAlignment     = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        painter            = painterResource(ic_google),
-                        contentDescription = null,
-                        tint               = Color.Unspecified,
-                        modifier           = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Continue with Google")
+                AnimatedContent(
+                    targetState = googleState.isLoading,
+                    label       = "google sign up button",
+                ) { loading ->
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(ic_google),
+                                contentDescription = null,
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text("Continue with Google")
+                        }
+                    }
                 }
             }
 
@@ -418,6 +454,60 @@ fun RegisterScreen(
             }
 
             Spacer(Modifier.height(32.dp))
+        }
+
+        // ── Account linking dialog ──────────────────────────────────────
+        // Same flow as LoginScreen's: Google sign-up hit an email that
+        // already has a password-based account, so we ask for that
+        // password to link the two providers instead of leaving the user
+        // stuck with a spinner that quietly stopped.
+        pendingCollision?.let { collision ->
+            AlertDialog(
+                onDismissRequest = { pendingCollision = null; linkPassword = "" },
+                title   = { Text("Link your accounts") },
+                text    = {
+                    Column {
+                        Text(
+                            "${collision.email} is already registered with email/password. " +
+                                    "Enter your password to link your Google account."
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value          = linkPassword,
+                            onValueChange  = { linkPassword = it },
+                            label          = { Text("Password") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine     = true,
+                        )
+                        googleState.error?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            activity?.let {
+                                viewModel.linkGoogleToExistingAccount(
+                                    email = collision.email,
+                                    password = linkPassword,
+                                    googleCredential = collision.googleCredential,
+                                    it
+                                )
+                            }
+                            pendingCollision = null
+                            linkPassword     = ""
+                        },
+                        enabled = linkPassword.length >= 6 && !googleState.isLoading,
+                    ) { Text("Link accounts") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingCollision = null; linkPassword = "" }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

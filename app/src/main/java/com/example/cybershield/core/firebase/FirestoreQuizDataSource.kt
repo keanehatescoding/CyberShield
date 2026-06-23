@@ -20,14 +20,32 @@ class FirestoreQuizDataSource @Inject constructor(
         return docs.documents.mapNotNull { doc ->
             val options = (doc.get("options") as? List<*>)
                 ?.filterIsInstance<String>()
-                ?: return@mapNotNull null
+                ?: run {
+                    // ★ NEW — log and skip rather than silently producing a broken question
+                    android.util.Log.e("FirestoreQuizDataSource",
+                        "Quiz ${doc.id} missing or malformed 'options' field — skipping")
+                    return@mapNotNull null
+                }
+            val correctIndexRaw = doc.getLong("correctIndex")
+            if (correctIndexRaw == null) {
+                android.util.Log.e("FirestoreQuizDataSource",
+                    "Quiz ${doc.id} missing 'correctIndex' field — skipping question entirely")
+                return@mapNotNull null
+            }
+            val correctIndex = correctIndexRaw.toInt()
+            if (correctIndex < 0 || correctIndex >= options.size) {
+                android.util.Log.e("FirestoreQuizDataSource",
+                    "Quiz ${doc.id} has correctIndex=$correctIndex out of bounds for ${options.size} options — skipping")
+                return@mapNotNull null
+            }
+
 
             Quiz(
                 id           = doc.id,
                 moduleId     = moduleId,
                 text         = doc.getString("text") ?: "",
                 options      = options,
-                correctIndex = doc.getLong("correctIndex")?.toInt() ?: 0,
+                correctIndex = correctIndex,
                 explanation  = doc.getString("explanation") ?: "",
             )
         }

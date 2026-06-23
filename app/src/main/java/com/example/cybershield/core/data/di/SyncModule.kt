@@ -1,4 +1,4 @@
-package com.example.cybershield.core.di
+package com.example.cybershield.core.data.di
 
 import android.content.Context
 import androidx.work.Constraints

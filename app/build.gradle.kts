@@ -61,7 +61,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    //kotlinOptions { jvmTarget = "17" }
 
     // ── Features ──────────────────────────────────────────────────────
     buildFeatures {
@@ -71,7 +70,7 @@ android {
 }
 tasks.configureEach {
     if (name.contains("uploadCrashlyticsMappingFile")) {
-        enabled = false
+        enabled = true
     }
 }
 
@@ -86,6 +85,8 @@ dependencies {
     implementation(libs.foundation)
     implementation(libs.room.ktx)
     implementation(libs.ui.text)
+    implementation(libs.androidx.splashscreen)
+    implementation(libs.material)
     debugImplementation(libs.compose.ui.tooling)
 
     // ── Lifecycle ─────────────────────────────────────────────────────
@@ -141,5 +142,8 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.hilt.testing)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.rules)
     kspAndroidTest(libs.hilt.compiler)
 }

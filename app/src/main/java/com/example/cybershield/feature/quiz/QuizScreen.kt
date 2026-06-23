@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.cybershield.ui.theme.LoadingScreen
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,7 +97,7 @@ fun QuizScreen(
             modifier = Modifier.padding(innerPadding),
         ) { state ->
             when (state) {
-                is QuizUiState.Loading -> QuizLoadingScreen()
+                is QuizUiState.Loading -> LoadingScreen(message="Loading quiz")
                 is QuizUiState.Active  -> QuizActiveScreen(
                     state     = state,
                     onSelect  = viewModel::selectAnswer,
@@ -105,7 +106,7 @@ fun QuizScreen(
                     message   = state.message,
                     onRetry   = onNavigateBack,
                 )
-                is QuizUiState.Completed -> QuizLoadingScreen() // brief flash before nav
+                is QuizUiState.Completed -> LoadingScreen()
             }
         }
     }
@@ -299,17 +300,6 @@ private fun ScoreDisplay(score: Int) {
             style      = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
         )
-    }
-}
-
-@Composable
-private fun QuizLoadingScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(16.dp))
-            Text("Loading quiz...", style = MaterialTheme.typography.bodyMedium)
-        }
     }
 }
 

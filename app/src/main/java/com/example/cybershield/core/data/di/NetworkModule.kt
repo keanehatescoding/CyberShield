@@ -1,4 +1,4 @@
-package com.example.cybershield.core.di
+package com.example.cybershield.core.data.di
 
 import com.example.cybershield.core.network.interceptor.AuthInterceptor
 import dagger.Module

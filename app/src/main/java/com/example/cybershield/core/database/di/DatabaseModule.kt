@@ -22,10 +22,11 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CyberShieldDatabase =
         Room.databaseBuilder(
-            context,
-            CyberShieldDatabase::class.java,
-            "cybershield.db",
-        ).build()
+                context,
+                CyberShieldDatabase::class.java,
+                "cybershield.db",
+            ).fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
 
     @Provides
     fun provideQuizDao(db: CyberShieldDatabase): QuizDao = db.quizDao()

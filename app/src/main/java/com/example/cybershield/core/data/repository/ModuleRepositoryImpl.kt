@@ -7,6 +7,7 @@ import com.example.cybershield.core.database.entity.PlaybackPositionEntity
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.firebase.model.ModuleDto
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -19,27 +20,29 @@ class ModuleRepositoryImpl @Inject constructor(
     private val playbackPositionDao: PlaybackPositionDao,
 ) : ModuleRepository {
 
+    private suspend fun fetchAndCacheModules(): List<Module> {
+        val snapshot = firestore
+            .collection("modules")
+            .orderBy("order")
+            .get()
+            .await()
+
+        val modules = snapshot
+            .toObjects(ModuleDto::class.java)
+            .map { it.toDomain() }
+
+        moduleDao.replaceAll(modules.map { ModuleEntity.fromDomain(it) })
+
+        return modules
+    }
+
+    // ── Real-time-ish module list — network first, cache fallback ───────
     override fun getModules(): Flow<Result<List<Module>>> = flow {
         emit(Result.Loading)
         try {
-            // Try network first
-            val snapshot = firestore
-                .collection("modules")
-                .orderBy("order")
-                .get()
-                .await()
-
-            val modules = snapshot.toObjects(
-                com.example.cybershield.core.firebase.model.ModuleDto::class.java
-            ).map { it.toDomain() }
-
-            // Cache to Room
-            moduleDao.clearAll()
-            moduleDao.insertAll(modules.map { ModuleEntity.fromDomain(it) })
-
+            val modules = fetchAndCacheModules()
             emit(Result.Success(modules))
         } catch (e: Exception) {
-            // Fall back to Room cache
             val cached = moduleDao.getAll().map { it.toDomain() }
             if (cached.isNotEmpty()) {
                 emit(Result.Success(cached))
@@ -57,30 +60,21 @@ class ModuleRepositoryImpl @Inject constructor(
                 .document(moduleId)
                 .get()
                 .await()
-
             val module = snapshot
-                .toObject(com.example.cybershield.core.firebase.model.ModuleDto::class.java)
+                .toObject(ModuleDto::class.java)
                 ?.toDomain()
-
             if (module != null) {
                 moduleDao.insertAll(listOf(ModuleEntity.fromDomain(module)))
                 emit(Result.Success(module))
             } else {
-                // Fall back to cache
                 val cached = moduleDao.getById(moduleId)?.toDomain()
-                if (cached != null) {
-                    emit(Result.Success(cached))
-                } else {
-                    emit(Result.Error(Exception("Module not found")))
-                }
+                if (cached != null) emit(Result.Success(cached))
+                else emit(Result.Error(Exception("Module not found")))
             }
         } catch (e: Exception) {
             val cached = moduleDao.getById(moduleId)?.toDomain()
-            if (cached != null) {
-                emit(Result.Success(cached))
-            } else {
-                emit(Result.Error(e))
-            }
+            if (cached != null) emit(Result.Success(cached))
+            else emit(Result.Error(e))
         }
     }
 
@@ -97,7 +91,12 @@ class ModuleRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun refreshModules(): Result<Unit> {
-        TODO("Not yet implemented")
-    }
+    // ── One-shot manual refresh — honestly reports network failure ──────
+    override suspend fun refreshModules(): Result<Unit> =
+        try {
+            fetchAndCacheModules()
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(e)
+        }
 }

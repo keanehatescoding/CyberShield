@@ -11,6 +11,7 @@ data class Certificate(
     val quizTitle:  String  = moduleName,   // display name for the cert
     val score:      Int     = 0,
     val issuedAt:   Long    = System.currentTimeMillis(),
+    val pdfUrl:     String
 ) {
     // Convenience property for the UI which expects java.util.Date
     val datePassed: Date get() = Date(issuedAt)

@@ -1,10 +1,10 @@
 package com.example.cybershield.core.network.interceptor
 
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.tasks.await
 import okhttp3.Interceptor
 import okhttp3.Response
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -20,11 +20,20 @@ class AuthInterceptor @Inject constructor(
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val token = runBlocking {
+        val token = try {
             auth.currentUser
                 ?.getIdToken(false)   // false = use cached token unless expired
-                ?.await()
-                ?.token
+                ?.let { task ->
+                    // ★ Tasks.await() with an explicit timeout — blocks this thread
+                    // directly, no coroutine dispatcher spin-up, and bounded so a
+                    // hung token refresh can't tie up the dispatcher thread forever
+                    Tasks.await(task, 10, TimeUnit.SECONDS)
+                }?.token
+        } catch (_: Exception) {
+            // Token refresh failed or timed out — proceed unauthenticated
+            // rather than throwing and breaking the whole request pipeline.
+            // The backend will reject with 401 if auth was actually required.
+            null
         }
 
         val request = if (token != null) {

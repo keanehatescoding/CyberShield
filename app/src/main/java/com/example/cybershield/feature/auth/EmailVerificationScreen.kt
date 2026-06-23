@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun EmailVerificationScreen(
@@ -33,18 +37,37 @@ fun EmailVerificationScreen(
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val authState by viewModel.authState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // If the user verifies and re-opens the app, Firebase reloads
-    // the user — navigate home automatically
-    LaunchedEffect(authState) {
-        val user = authState
-        if (user != null && user.isEmailVerified) {
-            // NavigationRoot's LaunchedEffect(authState) handles this —
-            // just reload to trigger the check
+    // ── Resend cooldown — starts only after a CONFIRMED successful send ───
+    var resendCooldown by remember { mutableStateOf(false) }
+    LaunchedEffect(resendCooldown) {
+        if (resendCooldown) {
+            delay(60_000.milliseconds)
+            resendCooldown = false
         }
     }
 
-    Scaffold { innerPadding ->
+    // ★ NEW — collect events from the ViewModel, react to success/failure
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is AuthEvent.EmailVerificationSent -> {
+                    resendCooldown = true   // ★ only starts cooldown on confirmed success
+                    snackbarHostState.showSnackbar("Verification email sent")
+                }
+                is AuthEvent.Error -> {
+                    // ★ THIS is the actual fix — errors now reach the user
+                    snackbarHostState.showSnackbar(event.message)
+                }
+                else -> {}
+            }
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },   // ★ NEW
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -53,60 +76,54 @@ fun EmailVerificationScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-
-            // Email icon — use your own or Material icon
             Text(text = "📧", fontSize = 64.sp)
-
             Spacer(Modifier.height(24.dp))
-
             Text(
                 text       = "Check your email",
                 style      = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign  = TextAlign.Center,
             )
-
             Spacer(Modifier.height(12.dp))
-
             Text(
-                text      = "We sent a verification link to\n${viewModel.authState.value?.email ?: ""}",
+                text      = "We sent a verification link to\n${authState?.email ?: ""}",
                 style     = MaterialTheme.typography.bodyLarge,
                 color     = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-
             Spacer(Modifier.height(8.dp))
-
             Text(
                 text      = "Click the link in the email to activate your account, then come back and sign in.",
                 style     = MaterialTheme.typography.bodyMedium,
                 color     = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-
+            // ★ NEW — addresses the spam-folder issue from earlier in the conversation
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text      = "Didn't get it? Check your spam or junk folder.",
+                style     = MaterialTheme.typography.bodySmall,
+                color     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+            )
             Spacer(Modifier.height(32.dp))
-
-            // ── Resend email ───────────────────────────────────────────
-            var resendCooldown by remember { mutableStateOf(false) }
 
             OutlinedButton(
                 onClick = {
-                    resendCooldown = true
-                    viewModel.authState.value?.sendEmailVerification()
+                    // ★ FIXED — delegates to the ViewModel, no Compose-side Task handling
+                    viewModel.resendEmailVerification()
                 },
                 enabled  = !resendCooldown,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text(if (resendCooldown) "Email sent ✓" else "Resend verification email")
             }
-
             Spacer(Modifier.height(12.dp))
 
-            // ── Back to log in ──────────────────────────────────────────
             TextButton(
                 onClick  = {
-                    viewModel.signOut()    // sign out unverified user
-                    onNavigateToLogin()     // go back to log in
+                    viewModel.signOut()
+                    onNavigateToLogin()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {

@@ -57,6 +57,7 @@ fun ModuleDetailScreen(
     val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
     val savedPosition by viewModel.savedPositionMs.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val isSavedPositionLoaded by viewModel.isSavedPositionLoaded.collectAsStateWithLifecycle()
     var showSpeedMenu  by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -132,18 +133,24 @@ fun ModuleDetailScreen(
                         .verticalScroll(rememberScrollState()),
                 ) {
 
-                    // ── Video player ───────────────────────────────────────
-                    VideoPlayerComposable(
-                        videoUrl      = module.videoUrl,
-                        savedPosition = savedPosition,
-                        playbackSpeed = playbackSpeed,
-                        onVideoEnded  = { viewModel.onVideoCompleted() },
-                        onPositionChanged = { pos -> viewModel.savePosition(pos) },
-                        modifier      = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f),
-                    )
-
+                    if (isSavedPositionLoaded) {
+                        // ── Video player ───────────────────────────────────────
+                        VideoPlayerComposable(
+                            videoUrl = module.videoUrl,
+                            savedPosition = savedPosition,
+                            playbackSpeed = playbackSpeed,
+                            onVideoEnded = { viewModel.onVideoCompleted() },
+                            onPositionChanged = { pos -> viewModel.savePosition(pos) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f),
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                            contentAlignment = Alignment.Center,
+                        ) { CircularProgressIndicator() }
+                    }
                     Column(modifier = Modifier.padding(16.dp)) {
 
                         // ── Module info ────────────────────────────────────

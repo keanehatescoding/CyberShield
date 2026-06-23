@@ -1,17 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-
     <style name="Theme.CyberShield" parent="Theme.SplashScreen">
-        <!-- Splash screen background color -->
         <item name="windowSplashScreenBackground">@color/primary</item>
-        <!-- Splash screen icon (place ic_cybershield_logo in res/drawable) -->
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_cybershield_logo</item>
-        <!-- Post-splash theme (the Compose theme takes over) -->
         <item name="postSplashScreenTheme">@style/Theme.CyberShield.NoActionBar</item>
     </style>
 
     <style name="Theme.CyberShield.NoActionBar" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Empty — Compose handles all theming -->
     </style>
-    <style name="Theme.Cybershield" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

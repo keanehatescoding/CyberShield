@@ -1,6 +1,7 @@
 package com.example.cybershield.feature.auth
 
 import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.MultiFactorResolver
 
 data class LoginUiState(
     val email: String = "",
@@ -8,13 +9,23 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val emailError: String? = null,
     val passwordError: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val pendingMfaResolver: MultiFactorResolver? = null,
+    val mfaCodeSent: Boolean = false,
+    val mfaVerificationId: String? = null,
 )
 {
     // Derived — button only enabled when both fields are non-blank
     val isSignInEnabled: Boolean
         get() = email.isNotBlank() && password.isNotBlank() && !isLoading
+    val requiresMfa : Boolean
+        get() = pendingMfaResolver != null
 }
+
+data class GoogleSignInUiState(
+    val isLoading: Boolean = false,
+    val error: String? = null,
+)
 data class RegisterUiState(
     val name: String = "",
     val email: String = "",
@@ -43,4 +54,6 @@ sealed class AuthEvent {
         val email: String,
         val googleCredential: AuthCredential,
         ): AuthEvent()
+    data object MfaEnrollmentSuccess : AuthEvent()
+    data object MfaSignInSuccess : AuthEvent()
 }

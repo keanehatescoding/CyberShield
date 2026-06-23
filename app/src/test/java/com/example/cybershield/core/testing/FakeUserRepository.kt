@@ -11,9 +11,9 @@ class FakeUserRepository : UserRepository {
 
     // ── Mutable test state — inspect these in assertions ──────────────
     var fakeUser: User = User(
-        uid         = "test-uid",
+        uid = "test-uid",
         displayName = "Test User",
-        email       = "test@cybershield.com",
+        email = "test@cybershield.com",
     )
     val savedCertificates  = mutableListOf<Certificate>()
     val awardedBadges      = mutableListOf<String>()
@@ -64,7 +64,11 @@ class FakeUserRepository : UserRepository {
     override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
         Result.Success(Unit)
 
-    override suspend fun saveCertificate(certificate: Certificate) {
-        savedCertificates.add(certificate)
-    }
+    override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
+        try{
+            savedCertificates.add(certificate)
+            Result.Success(Unit)
+        }catch (e: Exception){
+            Result.Error(e)
+        }
 }

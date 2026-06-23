@@ -50,6 +50,7 @@ import com.example.cybershield.feature.home.badgeEmoji
 fun ProfileScreen(
     onNavigateBack:        () -> Unit,
     onNavigateToCertificate: (certId: String) -> Unit,
+    onNavigateToSecurity: () -> Unit,
     onSignOut:             () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {

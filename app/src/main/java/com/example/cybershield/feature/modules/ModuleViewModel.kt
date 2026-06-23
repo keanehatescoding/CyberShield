@@ -42,6 +42,9 @@ class ModuleViewModel @Inject constructor(
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow() // was 'playbackspeed'
 
+    private val _isSavedPositionLoaded = MutableStateFlow(false)
+    val isSavedPositionLoaded: StateFlow<Boolean> = _isSavedPositionLoaded.asStateFlow()
+
     init {
         loadModule()
         loadSavedPosition()
@@ -84,6 +87,7 @@ class ModuleViewModel @Inject constructor(
         viewModelScope.launch {
             val pos = moduleRepository.getPlaybackPosition(moduleId, uid)
             _savedPositionMs.value = pos
+            _isSavedPositionLoaded.value = true
         }
     }
 

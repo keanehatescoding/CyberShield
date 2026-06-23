@@ -11,10 +11,13 @@ class SignInWithEmailUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(email: String, password: String): Result<FirebaseUser> =
         try {
-            val user = auth
+            val authResult = auth
                 .signInWithEmailAndPassword(email, password)
                 .await()
-                .user!!
+            val user = authResult.user
+                ?: return Result.Error(
+                    IllegalStateException("Sign-in succeeded but no user was returned")
+                )
             Result.Success(user)
         } catch (e: Exception) {
             Result.Error(e)

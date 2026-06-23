@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.example.cybershield.MainActivity
+import com.example.cybershield.R
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -20,101 +21,108 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class CyberShieldMessagingService : FirebaseMessagingService() {
+	@Inject lateinit var userRepository: UserRepository
+	@Inject lateinit var firebaseAuth: FirebaseAuth
+	private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Inject lateinit var userRepository: UserRepository
-    @Inject lateinit var firebaseAuth: FirebaseAuth
-
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    @Deprecated("Deprecated in Java")
+	@Deprecated("Deprecated in Java")
     override fun onNewToken(token: String) {
-        super.onNewToken(token)
-        val uid = firebaseAuth.currentUser?.uid ?: return
-        serviceScope.launch {
-            userRepository.updateFcmToken(uid, token)
-        }
-    }
+		super.onNewToken(token)
+		val uid = firebaseAuth.currentUser?.uid ?: return
+		serviceScope.launch {
+			userRepository.updateFcmToken(uid, token)
+		}
+	}
 
-    override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
-        val title = message.notification?.title
-            ?: message.data["title"]
-            ?: return
-        val body = message.notification?.body
-            ?: message.data["body"]
-            ?: return
-        val type = message.data["type"] ?: TYPE_GENERAL
+	override fun onMessageReceived(message: RemoteMessage) {
+		super.onMessageReceived(message)
 
-        showNotification(title, body, type)
-    }
+		val title = message.notification?.title
+		?: message.data["title"]
+		?: return
+		val body = message.notification?.body
+		?: message.data["body"]
+		?: return
+		val type = message.data["type"] ?: TYPE_GENERAL
 
-    private fun showNotification(title: String, body: String, type: String) {
-        val channelId = channelIdFor(type)
-        createChannelIfNeeded(channelId, labelFor(type))
+		showNotification(title, body, type, message.data)
+	}
 
-        val tapIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            tapIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+	private fun showNotification(
+		title: String,
+		body: String,
+		type: String,
+		data: Map<String, String>
+	) {
+		val channelId = channelIdFor(type)
+		createChannelIfNeeded(channelId, labelFor(type))
 
-        val notification = NotificationCompat.Builder(this, channelId)
-            //.setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build()
+		val tapIntent = Intent(this, MainActivity::class.java).apply {
+			flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+			data["screen"]?.let { putExtra("screen", it) }
+			data["quizId"]?.let { putExtra("quizId", it) }
+			data["moduleId"]?.let { putExtra("moduleId", it) }
+		}
+		val pendingIntent = PendingIntent.getActivity(
+			this,
+			type.hashCode(),
+			tapIntent,
+			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+		)
 
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(type.hashCode(), notification)
-    }
+		val notification = NotificationCompat.Builder(this, channelId)
+		.setSmallIcon(R.drawable.ic_notification)
+		.setContentTitle(title)
+		.setContentText(body)
+		.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+		.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+		.setAutoCancel(true)
+		.setContentIntent(pendingIntent)
+		.build()
 
-    private fun createChannelIfNeeded(channelId: String, label: String) {
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(channelId) != null) return
-        val channel = NotificationChannel(
-            channelId,
-            label,
-            NotificationManager.IMPORTANCE_DEFAULT,
-        )
-        manager.createNotificationChannel(channel)
-    }
+		val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+		manager.notify(type.hashCode(), notification)
+	}
 
-    private fun channelIdFor(type: String) = when (type) {
-        TYPE_QUIZ_REMINDER -> CHANNEL_QUIZ_REMINDER
-        TYPE_XP_AWARD      -> CHANNEL_XP_AWARD
-        TYPE_BADGE_AWARD   -> CHANNEL_BADGE_AWARD
-        else               -> CHANNEL_GENERAL
-    }
+	private fun createChannelIfNeeded(channelId: String, label: String) {
+		val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+		if (manager.getNotificationChannel(channelId) != null) return
+		val channel = NotificationChannel(
+			channelId,
+			label,
+			NotificationManager.IMPORTANCE_DEFAULT,
+		)
+		manager.createNotificationChannel(channel)
+	}
 
-    private fun labelFor(type: String) = when (type) {
-        TYPE_QUIZ_REMINDER -> "Quiz Reminders"
-        TYPE_XP_AWARD      -> "XP Awards"
-        TYPE_BADGE_AWARD   -> "Badge Awards"
-        else               -> "General"
-    }
+	private fun channelIdFor(type: String) = when (type) {
+		TYPE_QUIZ_REMINDER -> CHANNEL_QUIZ_REMINDER
+		TYPE_XP_AWARD      -> CHANNEL_XP_AWARD
+		TYPE_BADGE_AWARD   -> CHANNEL_BADGE_AWARD
+		else               -> CHANNEL_GENERAL
+	}
 
-    override fun onDestroy() {
-        super.onDestroy()
-        serviceScope.cancel()
-    }
+	private fun labelFor(type: String) = when (type) {
+		TYPE_QUIZ_REMINDER -> "Quiz Reminders"
+		TYPE_XP_AWARD      -> "XP Awards"
+		TYPE_BADGE_AWARD   -> "Badge Awards"
+		else               -> "General"
+	}
 
-    companion object {
-        const val CHANNEL_GENERAL       = "cybershield_general"
-        const val CHANNEL_QUIZ_REMINDER = "cybershield_quiz_reminder"
-        const val CHANNEL_XP_AWARD      = "cybershield_xp_award"
-        const val CHANNEL_BADGE_AWARD   = "cybershield_badge_award"
+	override fun onDestroy() {
+		super.onDestroy()
+		serviceScope.cancel()
+	}
 
-        const val TYPE_GENERAL       = "general"
-        const val TYPE_QUIZ_REMINDER = "quiz_reminder"
-        const val TYPE_XP_AWARD      = "xp_award"
-        const val TYPE_BADGE_AWARD   = "badge_award"
-    }
+	companion object {
+		const val CHANNEL_GENERAL       = "cybershield_general"
+		const val CHANNEL_QUIZ_REMINDER = "cybershield_quiz_reminder"
+		const val CHANNEL_XP_AWARD      = "cybershield_xp_award"
+		const val CHANNEL_BADGE_AWARD   = "cybershield_badge_award"
+
+		const val TYPE_GENERAL       = "general"
+		const val TYPE_QUIZ_REMINDER = "quiz_reminder"
+		const val TYPE_XP_AWARD      = "xp_award"
+		const val TYPE_BADGE_AWARD   = "badge_award"
+	}
 }

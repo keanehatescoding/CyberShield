@@ -6,7 +6,13 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
+data class SignUpResult(
+    val user:                 FirebaseUser,
+    val displayNameSet:       Boolean,
+    val verificationEmailSent: Boolean,
+)
 class SignUpWithEmailUseCase @Inject constructor(
     private val auth: FirebaseAuth,
 ) {
@@ -14,22 +20,41 @@ class SignUpWithEmailUseCase @Inject constructor(
         email:    String,
         password: String,
         name:     String,
-    ): Result<FirebaseUser> =
+    ): Result<SignUpResult> =
         try {
-            val user = auth
+            val authResult = auth
                 .createUserWithEmailAndPassword(email, password)
                 .await()
-                .user!!
+            val user = authResult.user
+                ?: return Result.Error(
+                    IllegalStateException("Account created but no user was returned")
+                )
+            val displayNameSet = try {
+                user.updateProfile(
+                    UserProfileChangeRequest.Builder()
+                        .setDisplayName(name)
+                        .build()
+                ).await()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
 
-            // Set display name immediately so it's available on first sign-in
-            user.updateProfile(
-                UserProfileChangeRequest.Builder()
-                    .setDisplayName(name)
-                    .build()
-            ).await()
+            val verificationEmailSent = try {
+                user.sendEmailVerification().await()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
 
-            Result.Success(user)
-        } catch (e: Exception) {
+            Result.Success(SignUpResult(user, displayNameSet, verificationEmailSent))
+        } catch (e: CancellationException) {
+            throw e
+        }catch (e: Exception) {
             Result.Error(e)
         }
 }

@@ -4,15 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.util.Result
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import com.example.cybershield.core.domain.util.Result
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -20,15 +21,15 @@ class HomeViewModel @Inject constructor(
     private val moduleRepository: ModuleRepository,
     private val firebaseAuth: FirebaseAuth,
 ) : ViewModel() {
-
-    // Current user UID — never null here because NavigationRoot
-    // only routes to HomeScreen when authState is non-null
+    private var profileJob: Job? = null
+    private var profileRepairAttempted = false
     private val uid: String
         get() = firebaseAuth.currentUser?.uid ?: ""
 
     // ── UI state ───────────────────────────────────────────────────────
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    private var modulesJob: Job? = null
 
     init {
         loadUserProfile()
@@ -36,37 +37,62 @@ class HomeViewModel @Inject constructor(
     }
 
     // ── Load user profile (real-time) ──────────────────────────────────
+
     private fun loadUserProfile() {
-        viewModelScope.launch {
+        profileJob?.cancel()
+        profileJob = viewModelScope.launch {
             userRepository
                 .getUserProfile(uid)
                 .collect { result ->
                     when (result) {
-                        is Result.Loading  ->
+                        is Result.Loading ->
                             _uiState.update { it.copy(isUserLoading = true) }
-                        is Result.Success ->
+
+                        is Result.Success -> {
+                            profileRepairAttempted = false   // reset for next time, profile is healthy now
                             _uiState.update {
-                                it.copy(
-                                    isUserLoading = false,
-                                    user          = result.data,
-                                    userError     = null,
-                                )
+                                it.copy(isUserLoading = false, user = result.data, userError = null)
                             }
-                        is Result.Error   ->
-                            _uiState.update {
-                                it.copy(
-                                    isUserLoading = false,
-                                    userError     = result.exception.message,
+                        }
+
+                        is Result.Error -> {
+                            val currentUser = firebaseAuth.currentUser
+                            val isMissingProfile = result.exception.message?.contains("not found") == true
+
+                            if (currentUser != null && isMissingProfile && !profileRepairAttempted) {
+                                profileRepairAttempted = true
+
+                                val repairResult = userRepository.createUserProfileIfNotExists(
+                                    uid = currentUser.uid,
+                                    displayName = currentUser.displayName ?: "CyberShield User",
+                                    email = currentUser.email ?: "",
+                                    photoUrl = currentUser.photoUrl?.toString(),
                                 )
+
+                                if (repairResult is Result.Error) {
+                                    // Repair itself failed — surface this immediately,
+                                    // don't keep spinning
+                                    _uiState.update {
+                                        it.copy(
+                                            isUserLoading = false,
+                                            userError = "Couldn't set up your profile. Please check your connection and restart the app.",
+                                        )
+                                    }
+                                }
+                            } else {
+                                _uiState.update {
+                                    it.copy(isUserLoading = false, userError = result.exception.message)
+                                }
                             }
+                        }
                     }
                 }
         }
     }
-
-    // ── Load modules (real-time, offline-first from Room cache) ────────
+    // ── Load modules (one-shot Flow — network first, Room fallback) ────
     private fun loadModules() {
-        viewModelScope.launch {
+        modulesJob?.cancel()   // ★ NEW — guard against overlapping collectors
+        modulesJob = viewModelScope.launch {
             moduleRepository
                 .getModules()
                 .collect { result ->
@@ -97,9 +123,28 @@ class HomeViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true) }
-            moduleRepository.refreshModules()
+
+            when (moduleRepository.refreshModules()) {
+                is Result.Success -> {
+                    // Room now has fresh data — re-run loadModules() to pick it up
+                    // since getModules() is a one-shot flow, not a live Room query
+                    loadModules()
+                }
+                is Result.Error -> {
+                    _uiState.update {
+                        it.copy(modulesError = "Couldn't refresh modules. Check your connection.")
+                    }
+                }
+                Result.Loading -> Unit
+            }
+
             _uiState.update { it.copy(isRefreshing = false) }
         }
+    }
+
+    // ★ NEW — clears a surfaced module error after the UI has shown it
+    fun clearModulesError() {
+        _uiState.update { it.copy(modulesError = null) }
     }
 
     // ── Greeting based on time of day ──────────────────────────────────

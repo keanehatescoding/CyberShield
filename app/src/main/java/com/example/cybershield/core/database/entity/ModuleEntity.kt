@@ -19,6 +19,7 @@ data class ModuleEntity(
     val quizId: String,
     val isPublished: Boolean,
     val cachedAt: Long = System.currentTimeMillis(),
+    val isNew: Boolean,
 ) {
     fun toDomain(): Module = Module(
         id = id,
@@ -32,6 +33,7 @@ data class ModuleEntity(
         xpReward = xpReward,
         quizId = quizId,
         isPublished = isPublished,
+        isNew = isNew
     )
 
     companion object {
@@ -47,6 +49,7 @@ data class ModuleEntity(
             xpReward = module.xpReward,
             quizId = module.quizId,
             isPublished = module.isPublished,
+            isNew = module.isNew
         )
     }
 }

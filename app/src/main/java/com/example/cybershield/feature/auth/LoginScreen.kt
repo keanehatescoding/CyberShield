@@ -1,5 +1,6 @@
 package com.example.cybershield.feature.auth
 
+import android.app.Activity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +67,7 @@ import com.example.cybershield.ui.theme.CyberShieldTheme
 private fun LoginHeader() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Image(
-            painter            = painterResource(R.drawable.ic_google),
+            painter            = painterResource(R.drawable.ic_cybershield_logo),
             contentDescription = "CyberShield",
             modifier           = Modifier.size(80.dp),
         )
@@ -75,7 +77,7 @@ private fun LoginHeader() {
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             text      = "Sign in to continue your cybersecurity journey",
             style     = MaterialTheme.typography.bodyMedium,
@@ -104,18 +106,21 @@ internal fun DividerWithText(text: String) {
 @Composable
 fun LoginScreen(
     onNavigateToRegister: () -> Unit,
+    onNavigateToMfaVerification: () -> Unit,
     viewModel: AuthViewModel = hiltViewModel<AuthViewModel>(),
     googleSignInHelper: GoogleSignInHelper = viewModel.googleSignInHelper
 ) {
     val uiState by viewModel.loginState.collectAsStateWithLifecycle()
+    val googleState by viewModel.googleSignInState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingCollision by remember { mutableStateOf<AuthEvent.AccountCollision?>(null) }
-    var linkPassword by remember { mutableStateOf("") }
+    var linkPassword by rememberSaveable { mutableStateOf("") }
     var showResetDialog by remember { mutableStateOf(false) }
-    var resetEmail by remember { mutableStateOf("") }
+    var resetEmail by rememberSaveable { mutableStateOf("") }
+    val activity = context as? Activity
 
     // Collect one-time events from the ViewModel
     LaunchedEffect(Unit) {
@@ -129,6 +134,13 @@ fun LoginScreen(
                 }
                 else -> {}
             }
+        }
+    }
+    LaunchedEffect(uiState.requiresMfa) {
+        if(uiState.requiresMfa){
+            showResetDialog = false
+            pendingCollision = null
+            onNavigateToMfaVerification()
         }
     }
     Scaffold(
@@ -146,11 +158,11 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
 
-            Spacer(Modifier.height(56.dp))
+            Spacer(Modifier.height(46.dp))
 
             // ── Logo + title ───────────────────────────────────────────
             LoginHeader()
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(30.dp))
             OutlinedTextField(
                 value = uiState.email,
                 onValueChange = viewModel::onEmailChange,
@@ -176,7 +188,7 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
-            var passwordVisible by remember { mutableStateOf(false) }
+            var passwordVisible by rememberSaveable { mutableStateOf(false) }
             OutlinedTextField(
                 value = uiState.password,
                 onValueChange = viewModel::onPasswordChange,
@@ -202,7 +214,7 @@ fun LoginScreen(
                             else
                                 Icons.Default.VisibilityOff,
                             contentDescription = if (passwordVisible)
-                                "Hide password" else "Show Password"
+                                "Hide password" else "Show password"
 
                         )
                     }
@@ -215,7 +227,7 @@ fun LoginScreen(
                     onDone = {
                         focusManager.clearFocus()
                         if (uiState.isSignInEnabled) {
-                            viewModel.signInWithEmail(uiState.email, uiState.password)
+                            activity?.let {viewModel.signInWithEmail(uiState.email, uiState.password, it) }
                         }
                     }
                 ),
@@ -235,11 +247,11 @@ fun LoginScreen(
                     Text("Forgot password?")
                 }
             }
-            Spacer(Modifier.padding(16.dp))
+            Spacer(Modifier.height(12.dp))
             Button(
                 onClick = {
                     focusManager.clearFocus()
-                    viewModel.signInWithEmail(uiState.email, uiState.password)
+                    activity?.let { viewModel.signInWithEmail(uiState.email, uiState.password, it) }
                 },
                 enabled = uiState.isSignInEnabled,
                 modifier = Modifier
@@ -280,26 +292,33 @@ fun LoginScreen(
                             }
                     }
                 },
-                enabled = !uiState.isLoading,
+                enabled = !googleState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
             ) {
-                Row(
-                    verticalAlignment    = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        painter            = painterResource(R.drawable.ic_google),
-                        contentDescription = null,
-                        tint               = Color.Unspecified,
-                        modifier           = Modifier.size(20.dp),
+                if (googleState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
                     )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Continue with Google")
+                } else {
+                    Row(
+                        verticalAlignment    = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            painter            = painterResource(R.drawable.ic_google),
+                            contentDescription = null,
+                            tint               = Color.Unspecified,
+                            modifier           = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Continue with Google")
+                    }
                 }
             }
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(22.dp))
 
             // ── Navigate to register ───────────────────────────────────
             Row(
@@ -354,7 +373,6 @@ fun LoginScreen(
                 }
             )
         }
-        // Account linking dialog — shown when pendingCollision is non-null
         pendingCollision?.let { collision ->
             AlertDialog(
                 onDismissRequest = { pendingCollision = null; linkPassword = "" },
@@ -373,20 +391,27 @@ fun LoginScreen(
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine     = true,
                         )
+                        googleState.error?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            viewModel.linkGoogleToExistingAccount(
-                                email            = collision.email,
-                                password         = linkPassword,
-                                googleCredential = collision.googleCredential,
-                            )
+                            activity?.let {
+                                viewModel.linkGoogleToExistingAccount(
+                                    email = collision.email,
+                                    password = linkPassword,
+                                    googleCredential = collision.googleCredential,
+                                    it
+                                )
+                            }
                             pendingCollision = null
                             linkPassword     = ""
                         },
-                        enabled = linkPassword.length >= 6,
+                        enabled = linkPassword.length >= 6 && !googleState.isLoading,
                     ) { Text("Link accounts") }
                 },
                 dismissButton = {
@@ -402,12 +427,9 @@ fun LoginScreen(
 @Composable
 private fun LoginScreenPreview(){
     CyberShieldTheme {
-        LoginScreen(onNavigateToRegister = {})
-    }
-}
-@Preview(showBackground=true, name= "Login - loading")
-@Composable
-private fun LoginScreenLoadingPreview(){
-    CyberShieldTheme {
+        LoginScreen(
+            onNavigateToRegister = {},
+            onNavigateToMfaVerification = {}
+        )
     }
 }

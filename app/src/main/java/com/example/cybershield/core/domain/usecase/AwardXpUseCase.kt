@@ -1,4 +1,4 @@
-package com.example.cybershield.core.domain.usecase.auth
+package com.example.cybershield.core.domain.usecase
 
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result

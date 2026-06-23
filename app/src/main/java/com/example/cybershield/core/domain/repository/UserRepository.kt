@@ -50,5 +50,5 @@ interface UserRepository {
 
     /** Updates last sign-in timestamp. */
     suspend fun updateLastSignedIn(uid: String): Result<Unit>
-    suspend fun saveCertificate(certificate: Certificate)
+    suspend fun saveCertificate(certificate: Certificate): Result<Unit>
 }

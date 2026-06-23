@@ -7,12 +7,13 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import com.example.cybershield.R.string.web_client_id
+import com.example.cybershield.R
 
 @Singleton
 class GoogleSignInHelper @Inject constructor(
@@ -23,7 +24,7 @@ class GoogleSignInHelper @Inject constructor(
         return try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(web_client_id.toString())
+                .setServerClientId(context.getString(R.string.web_client_id))
                 .setAutoSelectEnabled(false)
                 .build()
             val request = GetCredentialRequest.Builder()
@@ -45,6 +46,9 @@ class GoogleSignInHelper @Inject constructor(
         } catch (e: GetCredentialCancellationException) {
             e.printStackTrace()
             Result.failure(Exception("Sign-in cancelled"))
+        } catch (_: NoCredentialException) {
+            // Specific exceptions must come first!
+            Result.failure(Exception("No credentials were entered"))
         } catch (e: GetCredentialException) {
             Result.failure(e)
         }

@@ -29,33 +29,35 @@ class SyncQuizResultsWorker @AssistedInject constructor(
 
         return try {
             // Batch write to Firestore — one commit per worker run
-            val batch = firestore.batch()
+            val chunks = pending.chunked(BATCH_CHUNK_SIZE)
 
-            pending.forEach { entity ->
-                val ref = firestore
-                    .collection("users")
-                    .document(entity.userId)
-                    .collection("quizResults")
-                    .document("${entity.quizId}_${entity.localId}")
+            for (chunk in chunks) {
+                val batch = firestore.batch()
 
-                batch.set(
-                    ref,
-                    mapOf(
-                        "quizId"         to entity.quizId,
-                        "moduleId"       to entity.moduleId,
-                        "isCorrect"      to entity.isCorrect,
-                        "selectedAnswer" to entity.selectedAnswer,
-                        "answeredAt"     to entity.answeredAt,
-                        "syncedAt"       to FieldValue.serverTimestamp(),
+                chunk.forEach { entity ->
+                    val ref = firestore
+                        .collection("users")
+                        .document(entity.userId)
+                        .collection("quizResults")
+                        .document("${entity.quizId}_${entity.localId}")
+
+                    batch.set(
+                        ref,
+                        mapOf(
+                            "quizId" to entity.quizId,
+                            "moduleId" to entity.moduleId,
+                            "isCorrect" to entity.isCorrect,
+                            "selectedAnswer" to entity.selectedAnswer,
+                            "answeredAt" to entity.answeredAt,
+                            "syncedAt" to FieldValue.serverTimestamp(),
+                        )
                     )
-                )
+                }
+
+                batch.commit().await()
+
+                resultDao.markSynced(chunk.map { it.localId })
             }
-
-            batch.commit().await()
-
-            // Mark all synced rows in Room
-            resultDao.markSynced(pending.map { it.localId })
-
             // Clean up old synced rows to keep the DB small
             resultDao.deleteSyncedResults()
 
@@ -69,5 +71,6 @@ class SyncQuizResultsWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME   = "SyncQuizResultsWorker"
         const val MAX_RETRIES = 3
+        const val BATCH_CHUNK_SIZE = 450
     }
 }

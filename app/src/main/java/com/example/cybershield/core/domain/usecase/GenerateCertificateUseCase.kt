@@ -29,6 +29,9 @@ class GenerateCertificateUseCase @Inject constructor(
                 moduleId    = moduleId,
                 moduleName  = moduleName,
                 issuedAt    = System.currentTimeMillis(),
+                quizTitle = quizTitle,
+                score = score,
+                pdfUrl = "https://storage.googleapis.com/cybershield-strathmore.firebasestorage.app/certificates/"
             )
 
             userRepository.saveCertificate(certificate)
