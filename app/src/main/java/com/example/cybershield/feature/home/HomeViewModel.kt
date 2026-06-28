@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
+import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
+import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
-import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,18 +15,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalTime
+import java.time.Clock
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val userRepository: UserRepository,
     private val moduleRepository: ModuleRepository,
-    private val firebaseAuth: FirebaseAuth,
+    private val getCurrentSession: GetCurrentSessionUseCase,
+    private val ensureUserProfile: EnsureUserProfileUseCase,
+    private val clock: Clock,
 ) : ViewModel() {
     private var profileJob: Job? = null
-    private var profileRepairAttempted = false
     private val uid: String
-        get() = firebaseAuth.currentUser?.uid ?: ""
+        get() = getCurrentSession()?.uid ?: ""
 
     // ── UI state ───────────────────────────────────────────────────────
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -49,40 +54,39 @@ class HomeViewModel @Inject constructor(
                             _uiState.update { it.copy(isUserLoading = true) }
 
                         is Result.Success -> {
-                            profileRepairAttempted = false   // reset for next time, profile is healthy now
+                            ensureUserProfile.onProfileLoadedSuccessfully()
                             _uiState.update {
                                 it.copy(isUserLoading = false, user = result.data, userError = null)
                             }
                         }
 
                         is Result.Error -> {
-                            val currentUser = firebaseAuth.currentUser
-                            val isMissingProfile = result.exception.message?.contains("not found") == true
+                            val outcome = ensureUserProfile(
+                                error = result.exception,
+                                session = getCurrentSession(),
+                            )
 
-                            if (currentUser != null && isMissingProfile && !profileRepairAttempted) {
-                                profileRepairAttempted = true
+                            when (outcome) {
+                                is ProfileRepairOutcome.NotApplicable ->
+                                    _uiState.update {
+                                        it.copy(isUserLoading = false, userError = outcome.message)
+                                    }
 
-                                val repairResult = userRepository.createUserProfileIfNotExists(
-                                    uid = currentUser.uid,
-                                    displayName = currentUser.displayName ?: "CyberShield User",
-                                    email = currentUser.email ?: "",
-                                    photoUrl = currentUser.photoUrl?.toString(),
-                                )
+                                is ProfileRepairOutcome.AlreadyAttempted ->
+                                    _uiState.update {
+                                        it.copy(isUserLoading = false, userError = outcome.message)
+                                    }
 
-                                if (repairResult is Result.Error) {
-                                    // Repair itself failed — surface this immediately,
-                                    // don't keep spinning
+                                ProfileRepairOutcome.RepairSucceeded ->
+                                    Unit // live profile flow will re-emit Success shortly
+
+                                ProfileRepairOutcome.RepairFailed ->
                                     _uiState.update {
                                         it.copy(
                                             isUserLoading = false,
                                             userError = "Couldn't set up your profile. Please check your connection and restart the app.",
                                         )
                                     }
-                                }
-                            } else {
-                                _uiState.update {
-                                    it.copy(isUserLoading = false, userError = result.exception.message)
-                                }
                             }
                         }
                     }
@@ -149,8 +153,7 @@ class HomeViewModel @Inject constructor(
 
     // ── Greeting based on time of day ──────────────────────────────────
     fun greeting(): String {
-        val hour = java.util.Calendar.getInstance()
-            .get(java.util.Calendar.HOUR_OF_DAY)
+        val hour = LocalTime.now(clock).hour
         return when (hour) {
             in 5..11  -> "Good morning"
             in 12..17 -> "Good afternoon"

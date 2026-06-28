@@ -42,7 +42,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,7 +71,6 @@ fun HomeScreen(
     LaunchedEffect(uiState.modulesError) {
         uiState.modulesError?.let { message ->
             snackbarHostState.showSnackbar(message)
-            // Clear it after showing so it doesn't re-fire on recomposition
             viewModel.clearModulesError()
         }
     }
@@ -86,7 +84,6 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    // Profile avatar button
                     IconButton(onClick = onNavigateToProfile) {
                         Icon(
                             imageVector        = Icons.Default.AccountCircle,
@@ -329,7 +326,7 @@ fun ModuleCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     // New badge
-                    if (module.isNew) {
+                    if (module.new) {
                         Badge { Text("NEW") }
                         Spacer(Modifier.height(4.dp))
                     }
@@ -476,7 +473,6 @@ fun HomeLoadingSkeleton() {
         modifier            = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Simulate card placeholders with surface containers
         repeat(4) {
             Card(
                 modifier = Modifier.fillMaxWidth().height(120.dp),
