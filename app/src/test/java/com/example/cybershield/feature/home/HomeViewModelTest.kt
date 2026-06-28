@@ -4,21 +4,26 @@ import app.cash.turbine.test
 import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
 import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
-import com.example.cybershield.core.domain.usecase.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
+import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
-import com.example.cybershield.core.testing.TestCoroutineRule
 import com.example.cybershield.core.testing.fake.FakeModuleRepository
+import com.example.cybershield.core.testing.fake.FakeUserRepository
+import com.example.cybershield.core.testing.fake.TestCoroutineRule
+import junit.framework.TestCase.assertEquals
+import junit.framework.TestCase.assertFalse
+import junit.framework.TestCase.assertNull
+import junit.framework.TestCase.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 /**
  * Lives in src/test/ — pure JVM unit test, no Android framework or Firebase classes
@@ -47,6 +52,13 @@ class HomeViewModelTest {
         isEmailVerified = true,
     )
 
+    // Arbitrary fixed instant for tests that don't care about greeting() —
+    // 2026-01-01T10:00:00Z, i.e. 10 AM UTC, chosen only so the default never
+    // accidentally lands on a DST/midnight edge case. Tests that DO care about
+    // greeting() override this explicitly via buildViewModel(clock = ...).
+    private val defaultClock: Clock =
+        Clock.fixed(Instant.parse("2026-01-01T10:00:00Z"), ZoneOffset.UTC)
+
     @Before
     fun setUp() {
         fakeAuthRepository = FakeAuthRepository().apply {
@@ -63,15 +75,17 @@ class HomeViewModelTest {
         getCurrentSession = GetCurrentSessionUseCase(fakeAuthRepository)
     }
 
-    private fun buildViewModel() = HomeViewModel(
+    private fun buildViewModel(clock: Clock = defaultClock) = HomeViewModel(
         userRepository = fakeUserRepository,
         moduleRepository = fakeModuleRepository,
         getCurrentSession = getCurrentSession,
         ensureUserProfile = fakeEnsureUserProfile,
+        clock = clock,
     )
 
     // ── Profile loading — happy path ────────────────────────────────────
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `loadUserProfile emits user on success`() = runTest {
         val viewModel = buildViewModel()
@@ -85,6 +99,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `loadUserProfile surfaces isUserLoading while pending`() = runTest {
         fakeUserRepository.userProfileResult = Result.Loading
@@ -96,9 +111,9 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `successful profile load notifies the use case so repair can be attempted again later`() = runTest {
-        val viewModel = buildViewModel()
         advanceUntilIdle()
 
         assertEquals(1, fakeEnsureUserProfile.onProfileLoadedSuccessfullyCallCount)
@@ -106,6 +121,7 @@ class HomeViewModelTest {
 
     // ── Profile loading — error delegation to EnsureUserProfileUseCase ──────
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `NotApplicable outcome surfaces its message as userError`() = runTest {
         fakeUserRepository.userProfileResult = Result.Error(Exception("network unreachable"))
@@ -283,11 +299,40 @@ class HomeViewModelTest {
         assertEquals("Couldn't refresh modules. Check your connection.", state.modulesError)
     }
 
-    // ── Greeting (pure function, no coroutines involved) ────────────────
-    // Not re-tested here in detail since java.util.Calendar.getInstance() makes
-    // greeting() effectively untestable for specific hours without a Clock
-    // seam — flagging as a follow-up rather than asserting on whatever the
-    // current wall-clock hour happens to be when CI runs.
+    // ── Greeting (now testable via injected Clock) ─────────────────────
+
+    @Test
+    fun `greeting returns Good morning for early hours`() = runTest {
+        val morningClock = Clock.fixed(Instant.parse("2026-01-01T07:00:00Z"), ZoneOffset.UTC)
+        val viewModel = buildViewModel(clock = morningClock)
+
+        assertEquals("Good morning", viewModel.greeting())
+    }
+
+    @Test
+    fun `greeting returns Good afternoon for midday hours`() = runTest {
+        val afternoonClock = Clock.fixed(Instant.parse("2026-01-01T14:00:00Z"), ZoneOffset.UTC)
+        val viewModel = buildViewModel(clock = afternoonClock)
+
+        assertEquals("Good afternoon", viewModel.greeting())
+    }
+
+    @Test
+    fun `greeting returns Good evening for night hours`() = runTest {
+        val nightClock = Clock.fixed(Instant.parse("2026-01-01T22:00:00Z"), ZoneOffset.UTC)
+        val viewModel = buildViewModel(clock = nightClock)
+
+        assertEquals("Good evening", viewModel.greeting())
+    }
+
+    @Test
+    fun `greeting boundary at hour 5 is morning, hour 4 is evening`() = runTest {
+        val justBeforeMorning = Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)
+        val exactlyMorning = Clock.fixed(Instant.parse("2026-01-01T05:00:00Z"), ZoneOffset.UTC)
+
+        assertEquals("Good evening", buildViewModel(clock = justBeforeMorning).greeting())
+        assertEquals("Good morning", buildViewModel(clock = exactlyMorning).greeting())
+    }
 
     private fun sampleModule(id: String) = com.example.cybershield.core.domain.model.Module(
         id = id,

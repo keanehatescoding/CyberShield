@@ -1,4 +1,4 @@
-package com.example.cybershield.core.testing
+package com.example.cybershield.core.testing.fake
 
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
