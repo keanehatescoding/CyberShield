@@ -23,12 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.cybershield.core.domain.model.QuizResult
 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizResultScreen(
-    result:           QuizResult,
+    result: QuizResult,
     onNavigateHome:   () -> Unit,
     onRetakeQuiz:     () -> Unit,
     onViewCertificate: () -> Unit,

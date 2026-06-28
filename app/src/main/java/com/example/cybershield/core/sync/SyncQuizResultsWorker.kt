@@ -27,6 +27,8 @@ class SyncQuizResultsWorker @AssistedInject constructor(
         val pending = resultDao.getPendingResults()
         if (pending.isEmpty()) return Result.success()
 
+        val syncedLocalIds = mutableListOf<Long>()
+
         return try {
             // Batch write to Firestore — one commit per worker run
             val chunks = pending.chunked(BATCH_CHUNK_SIZE)
@@ -55,13 +57,12 @@ class SyncQuizResultsWorker @AssistedInject constructor(
                 }
 
                 batch.commit().await()
-
-                resultDao.markSynced(chunk.map { it.localId })
+                syncedLocalIds.addAll(chunk.map { it.localId })
             }
-            // Clean up old synced rows to keep the DB small
-            resultDao.deleteSyncedResults()
 
+            resultDao.markSyncedAndDelete(syncedLocalIds)
             Result.success()
+
         } catch (_: Exception) {
             // Retry on transient errors (network blip, Firestore quota, etc.)
             if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()

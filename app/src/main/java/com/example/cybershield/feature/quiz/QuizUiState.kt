@@ -1,22 +1,7 @@
 package com.example.cybershield.feature.quiz
 
-// ── Domain models (also add to :core:domain/model/) ───────────────────
-data class Question(
-    val id:            String,
-    val text:          String,
-    val options:       List<String>,
-    val correctIndex:  Int,
-    val explanation:   String = "",
-)
-
-data class QuizResult(
-    val quizId:        String,
-    val score:         Int,
-    val totalQuestions: Int,
-    val xpEarned:      Int,
-    val passed:        Boolean,
-    val timeTaken:     Long,   // seconds
-)
+import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResult
 
 // ── Quiz state machine ─────────────────────────────────────────────────
 sealed class QuizUiState {
@@ -26,7 +11,7 @@ sealed class QuizUiState {
 
     // Actively answering questions
     data class Active(
-        val question:        Question,
+        val question: Question,
         val questionIndex:   Int,
         val totalQuestions:  Int,
         val score:           Int,
@@ -34,6 +19,7 @@ sealed class QuizUiState {
         val selectedOption:  Int?   = null, // null = not answered yet
         val isAnswered:      Boolean = false,
         val isCorrect:       Boolean? = null,
+        val saveFailed:      Boolean = false
     ) : QuizUiState() {
         val progress: Float
             get() = (questionIndex + 1).toFloat() / totalQuestions.toFloat()

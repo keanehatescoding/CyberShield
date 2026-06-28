@@ -4,7 +4,7 @@ import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.QuizEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
-import com.example.cybershield.core.domain.model.Quiz
+import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
@@ -22,19 +22,19 @@ class QuizRepositoryImpl @Inject constructor(
     private val resultDao: QuizResultDao,
 ) : QuizRepository {
 
-    override suspend fun getQuizzesForModule(moduleId: String): Flow<Result<List<Quiz>>> = flow {
+    override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> = flow {
         emit(Result.Loading)
         try {
-            val remote = remoteSource.getQuizzesForModule(moduleId)
+            val remote = remoteSource.getQuizzesForModule(quizId)
             if (remote.isNotEmpty()) {
                 quizDao.insertAll(remote.map { it.toEntity() })
                 emit(Result.Success(remote))
             } else {
-                val cached = quizDao.getQuizzesForModule(moduleId).map { it.toDomain() }
+                val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }
                 emit(Result.Success(cached))
             }
         } catch (e: Exception) {
-            val cached = quizDao.getQuizzesForModule(moduleId).map { it.toDomain() }
+            val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }
             if (cached.isNotEmpty()) {
                 emit(Result.Success(cached))
             } else {
@@ -47,7 +47,7 @@ class QuizRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             try {
                 Result.Success(remoteSource.getPassMark(quizId))
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Result.Success(70) // safe default — not an error worth surfacing
             }
         }
@@ -75,20 +75,24 @@ class QuizRepositoryImpl @Inject constructor(
 
 // ── Mapping extensions ────────────────────────────────────────────────
 
-private fun Quiz.toEntity() = QuizEntity(
+private fun Question.toEntity() = QuizEntity(
     id = id,
     moduleId = moduleId,
     text = text,
     options = options,
     correctIndex = correctIndex,
     explanation = explanation,
+    moduleName = moduleName,
+    order = order
 )
 
-private fun QuizEntity.toDomain() = Quiz(
+private fun QuizEntity.toDomain() = Question(
     id = id,
     moduleId = moduleId,
     text = text,
     options = options,
     correctIndex = correctIndex,
     explanation = explanation,
+    moduleName = moduleName,
+    order = order
 )

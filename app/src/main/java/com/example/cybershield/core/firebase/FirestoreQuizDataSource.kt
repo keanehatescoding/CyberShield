@@ -1,6 +1,6 @@
 package com.example.cybershield.core.firebase
 
-import com.example.cybershield.core.domain.model.Quiz
+import com.example.cybershield.core.domain.model.Question
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -10,43 +10,30 @@ import javax.inject.Singleton
 class FirestoreQuizDataSource @Inject constructor(
     private val firestore: FirebaseFirestore,
 ) {
-    suspend fun getQuizzesForModule(moduleId: String): List<Quiz> {
-        val docs = firestore
+    suspend fun getQuizzesForModule(quizId: String): List<Question> {
+        val questionDocs = firestore
             .collection("quizzes")
-            .whereEqualTo("moduleId", moduleId)
+            .document(quizId)
+            .collection("questions")
+            .orderBy("order")
             .get()
             .await()
 
-        return docs.documents.mapNotNull { doc ->
-            val options = (doc.get("options") as? List<*>)
-                ?.filterIsInstance<String>()
-                ?: run {
-                    // ★ NEW — log and skip rather than silently producing a broken question
-                    android.util.Log.e("FirestoreQuizDataSource",
-                        "Quiz ${doc.id} missing or malformed 'options' field — skipping")
-                    return@mapNotNull null
-                }
-            val correctIndexRaw = doc.getLong("correctIndex")
-            if (correctIndexRaw == null) {
-                android.util.Log.e("FirestoreQuizDataSource",
-                    "Quiz ${doc.id} missing 'correctIndex' field — skipping question entirely")
-                return@mapNotNull null
-            }
-            val correctIndex = correctIndexRaw.toInt()
-            if (correctIndex < 0 || correctIndex >= options.size) {
-                android.util.Log.e("FirestoreQuizDataSource",
-                    "Quiz ${doc.id} has correctIndex=$correctIndex out of bounds for ${options.size} options — skipping")
-                return@mapNotNull null
-            }
 
+        return questionDocs.documents.mapNotNull { doc ->
+            val options = (doc.get("options") as? List<*>)?.filterIsInstance<String>()
+                ?: return@mapNotNull null
+            val correctIndex = doc.getLong("correctIndex")?.toInt() ?: return@mapNotNull null
+            val order = doc.getLong("order")?.toInt() ?: return@mapNotNull null
+            if (correctIndex < 0 || correctIndex >= options.size) return@mapNotNull null
 
-            Quiz(
-                id           = doc.id,
-                moduleId     = moduleId,
-                text         = doc.getString("text") ?: "",
-                options      = options,
-                correctIndex = correctIndex,
-                explanation  = doc.getString("explanation") ?: "",
+            Question(
+                id = doc.id, moduleId = quizId,
+                text = doc.getString("text") ?: "",
+                options = options, correctIndex = correctIndex,
+                explanation = doc.getString("explanation") ?: "",
+                moduleName = doc.getString("moduleName") ?: "",
+                order = order
             )
         }
     }

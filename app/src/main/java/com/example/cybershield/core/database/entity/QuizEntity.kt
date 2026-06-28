@@ -15,4 +15,6 @@ data class QuizEntity(
     val options:      List<String>,
     val correctIndex: Int,
     val explanation:  String = "",
+    val order: Int,
+    val moduleName: String
 )

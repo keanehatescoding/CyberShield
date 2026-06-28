@@ -1,6 +1,6 @@
 package com.example.cybershield.core.domain.usecase
 
-import com.example.cybershield.core.domain.model.Quiz
+import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import javax.inject.Inject
@@ -14,21 +14,19 @@ class SubmitAnswerUseCase @Inject constructor(
     private val quizRepository: QuizRepository,
 ) {
     suspend operator fun invoke(
-        quiz:            Quiz,
-        selectedAnswer:  String,
-        userId:          String,
+        question: Question,
+        selectedAnswer: String,
+        isCorrect: Boolean,
+        userId: String,
     ): Result<Boolean> =
         try {
-            val isCorrect = quiz.correctAnswer == selectedAnswer
-
             quizRepository.saveQuizResult(
-                userId      = userId,
-                quizId      = quiz.id,
-                moduleId    = quiz.moduleId,
-                isCorrect   = isCorrect,
+                userId         = userId,
+                quizId         = question.id,
+                moduleId       = question.moduleId,
+                isCorrect      = isCorrect,
                 selectedAnswer = selectedAnswer,
             )
-
             Result.Success(isCorrect)
         } catch (e: Exception) {
             Result.Error(e)
