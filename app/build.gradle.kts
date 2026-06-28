@@ -31,13 +31,19 @@ android {
 
     signingConfigs {
         create("release") {
+            val localPropsFile = rootProject.file("local.properties")
             val props = Properties().apply {
-                load(rootProject.file("local.properties").inputStream())
+                if (localPropsFile.exists()) {
+                    load(localPropsFile.inputStream())
+                }
             }
-            storeFile     = file(props["KEYSTORE_PATH"]     as String)
-            storePassword = props["KEYSTORE_PASSWORD"] as String
-            keyAlias      = props["KEY_ALIAS"]          as String
-            keyPassword   = props["KEY_PASSWORD"]       as String
+            val keystorePath = props["KEYSTORE_PATH"] as String?
+            if (keystorePath != null) {
+                storeFile     = file(keystorePath)
+                storePassword = props["KEYSTORE_PASSWORD"] as String
+                keyAlias      = props["KEY_ALIAS"]          as String
+                keyPassword   = props["KEY_PASSWORD"]       as String
+            }
         }
     }
 
