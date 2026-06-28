@@ -6,7 +6,6 @@ import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.flowOf
 
 class FakeUserRepository : UserRepository {
     // ── Mutable test state — inspect these in assertions ──────────────
@@ -41,14 +40,45 @@ class FakeUserRepository : UserRepository {
         val photoUrl: String?,
     )
 
-    // ── Read ──────────────────────────────────────────────────────────
-    override fun getUserProfile(uid: String): Flow<Result<User>> {
-        val override =
-            userProfileResult ?: // Unchanged legacy behavior — existing tests keep working as-is.
-            return flowOf(Result.Success(fakeUser))
-        userProfileFlow.tryEmit(override)
-        return userProfileFlow
+//    // ── Read ──────────────────────────────────────────────────────────
+//    override fun getUserProfile(uid: String): Flow<Result<User>> {
+//        val override =
+//            userProfileResult ?: // Unchanged legacy behavior — existing tests keep working as-is.
+//            return flowOf(Result.Success(fakeUser))
+//        userProfileFlow.tryEmit(override)
+//        return userProfileFlow
+//    }
+
+    private val profileFlows = mutableMapOf<String, MutableSharedFlow<Result<User>>>()
+
+    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> =
+        profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
+
+
+    /**
+     * @param emitImmediately when false, the flow is created but nothing is
+     * emitted yet — useful for asserting the initial/loading state before
+     * a result arrives. Call [emitUserProfile] later to push the value.
+     */
+    fun setUserProfile(uid: String, user: User, emitImmediately: Boolean = true) {
+        if (emitImmediately) {
+            flowFor(uid).tryEmit(Result.Success(user))
+        } else {
+            // ensure the flow exists so collectors don't get anything to collect from
+            flowFor(uid)
+        }
     }
+
+    fun setUserProfileError(uid: String, exception: Exception) {
+        flowFor(uid).tryEmit(Result.Error(exception))
+    }
+
+    /** Push a new emission onto an already-created flow for [uid]. */
+    fun emitUserProfile(uid: String, user: User) {
+        flowFor(uid).tryEmit(Result.Success(user))
+    }
+
+    override fun getUserProfile(uid: String): Flow<Result<User>> = flowFor(uid)
 
     /**
      * Test helper — pushes an additional emission onto the live getUserProfile()
