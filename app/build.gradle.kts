@@ -1,25 +1,25 @@
 import java.util.Properties
 
 plugins {
-    alias(libs.plugins.android.application)   // this is an app, not a library
-    alias(libs.plugins.kotlin.serialization)  // for @Serializable nav routes
-    alias(libs.plugins.hilt)                  // Hilt DI
-    alias(libs.plugins.ksp)                   // code generation (Hilt, Room)
-    alias(libs.plugins.google.services)       // Firebase — reads google-services.json
-    alias(libs.plugins.firebase.crashlytics)  // crash reporting
+    alias(libs.plugins.android.application) // this is an app, not a library
+    alias(libs.plugins.kotlin.serialization) // for @Serializable nav routes
+    alias(libs.plugins.hilt) // Hilt DI
+    alias(libs.plugins.ksp) // code generation (Hilt, Room)
+    alias(libs.plugins.google.services) // Firebase — reads google-services.json
+    alias(libs.plugins.firebase.crashlytics) // crash reporting
     alias(libs.plugins.compose.compiler)
 }
 
 android {
-    namespace   = "com.example.cybershield"
+    namespace = "com.example.cybershield"
     compileSdk = 37
 
     defaultConfig {
-        applicationId   = "com.example.cybershield"
-        minSdk          = 26
-        targetSdk       = 37
-        versionCode     = 1
-        versionName     = "1.0.0"
+        applicationId = "com.example.cybershield"
+        minSdk = 26
+        targetSdk = 37
+        versionCode = 1
+        versionName = "1.0.0"
         testInstrumentationRunner =
             "com.example.cybershield.HiltTestRunner"
     }
@@ -32,17 +32,18 @@ android {
     signingConfigs {
         create("release") {
             val localPropsFile = rootProject.file("local.properties")
-            val props = Properties().apply {
-                if (localPropsFile.exists()) {
-                    load(localPropsFile.inputStream())
+            val props =
+                Properties().apply {
+                    if (localPropsFile.exists()) {
+                        load(localPropsFile.inputStream())
+                    }
                 }
-            }
             val keystorePath = props["KEYSTORE_PATH"] as String?
             if (keystorePath != null) {
-                storeFile     = file(keystorePath)
+                storeFile = file(keystorePath)
                 storePassword = props["KEYSTORE_PASSWORD"] as String
-                keyAlias      = props["KEY_ALIAS"]          as String
-                keyPassword   = props["KEY_PASSWORD"]       as String
+                keyAlias = props["KEY_ALIAS"] as String
+                keyPassword = props["KEY_PASSWORD"] as String
             }
         }
     }
@@ -50,16 +51,16 @@ android {
     buildTypes {
         debug {
             // applicationIdSuffix = ".debug"      // installs alongside release
-            versionNameSuffix   = "-debug"
-            isDebuggable        = true
+            versionNameSuffix = "-debug"
+            isDebuggable = true
         }
         release {
-            isMinifyEnabled   = true            // R8 shrink + obfuscate
-            isShrinkResources = true            // remove unused resources
-            signingConfig     = signingConfigs.getByName("release")
+            isMinifyEnabled = true // R8 shrink + obfuscate
+            isShrinkResources = true // remove unused resources
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -72,7 +73,7 @@ android {
 
     // ── Features ──────────────────────────────────────────────────────
     buildFeatures {
-        compose     = true
+        compose = true
         buildConfig = true
     }
 }
