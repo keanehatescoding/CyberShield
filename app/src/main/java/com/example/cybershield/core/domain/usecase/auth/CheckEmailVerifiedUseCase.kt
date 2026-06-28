@@ -1,10 +1,11 @@
 package com.example.cybershield.core.domain.usecase.auth
 
 import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.util.Result
 import javax.inject.Inject
 
-class SignOutUseCase @Inject constructor(
+class CheckEmailVerifiedUseCase @Inject constructor(
     private val authRepository: AuthRepository,
 ) {
-    operator fun invoke() = authRepository.signOut()
+    suspend operator fun invoke(): Result<Boolean> = authRepository.refreshEmailVerified()
 }

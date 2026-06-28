@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Cybershield</string>
-    <string name="web_client_id">621047147750-2ueudjj3tbf386d3jeoigfc0pi1s7ni3.apps.googleusercontent.com</string>
     <string name="email">Email</string>
     <string name="password">Password</string>
     <string name="confirm_password">Confirm password</string>

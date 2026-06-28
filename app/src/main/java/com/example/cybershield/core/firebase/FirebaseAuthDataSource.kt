@@ -12,7 +12,6 @@ import javax.inject.Singleton
 
 /**
  * Thin wrapper around FirebaseAuth. Throws raw Firebase exceptions —
- * translation into [AuthError] happens one layer up, in AuthRepositoryImpl.
  * This class has no opinions about error messages or app-level state.
  */
 @Singleton

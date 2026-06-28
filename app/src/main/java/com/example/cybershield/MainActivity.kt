@@ -47,7 +47,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }    private fun requestNotificationPermission() {
+    }
+    private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
@@ -60,7 +61,5 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        // On API < 33, POST_NOTIFICATIONS doesn't exist as a runtime permission —
-        // notifications are granted by default, nothing to request
     }
 }
