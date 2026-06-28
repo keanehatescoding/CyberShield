@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)   // this is an app, not a library
     alias(libs.plugins.kotlin.serialization)  // for @Serializable nav routes
@@ -10,10 +12,7 @@ plugins {
 
 android {
     namespace   = "com.example.cybershield"
-    compileSdk   {
-        version = release(37) {
-            minorApiLevel  = 0}
-    }
+    compileSdk = 37
 
     defaultConfig {
         applicationId   = "com.example.cybershield"
@@ -24,21 +23,24 @@ android {
         testInstrumentationRunner =
             "com.example.cybershield.HiltTestRunner"
     }
+    testOptions {
+        unitTests.all {
+            it.failOnNoDiscoveredTests.set(false)
+        }
+    }
 
-    // ── Signing (reads from local.properties — never hardcode!) ───────
-//    signingConfigs {
-//        create("release") {
-//            val props = java.util.Properties().apply {
-//                load(rootProject.file("local.properties").inputStream())
-//            }
-//            storeFile     = file(props["KEYSTORE_PATH"]     as String)
-//            storePassword = props["KEYSTORE_PASSWORD"] as String
-//            keyAlias      = props["KEY_ALIAS"]          as String
-//            keyPassword   = props["KEY_PASSWORD"]       as String
-//        }
-//    }
+    signingConfigs {
+        create("release") {
+            val props = Properties().apply {
+                load(rootProject.file("local.properties").inputStream())
+            }
+            storeFile     = file(props["KEYSTORE_PATH"]     as String)
+            storePassword = props["KEYSTORE_PASSWORD"] as String
+            keyAlias      = props["KEY_ALIAS"]          as String
+            keyPassword   = props["KEY_PASSWORD"]       as String
+        }
+    }
 
-    // ── Build types ───────────────────────────────────────────────────
     buildTypes {
         debug {
             // applicationIdSuffix = ".debug"      // installs alongside release
@@ -48,7 +50,7 @@ android {
         release {
             isMinifyEnabled   = true            // R8 shrink + obfuscate
             isShrinkResources = true            // remove unused resources
-//            signingConfig     = signingConfigs.getByName("release")
+            signingConfig     = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -88,7 +90,6 @@ dependencies {
     implementation(libs.androidx.splashscreen)
     implementation(libs.material)
     debugImplementation(libs.compose.ui.tooling)
-
     // ── Lifecycle ─────────────────────────────────────────────────────
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.runtime)
@@ -102,7 +103,6 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     implementation(libs.hilt.work)
     ksp(libs.hilt.compiler)
-    ksp(libs.hilt.ext.compiler)
 
     // -- Room ----------------
     ksp(libs.room.compiler)
@@ -146,4 +146,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.rules)
     kspAndroidTest(libs.hilt.compiler)
+    implementation(libs.firebase.appcheck.debug)
+    implementation(libs.firebase.appcheck.playintegrity)
 }

@@ -1,6 +1,6 @@
 package com.example.cybershield.core.testing
 
-import com.example.cybershield.core.domain.model.Quiz
+import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.flow
 class FakeQuizRepository : QuizRepository {
 
     // Backing store
-    private val quizzes = mutableMapOf<String, List<Quiz>>()
+    private val quizzes = mutableMapOf<String, List<Question>>()
     private val passMarks = mutableMapOf<String, Int>()
 
     // Inspection fields for assertions
@@ -19,7 +19,7 @@ class FakeQuizRepository : QuizRepository {
 
     // --- Test helpers ---
 
-    fun setQuizzesForModule(moduleId: String, items: List<Quiz>) {
+    fun setQuizzesForModule(moduleId: String, items: List<Question>) {
         quizzes[moduleId] = items
     }
 
@@ -36,12 +36,12 @@ class FakeQuizRepository : QuizRepository {
 
     // --- QuizRepository implementation ---
 
-    override suspend fun getQuizzesForModule(moduleId: String): Flow<Result<List<Quiz>>> = flow {
+    override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> = flow {
         if (shouldReturnError) {
             emit(Result.Error(Exception(errorMessage)))
             return@flow
         }
-        emit(Result.Success(quizzes[moduleId] ?: emptyList()))
+        emit(Result.Success(quizzes[quizId] ?: emptyList()))
     }
 
     override suspend fun getPassMark(quizId: String): Result<Int> {

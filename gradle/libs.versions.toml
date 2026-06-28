@@ -22,7 +22,7 @@ room                    = "2.8.4"
 serialization-json      = "1.11.0"
 splashscreen            = "1.2.0"
 ui-text                 = "1.11.3"
-work-runtime                 = "2.11.2"
+work-runtime            = "2.11.2"
 
 [libraries]
 # Compose BOM
@@ -43,7 +43,6 @@ hilt-android            = { module = "com.google.dagger:hilt-android",          
 hilt-compiler           = { module = "com.google.dagger:hilt-android-compiler",           version.ref = "hilt" }
 hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose",            version.ref = "hilt-ext" }
 hilt-work               = { module = "androidx.hilt:hilt-work",                          version.ref = "hilt-ext" }
-hilt-ext-compiler       = { module = "androidx.hilt:hilt-compiler",                      version.ref = "hilt-ext" }
 # Firebase
 firebase-bom            = { module = "com.google.firebase:firebase-bom",                  version.ref = "firebase-bom" }
 firebase-auth           = { module = "com.google.firebase:firebase-auth" }
@@ -51,12 +50,8 @@ firebase-firestore      = { module = "com.google.firebase:firebase-firestore" }
 firebase-messaging      = { module = "com.google.firebase:firebase-messaging" }
 firebase-storage        = { module = "com.google.firebase:firebase-storage" }
 firebase-coroutines     = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
-# Credentials (Google Sign-In)
-#noinspection LoginCredentials
-credentials             = { module = "androidx.credentials:credentials",                  version.ref = "credentials" }
-#noinspection LoginCredentials
+credentials             = { module = "androidx.credentials:credentials",version.ref = "credentials" }
 credentials-play        = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
-#noinspection LoginCredentials
 google-id               = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "google-id" }
 # Room
 room-ktx                = { module = "androidx.room:room-ktx",                            version.ref = "room" }
@@ -88,6 +83,8 @@ ui-text = { group = "androidx.compose.ui", name = "ui-text", version.ref = "ui-t
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidx-test-runner" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext-junit" }
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidx-test-rules" }
+firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
+firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 
 [plugins]
 android-application     = { id = "com.android.application",                               version.ref = "agp" }
