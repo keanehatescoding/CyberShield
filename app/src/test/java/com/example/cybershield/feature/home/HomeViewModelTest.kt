@@ -137,6 +137,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `RepairSucceeded outcome does not surface an error and stays in loading state`() = runTest {
         fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
@@ -154,6 +155,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `RepairFailed outcome surfaces a stable user-facing error and stops loading`() = runTest {
         fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
@@ -172,6 +174,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `AlreadyAttempted outcome surfaces its carried message as userError`() = runTest {
         fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
@@ -187,12 +190,12 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `error path passes the current session into the use case`() = runTest {
         fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
         fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
 
-        val viewModel = buildViewModel()
         advanceUntilIdle()
 
         assertEquals(signedInSession, fakeEnsureUserProfile.lastSessionPassed)
@@ -200,6 +203,7 @@ class HomeViewModelTest {
 
     // ── Modules ──────────────────────────────────────────────────────────
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `loadModules emits modules on success`() = runTest {
         val modules = listOf(sampleModule("m1"), sampleModule("m2"))
@@ -221,6 +225,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `loadModules surfaces error message on failure`() = runTest {
         fakeModuleRepository.getModulesFlowProvider = {
@@ -238,6 +243,7 @@ class HomeViewModelTest {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `clearModulesError resets modulesError to null`() = runTest {
         fakeModuleRepository.getModulesFlowProvider = {
@@ -257,6 +263,7 @@ class HomeViewModelTest {
 
     // ── Refresh ──────────────────────────────────────────────────────────
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `refresh success re-runs loadModules and picks up fresh data`() = runTest {
         val refreshedModules = listOf(sampleModule("fresh-1"))
@@ -284,6 +291,7 @@ class HomeViewModelTest {
         assertEquals(1, fakeModuleRepository.refreshModulesCallCount)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `refresh failure surfaces a connection error and clears isRefreshing`() = runTest {
         val viewModel = buildViewModel()
