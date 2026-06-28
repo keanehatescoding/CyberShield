@@ -8,24 +8,24 @@ import com.example.cybershield.QuizRoute
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.UserRepository
-import com.example.cybershield.core.domain.usecase.GetQuizUseCase
-import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
+import com.example.cybershield.core.domain.usecase.GetQuizUseCase
+import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
-import com.example.cybershield.core.domain.util.Result
-import com.example.cybershield.core.domain.util.dataOrNull
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
-import kotlinx.coroutines.withTimeoutOrNull
+import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.dataOrNull
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 
 @HiltViewModel
 class QuizViewModel @Inject constructor(
