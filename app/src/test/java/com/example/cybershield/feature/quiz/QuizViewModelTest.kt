@@ -1,0 +1,454 @@
+package com.example.cybershield.feature.quiz
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.navigation.toRoute
+import app.cash.turbine.test
+import com.example.cybershield.QuizRoute
+import com.example.cybershield.core.domain.model.Certificate
+import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.User
+import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.usecase.AwardXpUseCase
+import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
+import com.example.cybershield.core.domain.usecase.GetQuizUseCase
+import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
+import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.testing.fake.TestCoroutineRule
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
+
+/**
+ * Lives in src/test/ — QuizViewModel has no Android framework dependency that needs
+ * an instrumented environment; SavedStateHandle and ViewModel both mock fine with mockk.
+ *
+ * One open item worth flagging: stubbing `savedStateHandle.toRoute<QuizRoute>()` directly
+ * via mockk works for a plain extension function, but if your Navigation Compose version
+ * implements toRoute() by decoding the handle's underlying SavedState/Bundle rather than
+ * as a simple virtual call, the stub may not bind. If this test fails to compile/run on
+ * that line, swap to a real SavedStateHandle constructed with the nav arguments instead
+ * — that was flagged as an open assumption in the Module feature work too, so it's worth
+ * settling once and reusing the pattern across feature tests.
+ */
+class QuizViewModelTest {
+
+    @get:Rule
+    val coroutineRule = TestCoroutineRule()
+
+    private lateinit var getQuiz: GetQuizUseCase
+    private lateinit var submitAnswer: SubmitAnswerUseCase
+    private lateinit var awardXp: AwardXpUseCase
+    private lateinit var generateCertificate: GenerateCertificateUseCase
+    private lateinit var userRepository: UserRepository
+    private lateinit var getCurrentSession: GetCurrentSessionUseCase
+    private lateinit var savedStateHandle: SavedStateHandle
+
+    private val testUid = "user-123"
+    private val testQuizId = "quiz-abc"
+
+    private fun question(
+        id: String,
+        correctIndex: Int = 0,
+        options: List<String> = listOf("A", "B", "C", "D"),
+        moduleId: String = "module-1",
+        moduleName: String = "Phishing Awareness",
+        order: Int = 0,
+    ) = Question(
+        id = id,
+        moduleId = moduleId,
+        moduleName = moduleName,
+        text = "Sample question $id",
+        options = options,
+        correctIndex = correctIndex,
+        order = order,
+    )
+
+    private fun buildViewModel(): QuizViewModel = QuizViewModel(
+        getQuiz = getQuiz,
+        submitAnswer = submitAnswer,
+        awardXp = awardXp,
+        generateCertificate = generateCertificate,
+        userRepository = userRepository,
+        getCurrentSession = getCurrentSession,
+        savedStateHandle = savedStateHandle,
+    )
+
+    @Before
+    fun setUp() {
+        getQuiz = mockk()
+        submitAnswer = mockk()
+        awardXp = mockk()
+        generateCertificate = mockk()
+        userRepository = mockk(relaxed = true)
+        getCurrentSession = mockk()
+        savedStateHandle = mockk()
+
+        every { getCurrentSession() } returns AuthRepository.AuthSession(
+            uid = testUid,
+            email = "keane@example.com",
+            isEmailVerified = true,
+        )
+        every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
+    }
+
+    // ---------------------------------------------------------------------
+    // Loading & success
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `loadQuiz emits Active state with first question on success`() = runTest {
+        val questions = listOf(question(id = "q1"), question(id = "q2", order = 1))
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(questions))
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            val state = awaitItem()
+            assertTrue(state is QuizUiState.Active)
+            val active = state as QuizUiState.Active
+            assertEquals(0, active.questionIndex)
+            assertEquals(2, active.totalQuestions)
+            assertEquals(0, active.score)
+            assertEquals(QuizViewModel.QUESTION_TIME_SECONDS, active.timeLeft)
+            assertFalse(active.isAnswered)
+        }
+    }
+
+    @Test
+    fun `loadQuiz emits Error state when questions list is empty`() = runTest {
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(emptyList()))
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            val state = awaitItem()
+            assertTrue(state is QuizUiState.Error)
+            assertEquals("No questions found.", (state as QuizUiState.Error).message)
+        }
+    }
+
+    @Test
+    fun `loadQuiz emits Error state when repository returns Result Error`() = runTest {
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Error(IllegalStateException("offline")))
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            val state = awaitItem()
+            assertTrue(state is QuizUiState.Error)
+            assertEquals("offline", (state as QuizUiState.Error).message)
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `loadQuiz emits timeout Error state when flow never completes`() = runTest {
+        // A flow that never emits simulates a hung/slow source.
+        coEvery { getQuiz(testQuizId) } returns flow { /* never emits */ }
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            advanceTimeBy((QuizViewModel.LOAD_TIMEOUT_MS + 100).milliseconds)
+            val state = awaitItem()
+            assertTrue(state is QuizUiState.Error)
+            assertTrue((state as QuizUiState.Error).message.contains("longer than expected"))
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Answer selection
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `selectAnswer with correct option marks isCorrect true and increases score`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 1)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem() // initial Active state for q1
+
+            viewModel.selectAnswer(selectedIndex = 1)
+
+            val answered = awaitItem() as QuizUiState.Active
+            assertTrue(answered.isAnswered)
+            assertEquals(true, answered.isCorrect)
+            assertEquals(1, answered.selectedOption)
+            assertTrue(answered.score > 0)
+
+            // Allow the feedback delay + advanceQuiz to run; only one question so it finishes.
+            advanceUntilIdle()
+            val finalState = expectMostRecentItem()
+            assertTrue(finalState is QuizUiState.Completed)
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `selectAnswer with incorrect option awards zero points for that question`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 2)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem()
+
+            viewModel.selectAnswer(selectedIndex = 0) // wrong
+
+            val answered = awaitItem() as QuizUiState.Active
+            assertEquals(false, answered.isCorrect)
+            assertEquals(0, answered.score)
+
+            advanceUntilIdle()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `selectAnswer ignored if question already answered`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.selectAnswer(0)
+            val firstAnswered = awaitItem() as QuizUiState.Active
+
+            // Second call should be a no-op since isAnswered is already true.
+            viewModel.selectAnswer(2)
+
+            advanceUntilIdle()
+            val finalState = expectMostRecentItem()
+            if (finalState is QuizUiState.Active) {
+                assertEquals(firstAnswered.selectedOption, finalState.selectedOption)
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `saveFailed flag is set when submitAnswer throws`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } throws RuntimeException("network down")
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.selectAnswer(0)
+
+            awaitItem() // immediate "answered" emission, saveFailed not yet known
+
+            val withSaveFailed = awaitItem() as QuizUiState.Active
+            assertTrue(withSaveFailed.saveFailed)
+
+            advanceUntilIdle()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Timeout auto-submit
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `question auto-submits as incorrect when timer reaches zero`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem() // initial Active, timeLeft = 30
+
+            advanceTimeBy(((QuizViewModel.QUESTION_TIME_SECONDS * 1_000L) + 500).milliseconds)
+
+            // Only one question, so it should land on either the timed-out Active
+            // emission or have already advanced to Complete.
+            when (val timedOut = expectMostRecentItem()) {
+                is QuizUiState.Active -> {
+                    assertTrue(timedOut.isAnswered)
+                    assertEquals(-1, timedOut.selectedOption)
+                    assertEquals(false, timedOut.isCorrect)
+                }
+                is QuizUiState.Completed -> {
+                    assertFalse(timedOut.result.passed)
+                }
+                else -> error("Unexpected state after timeout: $timedOut")
+            }
+        }
+
+        coVerify { submitAnswer(question = q1, selectedAnswer = "", isCorrect = false, userId = testUid) }
+    }
+
+    // ---------------------------------------------------------------------
+    // Quiz completion: pass / fail, certificate, badge
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz awards badge and generates certificate when passed`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        val q2 = question(id = "q2", correctIndex = 0, order = 1)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+        coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
+        coEvery { userRepository.getUserProfileOnce(testUid) } returns Result.Success(
+            User(uid = testUid, displayName = "Keane M.", email = "keane@example.com")
+        )
+        coEvery {
+            generateCertificate(
+                userId = any(),
+                userName = any(),
+                moduleId = any(),
+                moduleName = any(),
+                quizTitle = any(),
+                score = any(),
+            )
+        } returns Result.Success(mockk<Certificate>(relaxed = true))
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem() // q1 active
+
+            // Answer correctly with most of the timer remaining -> guaranteed pass.
+            viewModel.selectAnswer(0)
+            awaitItem() // answered feedback for q1
+            advanceUntilIdle()
+
+            val completed = expectMostRecentItem()
+            assertTrue(completed is QuizUiState.Completed)
+            assertTrue((completed as QuizUiState.Completed).result.passed)
+        }
+
+        coVerify { userRepository.awardBadge(testUid, "CyberDefender") }
+        coVerify {
+            generateCertificate(
+                userId = testUid,
+                userName = "Keane M.",
+                moduleId = q1.moduleId,
+                moduleName = q1.moduleName,
+                quizTitle = testQuizId,
+                score = any(),
+            )
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz does not award badge or certificate when failed`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.selectAnswer(selectedIndex = 99) // out of range -> always wrong, 0 points
+            awaitItem()
+            advanceUntilIdle()
+
+            val completed = expectMostRecentItem()
+            assertTrue(completed is QuizUiState.Completed)
+            assertFalse((completed as QuizUiState.Completed).result.passed)
+        }
+
+        coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+        coVerify(exactly = 0) {
+            generateCertificate(
+                userId = any(),
+                userName = any(),
+                moduleId = any(),
+                moduleName = any(),
+                quizTitle = any(),
+                score = any(),
+            )
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz falls back to default display name when profile fetch fails`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+        coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
+        coEvery { userRepository.getUserProfileOnce(testUid) } returns Result.Error(RuntimeException("not found"))
+        coEvery {
+            generateCertificate(
+                userId = any(), userName = any(), moduleId = any(),
+                moduleName = any(), quizTitle = any(), score = any(),
+            )
+        } returns Result.Success(mockk<Certificate>(relaxed = true))
+
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.selectAnswer(0)
+            awaitItem()
+            advanceUntilIdle()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify {
+            generateCertificate(
+                userId = testUid,
+                userName = "CyberShield User",
+                moduleId = q1.moduleId,
+                moduleName = q1.moduleName,
+                quizTitle = testQuizId,
+                score = any(),
+            )
+        }
+    }
+}
