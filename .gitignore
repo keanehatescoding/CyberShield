@@ -1,6 +1,8 @@
 *.iml
 .gradle
 /local.properties
+.agentbridge/
+/.idea/*
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
