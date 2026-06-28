@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.cybershield.core.domain.repository.CertificateRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
-import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,6 +52,7 @@ class ProfileViewModel @Inject constructor(
         }
     }
     override fun onCleared() {
+        super.onCleared()
         profileJob?.cancel()
     }
     private fun loadCertificates() {
