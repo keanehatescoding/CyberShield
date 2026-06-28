@@ -11,7 +11,7 @@ import javax.inject.Singleton
 class FirestoreUserDataSource @Inject constructor(
     private val firestore: FirebaseFirestore,
 ) {
-    private fun userDoc(uid: String) =
+    fun userDoc(uid: String) =
         firestore.collection("users").document(uid)
 
     suspend fun getUser(uid: String): UserDto? =

@@ -1,10 +1,10 @@
 package com.example.cybershield.core.firebase.model
 
+import androidx.annotation.Keep
 import com.example.cybershield.core.domain.model.Module
-import com.google.firebase.firestore.DocumentId
 
+@Keep
 data class ModuleDto(
-    @DocumentId
     val id:           String  = "",
     val title:        String  = "",
     val description:  String  = "",
@@ -15,8 +15,8 @@ data class ModuleDto(
     val durationMins: Long     = 5,
     val category:     String  = "General",
     val order:        Int     = 0,
-    val isNew:        Boolean = false,
-    val isPublished: Boolean = true,
+    val new:        Boolean = false,
+    val published: Boolean = true,
 ) {
     fun toDomain() = Module(
         id = id,
@@ -29,7 +29,7 @@ data class ModuleDto(
         durationMins  = durationMins,
         category = category,
         order = order,
-        isNew = isNew,
-        isPublished = isPublished,
+        new = new,
+        published = published,
     )
 }

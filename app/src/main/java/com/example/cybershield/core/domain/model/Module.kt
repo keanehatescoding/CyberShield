@@ -11,8 +11,8 @@ data class Module(
     val order: Int = 0,
     val xpReward: Int = 0,
     val quizId: String = "",
-    val isNew : Boolean = false,
-    val isPublished: Boolean = true,
+    val new : Boolean = false,
+    val published: Boolean = true,
 ) {
     val formattedDuration: String
         get() = "$durationMins"

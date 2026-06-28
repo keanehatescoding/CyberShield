@@ -29,7 +29,6 @@ class CertificateRepositoryImpl @Inject constructor(
                     moduleName = doc.getString("moduleName") ?: doc.getString("quizTitle") ?: "",
                     score = doc.getLong("score")?.toInt() ?: 0,
                     issuedAt = doc.getDate("issuedAt")?.time ?: System.currentTimeMillis(),
-                    pdfUrl = doc.getString("pdfUrl") ?: "",
                 )
             }
             Result.Success(certs)

@@ -1,6 +1,6 @@
 package com.example.cybershield.core.domain.repository
 
-import com.example.cybershield.feature.leaderboard.LeaderboardEntry
+import com.example.cybershield.core.domain.model.LeaderboardEntry
 import kotlinx.coroutines.flow.Flow
 import com.example.cybershield.core.domain.util.Result
 

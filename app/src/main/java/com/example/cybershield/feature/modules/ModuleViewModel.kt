@@ -5,13 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.example.cybershield.ModuleRoute
-import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.usecase.module.GetModuleByIdUseCase
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.dataOrNull
-import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,9 +22,10 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ModuleViewModel @Inject constructor(
+    private val getModuleByIdUseCase: GetModuleByIdUseCase,
     private val moduleRepository: ModuleRepository,
     private val userRepository: UserRepository,
-    private val firebaseAuth: FirebaseAuth,
+    private val getCurrentSession : GetCurrentSessionUseCase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -31,8 +33,7 @@ class ModuleViewModel @Inject constructor(
         savedStateHandle.toRoute<ModuleRoute>().moduleId
 
     private val uid: String
-        get() = firebaseAuth.currentUser?.uid ?: ""
-
+        get() = getCurrentSession()?.uid ?: ""
     private val _uiState = MutableStateFlow(ModuleUiState())
     val uiState: StateFlow<ModuleUiState> = _uiState.asStateFlow()
 
@@ -40,49 +41,54 @@ class ModuleViewModel @Inject constructor(
     val savedPositionMs: StateFlow<Long> = _savedPositionMs.asStateFlow()
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
-    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow() // was 'playbackspeed'
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
     private val _isSavedPositionLoaded = MutableStateFlow(false)
     val isSavedPositionLoaded: StateFlow<Boolean> = _isSavedPositionLoaded.asStateFlow()
+
+    private var loadJob: Job? = null
 
     init {
         loadModule()
         loadSavedPosition()
     }
 
-    private fun loadModule() {
-        viewModelScope.launch {
-            moduleRepository
-                .getModuleById(moduleId)
-                .collect { result ->
-                    when (result) {
-                        is Result.Loading -> {
-                            _uiState.update { it.copy(isLoading = true) }
+    fun loadModule() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            getModuleByIdUseCase(moduleId).collect { result ->
+                when (result) {
+                    is Result.Loading -> {
+                        _uiState.update { it.copy(isLoading = true) }
+                    }
+                    is Result.Success -> {
+                        val completedModules = userRepository.getUserProfileOnce(uid)
+                            .dataOrNull
+                            ?.completedModules
+                            ?: emptyList()
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                module = result.data,
+                                isAlreadyCompleted = moduleId in completedModules,
+                                isStale = false,
+                                error = null,
+                            )
                         }
-                        is Result.Success -> {
-                            val completedModules =
-                                userRepository.getUserProfileOnce(uid)
-                                    .dataOrNull
-                                    ?.completedModules
-                                    ?: emptyList()
-                            _uiState.update {
-                                it.copy(
-                                    isLoading = false,
-                                    module = result.data,
-                                    isAlreadyCompleted = moduleId in completedModules,
-                                )
-                            }
-                        }
-                        is Result.Error -> {
-                            _uiState.update {
+                    }
+                    is Result.Error -> {
+                        _uiState.update {
+                            if (result.isStale) {
+                                it.copy(isLoading = false, isStale = true)
+                            } else {
                                 it.copy(isLoading = false, error = result.exception.message)
                             }
                         }
                     }
                 }
+            }
         }
     }
-
     private fun loadSavedPosition() {
         viewModelScope.launch {
             val pos = moduleRepository.getPlaybackPosition(moduleId, uid)
@@ -120,11 +126,3 @@ class ModuleViewModel @Inject constructor(
         _playbackSpeed.value = speed
     }
 }
-
-data class ModuleUiState(
-    val module: Module? = null,
-    val isLoading: Boolean = true,
-    val error: String? = null,
-    val showCompletionDialog: Boolean = false,
-    val isAlreadyCompleted: Boolean = false,
-)

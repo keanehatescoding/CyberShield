@@ -4,9 +4,9 @@ import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.firebase.FirestoreUserDataSource
 import com.example.cybershield.core.firebase.model.UserDto
 import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.toObject
 import kotlinx.coroutines.channels.awaitClose
@@ -16,21 +16,14 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
-
 @Singleton
 class UserRepositoryImpl @Inject constructor(
-    private val firestore: FirebaseFirestore,
+    private val remoteSource: FirestoreUserDataSource,
 ) : UserRepository {
-
-    // Convenience reference to the users collection
-    private fun userDoc(uid: String) =
-        firestore.collection("users").document(uid)
-
-    // ── Real-time profile stream ───────────────────────────────────────
     override fun getUserProfile(uid: String): Flow<Result<User>> = callbackFlow {
         trySend(Result.Loading)
 
-        val listener = userDoc(uid)
+        val listener = remoteSource.userDoc(uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(Result.Error(Exception(error)))
@@ -49,7 +42,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── One-shot fetch ─────────────────────────────────────────────────
     override suspend fun getUserProfileOnce(uid: String): Result<User> =
         try {
-            val snapshot = userDoc(uid).get().await()
+            val snapshot = remoteSource.userDoc(uid).get().await()
             val user = snapshot.toObject<UserDto>()?.toDomain()
             if (user != null) Result.Success(user)
             else Result.Error(Exception("User not found"))
@@ -76,7 +69,7 @@ class UserRepositoryImpl @Inject constructor(
             "completedModules" to emptyList<String>(),
             "createdAt" to FieldValue.serverTimestamp(),
         )
-        userDoc(uid).set(profile).await()
+        remoteSource.userDoc(uid).set(profile).await()
         Result.Success(Unit)
     } catch (e: Exception) {
         Result.Error(e)
@@ -104,7 +97,7 @@ class UserRepositoryImpl @Inject constructor(
         )
         // merge = true → creates if missing, updates lastSignedInAt
         // if exists — never overwrites xp, badges, completedQuizzes
-        userDoc(uid).set(profile, SetOptions.merge()).await()
+        remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
         Result.Success(Unit)
     } catch (e: Exception) {
         Result.Error(e)
@@ -113,7 +106,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Add XP atomically ──────────────────────────────────────────────
     override suspend fun addXp(uid: String, points: Int): Result<Unit> =
         try {
-            userDoc(uid).update(
+            remoteSource.userDoc(uid).update(
                 "xp", FieldValue.increment(points.toLong())
             ).await()
             Result.Success(Unit)
@@ -124,7 +117,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Award badge (idempotent) ───────────────────────────────────────
     override suspend fun awardBadge(uid: String, badge: String): Result<Unit> =
         try {
-            userDoc(uid).update(
+            remoteSource.userDoc(uid).update(
                 "badges", FieldValue.arrayUnion(badge)
             ).await()
             Result.Success(Unit)
@@ -135,7 +128,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Mark quiz completed ────────────────────────────────────────────
     override suspend fun markQuizCompleted(uid: String, quizId: String): Result<Unit> =
         try {
-            userDoc(uid).update(
+            remoteSource.userDoc(uid).update(
                 "completedQuizzes", FieldValue.arrayUnion(quizId)
             ).await()
             Result.Success(Unit)
@@ -146,7 +139,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Mark module completed ──────────────────────────────────────────
     override suspend fun markModuleCompleted(uid: String, moduleId: String): Result<Unit> =
         try {
-            userDoc(uid).update(
+            remoteSource.userDoc(uid).update(
                 "completedModules", FieldValue.arrayUnion(moduleId)
             ).await()
             Result.Success(Unit)
@@ -157,7 +150,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Save FCM token ─────────────────────────────────────────────────
     override suspend fun updateFcmToken(uid: String, token: String): Result<Unit> =
         try {
-            userDoc(uid).update("fcmToken", token).await()
+            remoteSource.userDoc(uid).update("fcmToken", token).await()
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(e)
@@ -166,7 +159,7 @@ class UserRepositoryImpl @Inject constructor(
     // ── Update last sign-in ────────────────────────────────────────────
     override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
         try {
-            userDoc(uid).update(
+            remoteSource.userDoc(uid).update(
                 "lastSignedInAt", FieldValue.serverTimestamp()
             ).await()
             Result.Success(Unit)
@@ -186,7 +179,7 @@ class UserRepositoryImpl @Inject constructor(
                 "score" to certificate.score,
                 "issuedAt" to certificate.issuedAt,
             )
-            userDoc(certificate.userId)
+            remoteSource.userDoc(certificate.userId)
                 .collection("certificates")
                 .document(certificate.id)
                 .set(data)

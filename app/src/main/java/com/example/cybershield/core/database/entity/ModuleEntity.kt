@@ -17,9 +17,9 @@ data class ModuleEntity(
     val order: Int,
     val xpReward: Int,
     val quizId: String,
-    val isPublished: Boolean,
+    val published: Boolean,
     val cachedAt: Long = System.currentTimeMillis(),
-    val isNew: Boolean,
+    val new: Boolean,
 ) {
     fun toDomain(): Module = Module(
         id = id,
@@ -32,8 +32,8 @@ data class ModuleEntity(
         order = order,
         xpReward = xpReward,
         quizId = quizId,
-        isPublished = isPublished,
-        isNew = isNew
+        published = published,
+        new = new
     )
 
     companion object {
@@ -48,8 +48,8 @@ data class ModuleEntity(
             order = module.order,
             xpReward = module.xpReward,
             quizId = module.quizId,
-            isPublished = module.isPublished,
-            isNew = module.isNew
+            published = module.published,
+            new = module.new
         )
     }
 }

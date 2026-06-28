@@ -44,7 +44,8 @@ class CertificateGenerator(private val context: Context) {
 
         document.finishPage(page)
 
-        val file = File(context.cacheDir, "certificate_${certId}.pdf")
+        val subDir = File(context.cacheDir, "certificates").apply { mkdirs() }
+        val file = File(subDir, "certificate_${certId}.pdf")
         file.outputStream().use { document.writeTo(it) }
         document.close()
         file

@@ -50,7 +50,6 @@ import com.example.cybershield.feature.home.badgeEmoji
 fun ProfileScreen(
     onNavigateBack:        () -> Unit,
     onNavigateToCertificate: (certId: String) -> Unit,
-    onNavigateToSecurity: () -> Unit,
     onSignOut:             () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
@@ -175,11 +174,12 @@ fun ProfileScreen(
             }
 
             // ── Badges ─────────────────────────────────────────────────────
-            if (uiState.user?.badges?.isNotEmpty() == true) {
+            uiState.user?.let { user ->
+            if (user.badges.isNotEmpty() ) {
                 item(key = "badges-header") {
                     Text("Earned badges", style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold)
-                }
+                }   }
                 item(key = "badges-row") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(uiState.user!!.badges, key = { it }) { badge ->
@@ -221,7 +221,7 @@ fun ProfileScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text  = "Score: ${cert.score} · ${cert.datePassed?.let {
+                                    text  = "Score: ${cert.score} · ${cert.datePassed.let {
                                         java.text.SimpleDateFormat("dd MMM yyyy",
                                             java.util.Locale.getDefault()).format(it)
                                     } ?: ""}",

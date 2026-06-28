@@ -26,7 +26,7 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
 	private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 	@Deprecated("Deprecated in Java")
-    override fun onNewToken(token: String) {
+	override fun onNewToken(token: String) {
 		super.onNewToken(token)
 		val uid = firebaseAuth.currentUser?.uid ?: return
 		serviceScope.launch {
@@ -38,11 +38,11 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
 		super.onMessageReceived(message)
 
 		val title = message.notification?.title
-		?: message.data["title"]
-		?: return
+			?: message.data["title"]
+			?: return
 		val body = message.notification?.body
-		?: message.data["body"]
-		?: return
+			?: message.data["body"]
+			?: return
 		val type = message.data["type"] ?: TYPE_GENERAL
 
 		showNotification(title, body, type, message.data)
@@ -71,14 +71,14 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
 		)
 
 		val notification = NotificationCompat.Builder(this, channelId)
-		.setSmallIcon(R.drawable.ic_notification)
-		.setContentTitle(title)
-		.setContentText(body)
-		.setStyle(NotificationCompat.BigTextStyle().bigText(body))
-		.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-		.setAutoCancel(true)
-		.setContentIntent(pendingIntent)
-		.build()
+			.setSmallIcon(R.drawable.ic_notification)
+			.setContentTitle(title)
+			.setContentText(body)
+			.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+			.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+			.setAutoCancel(true)
+			.setContentIntent(pendingIntent)
+			.build()
 
 		val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 		manager.notify(type.hashCode(), notification)

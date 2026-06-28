@@ -7,28 +7,20 @@ import com.example.cybershield.core.database.entity.PlaybackPositionEntity
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.util.Result
-import com.example.cybershield.core.firebase.model.ModuleDto
-import com.google.firebase.firestore.FirebaseFirestore
+import com.example.cybershield.core.firebase.FirestoreModuleDataSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 class ModuleRepositoryImpl @Inject constructor(
-    private val firestore: FirebaseFirestore,
+    private val moduleDataSource: FirestoreModuleDataSource,
     private val moduleDao: ModuleDao,
     private val playbackPositionDao: PlaybackPositionDao,
 ) : ModuleRepository {
 
     private suspend fun fetchAndCacheModules(): List<Module> {
-        val snapshot = firestore
-            .collection("modules")
-            .orderBy("order")
-            .get()
-            .await()
-
-        val modules = snapshot
-            .toObjects(ModuleDto::class.java)
+        val modules = moduleDataSource
+            .getAllModules()
             .map { it.toDomain() }
 
         moduleDao.replaceAll(modules.map { ModuleEntity.fromDomain(it) })
@@ -40,12 +32,12 @@ class ModuleRepositoryImpl @Inject constructor(
     override fun getModules(): Flow<Result<List<Module>>> = flow {
         emit(Result.Loading)
         try {
-            val modules = fetchAndCacheModules()
-            emit(Result.Success(modules))
+            emit(Result.Success(fetchAndCacheModules()))
         } catch (e: Exception) {
             val cached = moduleDao.getAll().map { it.toDomain() }
             if (cached.isNotEmpty()) {
                 emit(Result.Success(cached))
+                emit(Result.Error(e, isStale = true))
             } else {
                 emit(Result.Error(e))
             }
@@ -55,14 +47,7 @@ class ModuleRepositoryImpl @Inject constructor(
     override fun getModuleById(moduleId: String): Flow<Result<Module>> = flow {
         emit(Result.Loading)
         try {
-            val snapshot = firestore
-                .collection("modules")
-                .document(moduleId)
-                .get()
-                .await()
-            val module = snapshot
-                .toObject(ModuleDto::class.java)
-                ?.toDomain()
+            val module = moduleDataSource.getModuleById(moduleId)?.toDomain()
             if (module != null) {
                 moduleDao.insertAll(listOf(ModuleEntity.fromDomain(module)))
                 emit(Result.Success(module))
