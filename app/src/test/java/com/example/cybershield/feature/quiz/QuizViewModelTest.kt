@@ -34,18 +34,6 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.time.Duration.Companion.milliseconds
 
-/**
- * Lives in src/test/ — QuizViewModel has no Android framework dependency that needs
- * an instrumented environment; SavedStateHandle and ViewModel both mock fine with mockk.
- *
- * One open item worth flagging: stubbing `savedStateHandle.toRoute<QuizRoute>()` directly
- * via mockk works for a plain extension function, but if your Navigation Compose version
- * implements toRoute() by decoding the handle's underlying SavedState/Bundle rather than
- * as a simple virtual call, the stub may not bind. If this test fails to compile/run on
- * that line, swap to a real SavedStateHandle constructed with the nav arguments instead
- * — that was flagged as an open assumption in the Module feature work too, so it's worth
- * settling once and reusing the pattern across feature tests.
- */
 class QuizViewModelTest {
 
     @get:Rule
