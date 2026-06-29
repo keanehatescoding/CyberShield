@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  # Gradle dependencies (app/build.gradle.kts, build.gradle.kts, libs.versions.toml)
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "gradle"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # GitHub Actions used in CI workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
