@@ -4,7 +4,7 @@ CyberShield is a gamified cybersecurity education app for Android, built as a fi
 
 ## Features
 
-- **Authentication** — Email and password sign-up/sign-in, Google Sign-In, and email verification, built on Firebase Auth
+- **Authentication** — Email and password sign-up/sign-in and email verification, built on Firebase Auth
 - **Learning modules** — Video-based lessons (ExoPlayer/Media3) with progress tracking
 - **Quizzes** — Per-module quizzes with scoring, XP rewards, and offline-aware result syncing
 - **Profile & certificates** — User XP/level tracking and generated completion certificates
