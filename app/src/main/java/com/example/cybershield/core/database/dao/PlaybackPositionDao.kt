@@ -12,5 +12,8 @@ interface PlaybackPositionDao {
     suspend fun upsert(entity: PlaybackPositionEntity)
 
     @Query("SELECT positionMs FROM playback_positions WHERE moduleId = :moduleId AND uid = :uid LIMIT 1")
-    suspend fun getPosition(moduleId: String, uid: String): Long?
+    suspend fun getPosition(
+        moduleId: String,
+        uid: String,
+    ): Long?
 }

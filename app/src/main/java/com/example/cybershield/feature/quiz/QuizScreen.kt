@@ -51,12 +51,11 @@ import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.ui.theme.LoadingScreen
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizScreen(
-    onNavigateBack:       () -> Unit,
-    onNavigateToResult:   (QuizResult) -> Unit,
+    onNavigateBack: () -> Unit,
+    onNavigateToResult: (QuizResult) -> Unit,
     viewModel: QuizViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -76,8 +75,8 @@ fun QuizScreen(
                     if (uiState is QuizUiState.Active) {
                         val active = uiState as QuizUiState.Active
                         LinearProgressIndicator(
-                            progress   = { active.progress },
-                            modifier   = Modifier.fillMaxWidth().height(6.dp),
+                            progress = { active.progress },
+                            modifier = Modifier.fillMaxWidth().height(6.dp),
                         )
                     }
                 },
@@ -92,7 +91,7 @@ fun QuizScreen(
 
         AnimatedContent(
             targetState = uiState,
-            label       = "quiz state",
+            label = "quiz state",
             // Key on a stable identity per "screen" rather than the state object
             // itself. QuizUiState.Active is a data class, so uiState.copy(timeLeft = tick)
             // produces a new, unequal instance every second; without contentKey,
@@ -101,28 +100,30 @@ fun QuizScreen(
             // changes when we actually move to a new question) fixes this.
             contentKey = { state ->
                 when (state) {
-                    is QuizUiState.Active    -> state.questionIndex
-                    is QuizUiState.Loading   -> "loading"
-                    is QuizUiState.Error     -> "error"
+                    is QuizUiState.Active -> state.questionIndex
+                    is QuizUiState.Loading -> "loading"
+                    is QuizUiState.Error -> "error"
                     is QuizUiState.Completed -> "completed"
                 }
             },
             transitionSpec = {
                 slideInHorizontally { it } + fadeIn() togetherWith
-                        slideOutHorizontally { -it } + fadeOut()
+                    slideOutHorizontally { -it } + fadeOut()
             },
             modifier = Modifier.padding(innerPadding),
         ) { state ->
             when (state) {
                 is QuizUiState.Loading -> LoadingScreen(message = "Loading quiz")
-                is QuizUiState.Active  -> QuizActiveScreen(
-                    state    = state,
-                    onSelect = viewModel::selectAnswer,
-                )
-                is QuizUiState.Error  -> QuizErrorScreen(
-                    message = state.message,
-                    onRetry = onNavigateBack,
-                )
+                is QuizUiState.Active ->
+                    QuizActiveScreen(
+                        state = state,
+                        onSelect = viewModel::selectAnswer,
+                    )
+                is QuizUiState.Error ->
+                    QuizErrorScreen(
+                        message = state.message,
+                        onRetry = onNavigateBack,
+                    )
                 is QuizUiState.Completed -> LoadingScreen()
             }
         }
@@ -132,26 +133,26 @@ fun QuizScreen(
 // ── Active question screen ─────────────────────────────────────────────
 @Composable
 private fun QuizActiveScreen(
-    state:    QuizUiState.Active,
+    state: QuizUiState.Active,
     onSelect: (Int) -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-
         // ── Timer + score row ──────────────────────────────────────────
         // This row reads state.timeLeft / state.score directly, so it's expected
         // to recompose every tick — that's the whole point of a countdown timer.
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment     = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             TimerDisplay(
-                timeLeft      = state.timeLeft,
+                timeLeft = state.timeLeft,
                 timerProgress = state.timerProgress,
             )
             ScoreDisplay(score = state.score)
@@ -169,13 +170,13 @@ private fun QuizActiveScreen(
         // it), so Compose skips recomposing the question card / answer buttons
         // / explanation every second instead of just the timer.
         QuestionBody(
-            question       = state.question,
-            questionIndex  = state.questionIndex,
+            question = state.question,
+            questionIndex = state.questionIndex,
             totalQuestions = state.totalQuestions,
             selectedOption = state.selectedOption,
-            isAnswered     = state.isAnswered,
-            isCorrect      = state.isCorrect,
-            onSelect       = onSelect,
+            isAnswered = state.isAnswered,
+            isCorrect = state.isCorrect,
+            onSelect = onSelect,
         )
     }
 }
@@ -186,18 +187,17 @@ private fun QuizActiveScreen(
 @Composable
 private fun QuestionBody(
     question: Question,
-    questionIndex:  Int,
+    questionIndex: Int,
     totalQuestions: Int,
     selectedOption: Int?,
-    isAnswered:     Boolean,
-    isCorrect:      Boolean?,
-    onSelect:       (Int) -> Unit,
+    isAnswered: Boolean,
+    isCorrect: Boolean?,
+    onSelect: (Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
         // ── Question counter ───────────────────────────────────────────
         Text(
-            text  = "Question ${questionIndex + 1} of $totalQuestions",
+            text = "Question ${questionIndex + 1} of $totalQuestions",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -205,15 +205,16 @@ private fun QuestionBody(
         // ── Question text ──────────────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors   = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-            ),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
         ) {
             Text(
-                text       = question.text,
-                style      = MaterialTheme.typography.titleMedium,
+                text = question.text,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                modifier   = Modifier.padding(20.dp),
+                modifier = Modifier.padding(20.dp),
                 lineHeight = 26.sp,
             )
         }
@@ -221,36 +222,39 @@ private fun QuestionBody(
         // ── Answer options ─────────────────────────────────────────────
         question.options.forEachIndexed { index, option ->
             AnswerOptionButton(
-                text       = option,
-                index      = index,
+                text = option,
+                index = index,
                 isSelected = selectedOption == index,
                 isAnswered = isAnswered,
-                isCorrect  = index == question.correctIndex,
-                onClick    = { onSelect(index) },
+                isCorrect = index == question.correctIndex,
+                onClick = { onSelect(index) },
             )
         }
 
         // ── Explanation (shown after answering) ────────────────────────
         AnimatedVisibility(visible = isAnswered && question.explanation.isNotEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text       = if (isCorrect == true) "✓ Correct!" else "✗ Not quite",
-                        style      = MaterialTheme.typography.labelLarge,
+                        text = if (isCorrect == true) "✓ Correct!" else "✗ Not quite",
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        color      = if (isCorrect == true)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error,
+                        color =
+                            if (isCorrect == true) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text  = question.explanation,
+                        text = question.explanation,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -262,57 +266,61 @@ private fun QuestionBody(
 // ── Answer button with correct/wrong highlight ─────────────────────────
 @Composable
 private fun AnswerOptionButton(
-    text:       String,
-    index:      Int,
+    text: String,
+    index: Int,
     isSelected: Boolean,
     isAnswered: Boolean,
-    isCorrect:  Boolean,
-    onClick:    () -> Unit,
+    isCorrect: Boolean,
+    onClick: () -> Unit,
 ) {
-    val containerColor = when {
-        !isAnswered                   -> MaterialTheme.colorScheme.surface
-        isCorrect                     -> Color(0xFF4CAF50)  // green
-        isSelected && !isCorrect      -> Color(0xFFF44336)  // red
-        else                          -> MaterialTheme.colorScheme.surface
-    }
-    val contentColor = when {
-        isAnswered && (isCorrect || isSelected) -> Color.White
-        else                                    -> MaterialTheme.colorScheme.onSurface
-    }
+    val containerColor =
+        when {
+            !isAnswered -> MaterialTheme.colorScheme.surface
+            isCorrect -> Color(0xFF4CAF50) // green
+            isSelected && !isCorrect -> Color(0xFFF44336) // red
+            else -> MaterialTheme.colorScheme.surface
+        }
+    val contentColor =
+        when {
+            isAnswered && (isCorrect || isSelected) -> Color.White
+            else -> MaterialTheme.colorScheme.onSurface
+        }
     val letters = listOf("A", "B", "C", "D")
 
     Surface(
-        onClick  = onClick,
-        enabled  = !isAnswered,
-        shape    = RoundedCornerShape(12.dp),
-        color    = animateColorAsState(containerColor, label = "option color").value,
-        border   = if (!isAnswered)
-            ButtonDefaults.outlinedButtonBorder(true)
-        else
-            null,
+        onClick = onClick,
+        enabled = !isAnswered,
+        shape = RoundedCornerShape(12.dp),
+        color = animateColorAsState(containerColor, label = "option color").value,
+        border =
+            if (!isAnswered) {
+                ButtonDefaults.outlinedButtonBorder(true)
+            } else {
+                null
+            },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier               = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment      = Alignment.CenterVertically,
-            horizontalArrangement  = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
-                shape    = RoundedCornerShape(6.dp),
-                color    = contentColor.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(6.dp),
+                color = contentColor.copy(alpha = 0.15f),
                 modifier = Modifier.size(28.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text       = letters.getOrElse(index) { "" },
-                        style      = MaterialTheme.typography.labelMedium,
-                        color      = contentColor,
+                        text = letters.getOrElse(index) { "" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = contentColor,
                         fontWeight = FontWeight.Bold,
                     )
                 }
             }
             Text(
-                text  = text,
+                text = text,
                 style = MaterialTheme.typography.bodyMedium,
                 color = contentColor,
             )
@@ -322,24 +330,28 @@ private fun AnswerOptionButton(
 
 // ── Timer display — isolated so only it recomposes every second ────────
 @Composable
-private fun TimerDisplay(timeLeft: Int, timerProgress: Float) {
-    val timerColor = when {
-        timeLeft > 20 -> MaterialTheme.colorScheme.primary
-        timeLeft > 10 -> Color(0xFFFB8C00)   // amber
-        else          -> MaterialTheme.colorScheme.error
-    }
+private fun TimerDisplay(
+    timeLeft: Int,
+    timerProgress: Float,
+) {
+    val timerColor =
+        when {
+            timeLeft > 20 -> MaterialTheme.colorScheme.primary
+            timeLeft > 10 -> Color(0xFFFB8C00) // amber
+            else -> MaterialTheme.colorScheme.error
+        }
     Box(contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
-            progress    = { timerProgress },
-            modifier    = Modifier.size(52.dp),
-            color       = animateColorAsState(timerColor, label = "timer color").value,
+            progress = { timerProgress },
+            modifier = Modifier.size(52.dp),
+            color = animateColorAsState(timerColor, label = "timer color").value,
             strokeWidth = 4.dp,
         )
         Text(
-            text       = "$timeLeft",
-            style      = MaterialTheme.typography.titleMedium,
+            text = "$timeLeft",
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color      = timerColor,
+            color = timerColor,
         )
     }
 }
@@ -348,20 +360,23 @@ private fun TimerDisplay(timeLeft: Int, timerProgress: Float) {
 private fun ScoreDisplay(score: Int) {
     Column(horizontalAlignment = Alignment.End) {
         Text(
-            text  = "Score",
+            text = "Score",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text       = "$score",
-            style      = MaterialTheme.typography.titleLarge,
+            text = "$score",
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
         )
     }
 }
 
 @Composable
-private fun QuizErrorScreen(message: String, onRetry: () -> Unit) {
+private fun QuizErrorScreen(
+    message: String,
+    onRetry: () -> Unit,
+) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

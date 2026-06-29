@@ -9,20 +9,14 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-
 @Module
 @InstallIn(SingletonComponent::class)
 object DataSourceModule {
+    @Provides
+    @Singleton
+    fun provideFirestoreUserDataSource(firestore: FirebaseFirestore): FirestoreUserDataSource = FirestoreUserDataSource(firestore)
 
     @Provides
     @Singleton
-    fun provideFirestoreUserDataSource(
-        firestore: FirebaseFirestore,
-    ): FirestoreUserDataSource = FirestoreUserDataSource(firestore)
-
-    @Provides
-    @Singleton
-    fun provideFirestoreQuizDataSource(
-        firestore: FirebaseFirestore,
-    ): FirestoreQuizDataSource = FirestoreQuizDataSource(firestore)
+    fun provideFirestoreQuizDataSource(firestore: FirebaseFirestore): FirestoreQuizDataSource = FirestoreQuizDataSource(firestore)
 }

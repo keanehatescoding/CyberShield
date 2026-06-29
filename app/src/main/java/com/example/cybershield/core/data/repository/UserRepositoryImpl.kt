@@ -17,175 +17,219 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class UserRepositoryImpl @Inject constructor(
-    private val remoteSource: FirestoreUserDataSource,
-) : UserRepository {
-    override fun getUserProfile(uid: String): Flow<Result<User>> = callbackFlow {
-        trySend(Result.Loading)
+class UserRepositoryImpl
+    @Inject
+    constructor(
+        private val remoteSource: FirestoreUserDataSource,
+    ) : UserRepository {
+        override fun getUserProfile(uid: String): Flow<Result<User>> =
+            callbackFlow {
+                trySend(Result.Loading)
 
-        val listener = remoteSource.userDoc(uid)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(Result.Error(Exception(error)))
-                    return@addSnapshotListener
-                }
-                val user = snapshot?.toObject<UserDto>()?.toDomain()
-                if (user != null) {
-                    trySend(Result.Success(user))
-                } else {
-                    trySend(Result.Error(Exception("User not found")))
-                }
+                val listener =
+                    remoteSource
+                        .userDoc(uid)
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                trySend(Result.Error(Exception(error)))
+                                return@addSnapshotListener
+                            }
+                            val user = snapshot?.toObject<UserDto>()?.toDomain()
+                            if (user != null) {
+                                trySend(Result.Success(user))
+                            } else {
+                                trySend(Result.Error(Exception("User not found")))
+                            }
+                        }
+                awaitClose { listener.remove() }
             }
-        awaitClose { listener.remove() }
-    }
 
-    // ── One-shot fetch ─────────────────────────────────────────────────
-    override suspend fun getUserProfileOnce(uid: String): Result<User> =
-        try {
-            val snapshot = remoteSource.userDoc(uid).get().await()
-            val user = snapshot.toObject<UserDto>()?.toDomain()
-            if (user != null) Result.Success(user)
-            else Result.Error(Exception("User not found"))
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
+        // ── One-shot fetch ─────────────────────────────────────────────────
+        override suspend fun getUserProfileOnce(uid: String): Result<User> =
+            try {
+                val snapshot = remoteSource.userDoc(uid).get().await()
+                val user = snapshot.toObject<UserDto>()?.toDomain()
+                if (user != null) {
+                    Result.Success(user)
+                } else {
+                    Result.Error(Exception("User not found"))
+                }
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
 
-    // ── Create profile (first registration) ───────────────────────────
-    override suspend fun createUserProfile(
-        uid: String,
-        displayName: String,
-        email: String,
-        photoUrl: String?,
-    ): Result<Unit> = try {
-        val profile = mapOf(
-            "displayName" to displayName,
-            "email" to email,
-            "photoUrl" to photoUrl,
-            "lastSignedInAt" to FieldValue.serverTimestamp(),
-            "xp" to 0,
-            "level" to 1,
-            "badges" to emptyList<String>(),
-            "completedQuizzes" to emptyList<String>(),
-            "completedModules" to emptyList<String>(),
-            "createdAt" to FieldValue.serverTimestamp(),
-        )
-        remoteSource.userDoc(uid).set(profile).await()
-        Result.Success(Unit)
-    } catch (e: Exception) {
-        Result.Error(e)
-    }
+        // ── Create profile (first registration) ───────────────────────────
+        override suspend fun createUserProfile(
+            uid: String,
+            displayName: String,
+            email: String,
+            photoUrl: String?,
+        ): Result<Unit> =
+            try {
+                val profile =
+                    mapOf(
+                        "displayName" to displayName,
+                        "email" to email,
+                        "photoUrl" to photoUrl,
+                        "lastSignedInAt" to FieldValue.serverTimestamp(),
+                        "xp" to 0,
+                        "level" to 1,
+                        "badges" to emptyList<String>(),
+                        "completedQuizzes" to emptyList<String>(),
+                        "completedModules" to emptyList<String>(),
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    )
+                remoteSource.userDoc(uid).set(profile).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
 
-    // ── Create profile only if it doesn't exist (Google SSO) ──────────
-    override suspend fun createUserProfileIfNotExists(
-        uid: String,
-        displayName: String,
-        email: String,
-        photoUrl: String?,
-    ): Result<Unit> = try {
-        val profile = mapOf(
-            "displayName" to displayName,
-            "email" to email,
-            "photoUrl" to photoUrl,
-            // in case a user already exists and is trying to sign in via Google then there is
-            // no need of overriding their progress
+        // ── Create profile only if it doesn't exist (Google SSO) ──────────
+        override suspend fun createUserProfileIfNotExists(
+            uid: String,
+            displayName: String,
+            email: String,
+            photoUrl: String?,
+        ): Result<Unit> =
+            try {
+                val profile =
+                    mapOf(
+                        "displayName" to displayName,
+                        "email" to email,
+                        "photoUrl" to photoUrl,
+                        // in case a user already exists and is trying to sign in via Google then there is
+                        // no need of overriding their progress
 //            "xp"              to 0,
 //            "level"           to 1,
 //            "badges"          to emptyList<String>(),
 //            "completedQuizzes" to emptyList<String>(),
 //            "completedModules" to emptyList<String>(),
 //            "lastSignedInAt"  to FieldValue.serverTimestamp(),
-        )
-        // merge = true → creates if missing, updates lastSignedInAt
-        // if exists — never overwrites xp, badges, completedQuizzes
-        remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
-        Result.Success(Unit)
-    } catch (e: Exception) {
-        Result.Error(e)
+                    )
+                // merge = true → creates if missing, updates lastSignedInAt
+                // if exists — never overwrites xp, badges, completedQuizzes
+                remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Add XP atomically ──────────────────────────────────────────────
+        override suspend fun addXp(
+            uid: String,
+            points: Int,
+        ): Result<Unit> =
+            try {
+                remoteSource
+                    .userDoc(uid)
+                    .update(
+                        "xp",
+                        FieldValue.increment(points.toLong()),
+                    ).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Award badge (idempotent) ───────────────────────────────────────
+        override suspend fun awardBadge(
+            uid: String,
+            badge: String,
+        ): Result<Unit> =
+            try {
+                remoteSource
+                    .userDoc(uid)
+                    .update(
+                        "badges",
+                        FieldValue.arrayUnion(badge),
+                    ).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Mark quiz completed ────────────────────────────────────────────
+        override suspend fun markQuizCompleted(
+            uid: String,
+            quizId: String,
+        ): Result<Unit> =
+            try {
+                remoteSource
+                    .userDoc(uid)
+                    .update(
+                        "completedQuizzes",
+                        FieldValue.arrayUnion(quizId),
+                    ).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Mark module completed ──────────────────────────────────────────
+        override suspend fun markModuleCompleted(
+            uid: String,
+            moduleId: String,
+        ): Result<Unit> =
+            try {
+                remoteSource
+                    .userDoc(uid)
+                    .update(
+                        "completedModules",
+                        FieldValue.arrayUnion(moduleId),
+                    ).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Save FCM token ─────────────────────────────────────────────────
+        override suspend fun updateFcmToken(
+            uid: String,
+            token: String,
+        ): Result<Unit> =
+            try {
+                remoteSource.userDoc(uid).update("fcmToken", token).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        // ── Update last sign-in ────────────────────────────────────────────
+        override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
+            try {
+                remoteSource
+                    .userDoc(uid)
+                    .update(
+                        "lastSignedInAt",
+                        FieldValue.serverTimestamp(),
+                    ).await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+
+        override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
+            try {
+                val data =
+                    mapOf(
+                        "id" to certificate.id,
+                        "userId" to certificate.userId,
+                        "userName" to certificate.userName,
+                        "moduleId" to certificate.moduleId,
+                        "moduleName" to certificate.moduleName,
+                        "quizTitle" to certificate.quizTitle,
+                        "score" to certificate.score,
+                        "issuedAt" to certificate.issuedAt,
+                    )
+                remoteSource
+                    .userDoc(certificate.userId)
+                    .collection("certificates")
+                    .document(certificate.id)
+                    .set(data)
+                    .await()
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
     }
-
-    // ── Add XP atomically ──────────────────────────────────────────────
-    override suspend fun addXp(uid: String, points: Int): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update(
-                "xp", FieldValue.increment(points.toLong())
-            ).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    // ── Award badge (idempotent) ───────────────────────────────────────
-    override suspend fun awardBadge(uid: String, badge: String): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update(
-                "badges", FieldValue.arrayUnion(badge)
-            ).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    // ── Mark quiz completed ────────────────────────────────────────────
-    override suspend fun markQuizCompleted(uid: String, quizId: String): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update(
-                "completedQuizzes", FieldValue.arrayUnion(quizId)
-            ).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    // ── Mark module completed ──────────────────────────────────────────
-    override suspend fun markModuleCompleted(uid: String, moduleId: String): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update(
-                "completedModules", FieldValue.arrayUnion(moduleId)
-            ).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    // ── Save FCM token ─────────────────────────────────────────────────
-    override suspend fun updateFcmToken(uid: String, token: String): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update("fcmToken", token).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    // ── Update last sign-in ────────────────────────────────────────────
-    override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
-        try {
-            remoteSource.userDoc(uid).update(
-                "lastSignedInAt", FieldValue.serverTimestamp()
-            ).await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-
-    override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
-        try {
-            val data = mapOf(
-                "id" to certificate.id,
-                "userId" to certificate.userId,
-                "userName" to certificate.userName,
-                "moduleId" to certificate.moduleId,
-                "moduleName" to certificate.moduleName,
-                "quizTitle" to certificate.quizTitle,
-                "score" to certificate.score,
-                "issuedAt" to certificate.issuedAt,
-            )
-            remoteSource.userDoc(certificate.userId)
-                .collection("certificates")
-                .document(certificate.id)
-                .set(data)
-                .await()
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-}

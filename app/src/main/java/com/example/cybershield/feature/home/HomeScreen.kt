@@ -59,11 +59,11 @@ import com.example.cybershield.core.domain.model.User
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onNavigateToModule:      (moduleId: String) -> Unit,
-    onNavigateToQuiz:        (quizId: String)   -> Unit,
+    onNavigateToModule: (moduleId: String) -> Unit,
+    onNavigateToQuiz: (quizId: String) -> Unit,
     onNavigateToLeaderboard: () -> Unit,
-    onNavigateToProfile:     () -> Unit,
-    viewModel: HomeViewModel  = hiltViewModel(),
+    onNavigateToProfile: () -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -79,14 +79,14 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text       = "CyberShield",
+                        text = "CyberShield",
                         fontWeight = FontWeight.Bold,
                     )
                 },
                 actions = {
                     IconButton(onClick = onNavigateToProfile) {
                         Icon(
-                            imageVector        = Icons.Default.AccountCircle,
+                            imageVector = Icons.Default.AccountCircle,
                             contentDescription = "Profile",
                         )
                     }
@@ -97,24 +97,25 @@ fun HomeScreen(
 
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
-            onRefresh    = viewModel::refresh,
-            modifier     = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+            onRefresh = viewModel::refresh,
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
         ) {
             AnimatedContent(
                 targetState = uiState.isLoading,
-                label       = "home content",
+                label = "home content",
             ) { loading ->
                 if (loading) {
                     HomeLoadingSkeleton()
                 } else {
                     HomeContent(
-                        uiState                  = uiState,
-                        greeting                 = viewModel.greeting(),
-                        onNavigateToModule       = onNavigateToModule,
-                        onNavigateToQuiz         = onNavigateToQuiz,
-                        onNavigateToLeaderboard  = onNavigateToLeaderboard,
+                        uiState = uiState,
+                        greeting = viewModel.greeting(),
+                        onNavigateToModule = onNavigateToModule,
+                        onNavigateToQuiz = onNavigateToQuiz,
+                        onNavigateToLeaderboard = onNavigateToLeaderboard,
                     )
                 }
             }
@@ -125,23 +126,22 @@ fun HomeScreen(
 // ── Main content (shown when data is loaded) ───────────────────────────
 @Composable
 private fun HomeContent(
-    uiState:                 HomeUiState,
-    greeting:                String,
-    onNavigateToModule:      (String) -> Unit,
-    onNavigateToQuiz:        (String) -> Unit,
+    uiState: HomeUiState,
+    greeting: String,
+    onNavigateToModule: (String) -> Unit,
+    onNavigateToQuiz: (String) -> Unit,
     onNavigateToLeaderboard: () -> Unit,
 ) {
     LazyColumn(
-        modifier            = Modifier.fillMaxSize(),
-        contentPadding      = PaddingValues(bottom = 24.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-
         // ── Greeting + XP card ────────────────────────────────────────
         item(key = "header") {
             uiState.user?.let { user ->
                 UserHeaderCard(
-                    user     = user,
+                    user = user,
                     greeting = greeting,
                     modifier = Modifier.padding(16.dp),
                 )
@@ -152,7 +152,7 @@ private fun HomeContent(
         if (uiState.user?.badges?.isNotEmpty() == true) {
             item(key = "badges") {
                 BadgesSection(
-                    badges   = uiState.user.badges,
+                    badges = uiState.user.badges,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
@@ -162,20 +162,20 @@ private fun HomeContent(
         if (uiState.pendingModules.isNotEmpty()) {
             item(key = "continue-header") {
                 SectionHeader(
-                    title    = "Continue learning",
+                    title = "Continue learning",
                     modifier = Modifier.padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 8.dp),
                 )
             }
             items(
                 items = uiState.pendingModules,
-                key   = { it.id },
+                key = { it.id },
             ) { module ->
                 ModuleCard(
-                    module          = module,
-                    isCompleted     = false,
-                    onStartModule   = { onNavigateToModule(module.id) },
-                    onStartQuiz     = { onNavigateToQuiz(module.quizId) },
-                    modifier        = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    module = module,
+                    isCompleted = false,
+                    onStartModule = { onNavigateToModule(module.id) },
+                    onStartQuiz = { onNavigateToQuiz(module.quizId) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
         }
@@ -183,9 +183,9 @@ private fun HomeContent(
         // ── Leaderboard teaser ─────────────────────────────────────────
         item(key = "leaderboard") {
             LeaderboardTeaser(
-                userXp    = uiState.user?.xp ?: 0,
-                onClick   = onNavigateToLeaderboard,
-                modifier  = Modifier.padding(16.dp),
+                userXp = uiState.user?.xp ?: 0,
+                onClick = onNavigateToLeaderboard,
+                modifier = Modifier.padding(16.dp),
             )
         }
 
@@ -193,70 +193,72 @@ private fun HomeContent(
         if (uiState.completedModules.isNotEmpty()) {
             item(key = "completed-header") {
                 SectionHeader(
-                    title    = "Completed (${uiState.completedModules.size})",
+                    title = "Completed (${uiState.completedModules.size})",
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
                 )
             }
             items(
                 items = uiState.completedModules,
-                key   = { it.id },
+                key = { it.id },
             ) { module ->
                 ModuleCard(
-                    module        = module,
-                    isCompleted   = true,
+                    module = module,
+                    isCompleted = true,
                     onStartModule = { onNavigateToModule(module.id) },
-                    onStartQuiz   = { onNavigateToQuiz(module.quizId) },
-                    modifier      = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    onStartQuiz = { onNavigateToQuiz(module.quizId) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
         }
     }
 }
+
 @Composable
 fun UserHeaderCard(
-    user:     User,
+    user: User,
     greeting: String,
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier  = modifier.fillMaxWidth(),
-        colors    = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
+        modifier = modifier.fillMaxWidth(),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-
             // Greeting + name
             Text(
-                text  = "$greeting,",
+                text = "$greeting,",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                text       = user.displayName.split(" ").first(),  // first name only
-                style      = MaterialTheme.typography.headlineSmall,
+                text = user.displayName.split(" ").first(), // first name only
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
 
             Spacer(Modifier.height(16.dp))
 
             // Level + XP label row
             Row(
-                modifier              = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text  = "Level ${user.computedLevel}",
+                    text = "Level ${user.computedLevel}",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
                 Text(
-                    text  = "${user.xp} XP · ${user.xpToNextLevel} to next level",
+                    text = "${user.xp} XP · ${user.xpToNextLevel} to next level",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                        .copy(alpha = 0.7f),
+                    color =
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                            .copy(alpha = 0.7f),
                 )
             }
 
@@ -264,64 +266,75 @@ fun UserHeaderCard(
 
             // XP progress bar
             LinearProgressIndicator(
-                progress     = { user.xpProgress },
-                modifier     = Modifier.fillMaxWidth().height(8.dp),
-                color        = MaterialTheme.colorScheme.primary,
-                trackColor   = MaterialTheme.colorScheme.onPrimaryContainer
-                    .copy(alpha = 0.2f),
+                progress = { user.xpProgress },
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor =
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                        .copy(alpha = 0.2f),
             )
 
             Spacer(Modifier.height(12.dp))
 
             // Stats row
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                StatChip(label = "Quizzes",  value = "${user.completedQuizzes.size}")
-                StatChip(label = "Modules",  value = "${user.completedModules.size}")
-                StatChip(label = "Badges",   value = "${user.badges.size}")
+                StatChip(label = "Quizzes", value = "${user.completedQuizzes.size}")
+                StatChip(label = "Modules", value = "${user.completedModules.size}")
+                StatChip(label = "Badges", value = "${user.badges.size}")
             }
         }
     }
 }
 
 @Composable
-private fun StatChip(label: String, value: String) {
+private fun StatChip(
+    label: String,
+    value: String,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text       = value,
-            style      = MaterialTheme.typography.titleMedium,
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color      = MaterialTheme.colorScheme.onPrimaryContainer,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
         )
         Text(
-            text  = label,
+            text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
         )
     }
 }
+
 @Composable
 fun ModuleCard(
     module: Module,
-    isCompleted:   Boolean,
+    isCompleted: Boolean,
     onStartModule: () -> Unit,
-    onStartQuiz:   () -> Unit,
-    modifier:      Modifier = Modifier,
+    onStartQuiz: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors   = CardDefaults.cardColors(
-            containerColor = if (isCompleted)
-                MaterialTheme.colorScheme.surfaceVariant
-            else
-                MaterialTheme.colorScheme.surface,
-        ),
-        border = if (isCompleted) null
-        else CardDefaults.outlinedCardBorder(),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (isCompleted) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+            ),
+        border =
+            if (isCompleted) {
+                null
+            } else {
+                CardDefaults.outlinedCardBorder()
+            },
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-
             Row(
-                modifier          = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -331,13 +344,13 @@ fun ModuleCard(
                         Spacer(Modifier.height(4.dp))
                     }
                     Text(
-                        text       = module.title,
-                        style      = MaterialTheme.typography.titleMedium,
+                        text = module.title,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text  = module.description,
+                        text = module.description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -345,10 +358,10 @@ fun ModuleCard(
                 // Completed checkmark
                 if (isCompleted) {
                     Icon(
-                        imageVector        = Icons.Default.CheckCircle,
+                        imageVector = Icons.Default.CheckCircle,
                         contentDescription = "Completed",
-                        tint               = MaterialTheme.colorScheme.primary,
-                        modifier           = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
@@ -359,18 +372,24 @@ fun ModuleCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AssistChip(
                     onClick = {},
-                    label   = { Text("${module.durationMins} min") },
+                    label = { Text("${module.durationMins} min") },
                     leadingIcon = {
-                        Icon(Icons.Default.PlayCircle, null,
-                            Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            null,
+                            Modifier.size(16.dp),
+                        )
                     },
                 )
                 AssistChip(
                     onClick = {},
-                    label   = { Text("+${module.xpReward} XP") },
+                    label = { Text("+${module.xpReward} XP") },
                     leadingIcon = {
-                        Icon(Icons.Default.Star, null,
-                            Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Star,
+                            null,
+                            Modifier.size(16.dp),
+                        )
                     },
                 )
             }
@@ -380,7 +399,7 @@ fun ModuleCard(
             // Action buttons
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick  = onStartModule,
+                    onClick = onStartModule,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Default.PlayArrow, null, Modifier.size(16.dp))
@@ -388,7 +407,7 @@ fun ModuleCard(
                     Text(if (isCompleted) "Rewatch" else "Watch")
                 }
                 Button(
-                    onClick  = onStartQuiz,
+                    onClick = onStartQuiz,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Default.Quiz, null, Modifier.size(16.dp))
@@ -399,8 +418,12 @@ fun ModuleCard(
         }
     }
 }
+
 @Composable
-fun BadgesSection(badges: List<String>, modifier: Modifier = Modifier) {
+fun BadgesSection(
+    badges: List<String>,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier) {
         SectionHeader(title = "Your badges")
         Spacer(Modifier.height(8.dp))
@@ -411,7 +434,7 @@ fun BadgesSection(badges: List<String>, modifier: Modifier = Modifier) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(text = badgeEmoji(badge), fontSize = 28.sp)
                             Text(
-                                text  = badge,
+                                text = badge,
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                             )
@@ -425,28 +448,28 @@ fun BadgesSection(badges: List<String>, modifier: Modifier = Modifier) {
 
 @Composable
 fun LeaderboardTeaser(
-    userXp:   Int,
-    onClick:  () -> Unit,
+    userXp: Int,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     OutlinedCard(
-        onClick   = onClick,
-        modifier  = modifier.fillMaxWidth(),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier          = Modifier.padding(16.dp).fillMaxWidth(),
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = "🏆", fontSize = 32.sp)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text       = "Leaderboard",
-                    style      = MaterialTheme.typography.titleSmall,
+                    text = "Leaderboard",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text  = "You have $userXp XP · See how you rank",
+                    text = "You have $userXp XP · See how you rank",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -457,12 +480,15 @@ fun LeaderboardTeaser(
 }
 
 @Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
-        text       = title,
-        style      = MaterialTheme.typography.titleMedium,
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
-        modifier   = modifier,
+        modifier = modifier,
     )
 }
 
@@ -470,27 +496,29 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
 @Composable
 fun HomeLoadingSkeleton() {
     Column(
-        modifier            = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         repeat(4) {
             Card(
                 modifier = Modifier.fillMaxWidth().height(120.dp),
-                colors   = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
             ) {}
         }
     }
 }
 
 // Maps badge names to emoji
-fun badgeEmoji(badge: String): String = when (badge) {
-    "CyberDefender"   -> "🛡"
-    "PhishingExpert"  -> "🎣"
-    "PasswordPro"     -> "🔑"
-    "NetworkNinja"    -> "🌐"
-    "MalwareHunter"   -> "🦠"
-    "FirstLogin"      -> "⭐"
-    else              -> "🏅"
-}
+fun badgeEmoji(badge: String): String =
+    when (badge) {
+        "CyberDefender" -> "🛡"
+        "PhishingExpert" -> "🎣"
+        "PasswordPro" -> "🔑"
+        "NetworkNinja" -> "🌐"
+        "MalwareHunter" -> "🦠"
+        "FirstLogin" -> "⭐"
+        else -> "🏅"
+    }

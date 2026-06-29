@@ -17,11 +17,13 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
-
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): CyberShieldDatabase =
-        Room.databaseBuilder(
+    fun provideDatabase(
+        @ApplicationContext context: Context,
+    ): CyberShieldDatabase =
+        Room
+            .databaseBuilder(
                 context,
                 CyberShieldDatabase::class.java,
                 "cybershield.db",

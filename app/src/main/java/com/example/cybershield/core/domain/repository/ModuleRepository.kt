@@ -5,7 +5,6 @@ import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 
 interface ModuleRepository {
-
     /** Real-time list of all modules — serves Room cache, refreshes from Firestore. */
     fun getModules(): Flow<Result<List<Module>>>
 
@@ -18,13 +17,13 @@ interface ModuleRepository {
     /** Save video playback position for resume-on-return. */
     suspend fun savePlaybackPosition(
         moduleId: String,
-        uid:      String,
+        uid: String,
         positionMs: Long,
     )
 
     /** Get saved playback position for a module. */
     suspend fun getPlaybackPosition(
         moduleId: String,
-        uid:      String,
-    ): Long  // returns 0L if none saved
+        uid: String,
+    ): Long // returns 0L if none saved
 }

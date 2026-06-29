@@ -27,7 +27,6 @@ import org.junit.Rule
 import org.junit.Test
 
 class ModuleViewModelTest {
-
     @get:Rule
     val testCoroutineRule = TestCoroutineRule()
 
@@ -39,14 +38,14 @@ class ModuleViewModelTest {
 
     private val testUid = "test-uid" // matches FakeUserRepository's default fakeUser.uid
 
-    private val testModule = Module(
-        id = "module-1",
-        title = "Phishing Basics",
-        xpReward = 50,
-    )
+    private val testModule =
+        Module(
+            id = "module-1",
+            title = "Phishing Basics",
+            xpReward = 50,
+        )
 
-    private fun savedStateHandleFor(moduleId: String): SavedStateHandle =
-        SavedStateHandle(mapOf("moduleId" to moduleId))
+    private fun savedStateHandleFor(moduleId: String): SavedStateHandle = SavedStateHandle(mapOf("moduleId" to moduleId))
 
     @Before
     fun setup() {
@@ -55,11 +54,11 @@ class ModuleViewModelTest {
         authRepository = mockk()
 
         every { authRepository.currentSession() } returns
-                AuthRepository.AuthSession(
-                    uid = testUid,
-                    email = "test@cybershield.com",
-                    isEmailVerified = true,
-                )
+            AuthRepository.AuthSession(
+                uid = testUid,
+                email = "test@cybershield.com",
+                isEmailVerified = true,
+            )
 
         getModuleByIdUseCase = GetModuleByIdUseCase(moduleRepository)
         getCurrentSession = GetCurrentSessionUseCase(authRepository)
@@ -77,220 +76,233 @@ class ModuleViewModelTest {
     // ---------- loadModule() ----------
 
     @Test
-    fun `loadModule emits loading then success with module data`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+    fun `loadModule emits loading then success with module data`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
 
-        val viewModel = createViewModel()
+            val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            val loading = awaitItem()
-            assertTrue(loading.isLoading)
+            viewModel.uiState.test {
+                val loading = awaitItem()
+                assertTrue(loading.isLoading)
 
-            val success = awaitItem()
-            assertFalse(success.isLoading)
-            assertEquals(testModule, success.module)
-            assertFalse(success.isAlreadyCompleted)
-            assertFalse(success.isStale)
-            assertNull(success.error)
+                val success = awaitItem()
+                assertFalse(success.isLoading)
+                assertEquals(testModule, success.module)
+                assertFalse(success.isAlreadyCompleted)
+                assertFalse(success.isStale)
+                assertNull(success.error)
+            }
         }
-    }
 
     @Test
-    fun `loadModule marks isAlreadyCompleted true when module id is in user's completedModules`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
+    fun `loadModule marks isAlreadyCompleted true when module id is in user's completedModules`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
 
-        val viewModel = createViewModel()
+            val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // loading
-            val success = awaitItem()
-            assertTrue(success.isAlreadyCompleted)
+            viewModel.uiState.test {
+                awaitItem() // loading
+                val success = awaitItem()
+                assertTrue(success.isAlreadyCompleted)
+            }
         }
-    }
 
     @Test
-    fun `loadModule surfaces stale flag without setting an error message`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = {
-            flowOf(Result.Error(Exception("cache stale"), isStale = true))
-        }
+    fun `loadModule surfaces stale flag without setting an error message`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = {
+                flowOf(Result.Error(Exception("cache stale"), isStale = true))
+            }
 
-        val viewModel = createViewModel()
+            val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // loading
-            val staleState = awaitItem()
-            assertFalse(staleState.isLoading)
-            assertTrue(staleState.isStale)
-            assertNull(staleState.error)
+            viewModel.uiState.test {
+                awaitItem() // loading
+                val staleState = awaitItem()
+                assertFalse(staleState.isLoading)
+                assertTrue(staleState.isStale)
+                assertNull(staleState.error)
+            }
         }
-    }
 
     @Test
-    fun `loadModule surfaces error message on non-stale error`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = {
-            flowOf(Result.Error(Exception("network down"), isStale = false))
-        }
+    fun `loadModule surfaces error message on non-stale error`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = {
+                flowOf(Result.Error(Exception("network down"), isStale = false))
+            }
 
-        val viewModel = createViewModel()
+            val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // loading
-            val errorState = awaitItem()
-            assertFalse(errorState.isLoading)
-            assertFalse(errorState.isStale)
-            assertEquals("network down", errorState.error)
+            viewModel.uiState.test {
+                awaitItem() // loading
+                val errorState = awaitItem()
+                assertFalse(errorState.isLoading)
+                assertFalse(errorState.isStale)
+                assertEquals("network down", errorState.error)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `calling loadModule again replaces state from the previous in-flight collection`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flow { /* never emits */ } }
+    fun `calling loadModule again replaces state from the previous in-flight collection`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flow { /* never emits */ } }
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.isLoading)
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.isLoading)
 
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
-        viewModel.loadModule()
-        advanceUntilIdle()
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+            viewModel.loadModule()
+            advanceUntilIdle()
 
-        assertEquals(testModule, viewModel.uiState.value.module)
-        assertFalse(viewModel.uiState.value.isLoading)
-    }
+            assertEquals(testModule, viewModel.uiState.value.module)
+            assertFalse(viewModel.uiState.value.isLoading)
+        }
 
     // ---------- loadSavedPosition() (runs in init) ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `init loads saved playback position and marks it loaded`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        moduleRepository.seedPlaybackPosition(testModule.id, testUid, 4_200L)
+    fun `init loads saved playback position and marks it loaded`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            moduleRepository.seedPlaybackPosition(testModule.id, testUid, 4_200L)
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        assertEquals(4_200L, viewModel.savedPositionMs.value)
-        assertTrue(viewModel.isSavedPositionLoaded.value)
-    }
+            assertEquals(4_200L, viewModel.savedPositionMs.value)
+            assertTrue(viewModel.isSavedPositionLoaded.value)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `init defaults saved position to zero when nothing is stored`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+    fun `init defaults saved position to zero when nothing is stored`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        assertEquals(0L, viewModel.savedPositionMs.value)
-        assertTrue(viewModel.isSavedPositionLoaded.value)
-    }
+            assertEquals(0L, viewModel.savedPositionMs.value)
+            assertTrue(viewModel.isSavedPositionLoaded.value)
+        }
 
     // ---------- savePosition() ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `savePosition delegates to repository with moduleId, uid, and position`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+    fun `savePosition delegates to repository with moduleId, uid, and position`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        viewModel.savePosition(9_000L)
-        advanceUntilIdle()
+            viewModel.savePosition(9_000L)
+            advanceUntilIdle()
 
-        assertEquals(
-            listOf(Triple(testModule.id, testUid, 9_000L)),
-            moduleRepository.savePlaybackPositionCalls,
-        )
-    }
+            assertEquals(
+                listOf(Triple(testModule.id, testUid, 9_000L)),
+                moduleRepository.savePlaybackPositionCalls,
+            )
+        }
 
     // ---------- onVideoCompleted() ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `onVideoCompleted marks module complete, awards xp, and shows dialog when not already completed`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+    fun `onVideoCompleted marks module complete, awards xp, and shows dialog when not already completed`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        viewModel.onVideoCompleted()
-        advanceUntilIdle()
+            viewModel.onVideoCompleted()
+            advanceUntilIdle()
 
-        assertTrue(testModule.id in userRepository.completedModuleIds)
-        assertEquals(testModule.xpReward, userRepository.totalXpAdded)
-        assertTrue(viewModel.uiState.value.showCompletionDialog)
-        assertTrue(viewModel.uiState.value.isAlreadyCompleted)
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    @Test
-    fun `onVideoCompleted is a no-op when module is already completed`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
-
-        val viewModel = createViewModel()
-        advanceUntilIdle()
-
-        viewModel.onVideoCompleted()
-        advanceUntilIdle()
-
-        assertFalse(viewModel.uiState.value.showCompletionDialog)
-        assertTrue(userRepository.completedModuleIds.isEmpty())
-        assertEquals(0, userRepository.totalXpAdded)
-    }
+            assertTrue(testModule.id in userRepository.completedModuleIds)
+            assertEquals(testModule.xpReward, userRepository.totalXpAdded)
+            assertTrue(viewModel.uiState.value.showCompletionDialog)
+            assertTrue(viewModel.uiState.value.isAlreadyCompleted)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `onVideoCompleted does nothing when module has not loaded yet`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flow { /* never emits */ } }
+    fun `onVideoCompleted is a no-op when module is already completed`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        viewModel.onVideoCompleted()
-        advanceUntilIdle()
+            viewModel.onVideoCompleted()
+            advanceUntilIdle()
 
-        assertFalse(viewModel.uiState.value.showCompletionDialog)
-        assertTrue(userRepository.completedModuleIds.isEmpty())
-    }
+            assertFalse(viewModel.uiState.value.showCompletionDialog)
+            assertTrue(userRepository.completedModuleIds.isEmpty())
+            assertEquals(0, userRepository.totalXpAdded)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `onVideoCompleted does nothing when module has not loaded yet`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flow { /* never emits */ } }
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onVideoCompleted()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.showCompletionDialog)
+            assertTrue(userRepository.completedModuleIds.isEmpty())
+        }
 
     // ---------- onCompletionDialogDismissed() ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `onCompletionDialogDismissed hides the dialog`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-        userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+    fun `onCompletionDialogDismissed hides the dialog`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
-        viewModel.onVideoCompleted()
-        advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.showCompletionDialog)
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            viewModel.onVideoCompleted()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.showCompletionDialog)
 
-        viewModel.onCompletionDialogDismissed()
+            viewModel.onCompletionDialogDismissed()
 
-        assertFalse(viewModel.uiState.value.showCompletionDialog)
-    }
+            assertFalse(viewModel.uiState.value.showCompletionDialog)
+        }
 
     // ---------- setPlaybackSpeed() ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `setPlaybackSpeed updates playbackSpeed state`() = runTest {
-        moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+    fun `setPlaybackSpeed updates playbackSpeed state`() =
+        runTest {
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
 
-        val viewModel = createViewModel()
-        advanceUntilIdle()
+            val viewModel = createViewModel()
+            advanceUntilIdle()
 
-        viewModel.setPlaybackSpeed(1.5f)
+            viewModel.setPlaybackSpeed(1.5f)
 
-        assertEquals(1.5f, viewModel.playbackSpeed.value)
-    }
+            assertEquals(1.5f, viewModel.playbackSpeed.value)
+        }
 }

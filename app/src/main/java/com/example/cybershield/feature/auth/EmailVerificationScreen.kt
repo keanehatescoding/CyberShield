@@ -39,7 +39,8 @@ fun EmailVerificationScreen(viewModel: AuthViewModel) {
     Scaffold { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Text("📧", style = MaterialTheme.typography.displaySmall)
             Spacer(Modifier.height(16.dp))
@@ -47,8 +48,11 @@ fun EmailVerificationScreen(viewModel: AuthViewModel) {
             Spacer(Modifier.height(8.dp))
             Text("We sent a verification link to\n${s.email}", textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))
-            Text("Didn't get it? Check your spam folder.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Didn't get it? Check your spam folder.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = viewModel::resendVerificationEmail,

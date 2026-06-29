@@ -19,7 +19,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
-
     @Binds
     @Singleton
     abstract fun bindUserRepository(impl: UserRepositoryImpl): UserRepository
@@ -34,9 +33,9 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindCertificateRepository( impl: CertificateRepositoryImpl ): CertificateRepository
+    abstract fun bindCertificateRepository(impl: CertificateRepositoryImpl): CertificateRepository
 
     @Binds
     @Singleton
-    abstract fun bindLeaderboardRepository( impl: LeaderboardRepositoryImpl ): LeaderboardRepository
+    abstract fun bindLeaderboardRepository(impl: LeaderboardRepositoryImpl): LeaderboardRepository
 }

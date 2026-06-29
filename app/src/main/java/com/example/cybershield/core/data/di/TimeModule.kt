@@ -18,7 +18,6 @@ import dagger.hilt.components.SingletonComponent
 @Module
 @InstallIn(SingletonComponent::class)
 object TimeModule {
-
     @Provides
     fun provideElapsedRealtimeProvider(): () -> Long = { SystemClock.elapsedRealtime() }
 }

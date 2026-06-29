@@ -8,8 +8,10 @@ import javax.inject.Inject
  * calling the repository directly from the ViewModel) so the "what counts as signed in /
  * awaiting verification / authenticated" decision stays testable independent of the VM.
  */
-class ObserveAuthStateUseCase @Inject constructor(
-    private val authRepository: AuthRepository,
-) {
-    fun currentSession(): AuthRepository.AuthSession? = authRepository.currentSession()
-}
+class ObserveAuthStateUseCase
+    @Inject
+    constructor(
+        private val authRepository: AuthRepository,
+    ) {
+        fun currentSession(): AuthRepository.AuthSession? = authRepository.currentSession()
+    }

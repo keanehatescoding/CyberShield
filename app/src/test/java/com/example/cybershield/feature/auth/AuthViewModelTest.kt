@@ -9,8 +9,8 @@ import com.example.cybershield.core.domain.usecase.auth.RegisterUseCase
 import com.example.cybershield.core.domain.usecase.auth.ResendVerificationEmailUseCase
 import com.example.cybershield.core.domain.usecase.auth.SignInUseCase
 import com.example.cybershield.core.domain.usecase.auth.SignOutUseCase
-import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -42,7 +42,6 @@ import kotlin.time.Duration.Companion.milliseconds
  * in viewModel.signOut() inside runTest { } with advanceUntilIdle() — the assertions don't change.
  */
 class AuthViewModelTest {
-
     @get:Rule
     val coroutineRule = TestCoroutineRule()
 
@@ -63,14 +62,15 @@ class AuthViewModelTest {
      * Builds the ViewModel. [observeAuthState.currentSession()] must be stubbed by the
      * caller *before* invoking this, since it's read synchronously inside init {}.
      */
-    private fun buildViewModel(): AuthViewModel = AuthViewModel(
-        observeAuthState = observeAuthState,
-        registerUseCase = registerUseCase,
-        signInUseCase = signInUseCase,
-        resendVerificationEmailUseCase = resendVerificationEmailUseCase,
-        checkEmailVerifiedUseCase = checkEmailVerifiedUseCase,
-        signOutUseCase = signOutUseCase,
-    )
+    private fun buildViewModel(): AuthViewModel =
+        AuthViewModel(
+            observeAuthState = observeAuthState,
+            registerUseCase = registerUseCase,
+            signInUseCase = signInUseCase,
+            resendVerificationEmailUseCase = resendVerificationEmailUseCase,
+            checkEmailVerifiedUseCase = checkEmailVerifiedUseCase,
+            signOutUseCase = signOutUseCase,
+        )
 
     // ---------------------------------------------------------------------
     // init { } — initial state resolution from currentSession()
@@ -87,10 +87,11 @@ class AuthViewModelTest {
 
     @Test
     fun `init with unverified session emits AwaitingEmailVerification`() {
-        every { observeAuthState.currentSession() } returns session(
-            email = "person@example.com",
-            isEmailVerified = false,
-        )
+        every { observeAuthState.currentSession() } returns
+            session(
+                email = "person@example.com",
+                isEmailVerified = false,
+            )
 
         val viewModel = buildViewModel()
 
@@ -102,10 +103,11 @@ class AuthViewModelTest {
 
     @Test
     fun `init with unverified session and null email falls back to empty string`() {
-        every { observeAuthState.currentSession() } returns session(
-            email = null,
-            isEmailVerified = false,
-        )
+        every { observeAuthState.currentSession() } returns
+            session(
+                email = null,
+                isEmailVerified = false,
+            )
 
         val viewModel = buildViewModel()
 
@@ -117,10 +119,11 @@ class AuthViewModelTest {
 
     @Test
     fun `init with verified session emits Authenticated`() {
-        every { observeAuthState.currentSession() } returns session(
-            uid = "uid-999",
-            isEmailVerified = true,
-        )
+        every { observeAuthState.currentSession() } returns
+            session(
+                uid = "uid-999",
+                isEmailVerified = true,
+            )
 
         val viewModel = buildViewModel()
 
@@ -132,353 +135,373 @@ class AuthViewModelTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `register success transitions SignedOut to AwaitingEmailVerification`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { registerUseCase("Jane", "jane@example.com", "pw123456") } returns Result.Success(Unit)
+    fun `register success transitions SignedOut to AwaitingEmailVerification`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { registerUseCase("Jane", "jane@example.com", "pw123456") } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            assertEquals(AuthState.SignedOut(), awaitItem())
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                assertEquals(AuthState.SignedOut(), awaitItem())
 
-            viewModel.register("Jane", "jane@example.com", "pw123456")
+                viewModel.register("Jane", "jane@example.com", "pw123456")
 
-            val loading = awaitItem()
-            assertEquals(AuthState.SignedOut(isLoading = true, error = null), loading)
+                val loading = awaitItem()
+                assertEquals(AuthState.SignedOut(isLoading = true, error = null), loading)
 
-            val success = awaitItem()
-            assertEquals(AuthState.AwaitingEmailVerification(email = "jane@example.com"), success)
+                val success = awaitItem()
+                assertEquals(AuthState.AwaitingEmailVerification(email = "jane@example.com"), success)
+            }
         }
-    }
 
     @Test
-    fun `register failure surfaces error message and returns to SignedOut`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { registerUseCase(any(), any(), any()) } returns
+    fun `register failure surfaces error message and returns to SignedOut`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { registerUseCase(any(), any(), any()) } returns
                 Result.Error(AuthError.EmailAlreadyInUse)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // initial SignedOut()
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // initial SignedOut()
 
-            viewModel.register("Jane", "jane@example.com", "pw123456")
+                viewModel.register("Jane", "jane@example.com", "pw123456")
 
-            awaitItem() // loading = true
+                awaitItem() // loading = true
 
-            val failed = awaitItem() as AuthState.SignedOut
-            assertEquals(false, failed.isLoading)
-            assertEquals("This email is already registered.", failed.error)
+                val failed = awaitItem() as AuthState.SignedOut
+                assertEquals(false, failed.isLoading)
+                assertEquals("This email is already registered.", failed.error)
+            }
         }
-    }
 
     @Test
-    fun `register falls back to default message when exception has a null message`() = runTest {
-        // AuthError always supplies a non-null message, so this exercises the `?:` fallback
-        // in AuthViewModel.fail() using a raw exception, simulating an unmapped failure that
-        // slipped through as something other than a typed AuthError.
-        every { observeAuthState.currentSession() } returns null
-        coEvery { registerUseCase(any(), any(), any()) } returns
+    fun `register falls back to default message when exception has a null message`() =
+        runTest {
+            // AuthError always supplies a non-null message, so this exercises the `?:` fallback
+            // in AuthViewModel.fail() using a raw exception, simulating an unmapped failure that
+            // slipped through as something other than a typed AuthError.
+            every { observeAuthState.currentSession() } returns null
+            coEvery { registerUseCase(any(), any(), any()) } returns
                 Result.Error(IllegalStateException(null as String?))
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // initial
-            viewModel.register("Jane", "jane@example.com", "pw123456")
-            awaitItem() // loading
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // initial
+                viewModel.register("Jane", "jane@example.com", "pw123456")
+                awaitItem() // loading
 
-            val failed = awaitItem() as AuthState.SignedOut
-            assertEquals("Something went wrong. Please try again.", failed.error)
+                val failed = awaitItem() as AuthState.SignedOut
+                assertEquals("Something went wrong. Please try again.", failed.error)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `register is a no-op when state is not SignedOut`() = runTest {
-        every { observeAuthState.currentSession() } returns session(isEmailVerified = true)
-        coEvery { registerUseCase(any(), any(), any()) } returns Result.Success(Unit)
+    fun `register is a no-op when state is not SignedOut`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns session(isEmailVerified = true)
+            coEvery { registerUseCase(any(), any(), any()) } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
-        assertTrue(before is AuthState.Authenticated)
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
+            assertTrue(before is AuthState.Authenticated)
 
-        viewModel.register("Jane", "jane@example.com", "pw123456")
-        advanceUntilIdle()
+            viewModel.register("Jane", "jane@example.com", "pw123456")
+            advanceUntilIdle()
 
-        assertEquals(before, viewModel.state.value)
-        coVerify(exactly = 0) { registerUseCase(any(), any(), any()) }
-    }
+            assertEquals(before, viewModel.state.value)
+            coVerify(exactly = 0) { registerUseCase(any(), any(), any()) }
+        }
 
     // ---------------------------------------------------------------------
     // signIn()
     // ---------------------------------------------------------------------
 
     @Test
-    fun `signIn success with verified email emits Authenticated`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { signInUseCase("a@b.com", "pw") } returns
+    fun `signIn success with verified email emits Authenticated`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase("a@b.com", "pw") } returns
                 Result.Success(session(uid = "uid-42", isEmailVerified = true))
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // SignedOut()
-            viewModel.signIn("a@b.com", "pw")
-            awaitItem() // loading
-            assertEquals(AuthState.Authenticated("uid-42"), awaitItem())
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // SignedOut()
+                viewModel.signIn("a@b.com", "pw")
+                awaitItem() // loading
+                assertEquals(AuthState.Authenticated("uid-42"), awaitItem())
+            }
         }
-    }
 
     @Test
-    fun `signIn success with unverified email emits AwaitingEmailVerification`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { signInUseCase("a@b.com", "pw") } returns
+    fun `signIn success with unverified email emits AwaitingEmailVerification`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase("a@b.com", "pw") } returns
                 Result.Success(session(email = "a@b.com", isEmailVerified = false))
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem()
-            viewModel.signIn("a@b.com", "pw")
-            awaitItem() // loading
-            assertEquals(
-                AuthState.AwaitingEmailVerification(email = "a@b.com"),
-                awaitItem(),
-            )
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem()
+                viewModel.signIn("a@b.com", "pw")
+                awaitItem() // loading
+                assertEquals(
+                    AuthState.AwaitingEmailVerification(email = "a@b.com"),
+                    awaitItem(),
+                )
+            }
         }
-    }
 
     @Test
-    fun `signIn success with unverified email and null session email falls back to argument`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { signInUseCase("a@b.com", "pw") } returns
+    fun `signIn success with unverified email and null session email falls back to argument`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase("a@b.com", "pw") } returns
                 Result.Success(session(email = null, isEmailVerified = false))
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem()
-            viewModel.signIn("a@b.com", "pw")
-            awaitItem() // loading
-            assertEquals(
-                AuthState.AwaitingEmailVerification(email = "a@b.com"),
-                awaitItem(),
-            )
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem()
+                viewModel.signIn("a@b.com", "pw")
+                awaitItem() // loading
+                assertEquals(
+                    AuthState.AwaitingEmailVerification(email = "a@b.com"),
+                    awaitItem(),
+                )
+            }
         }
-    }
 
     @Test
-    fun `signIn failure keeps SignedOut with error and clears loading`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-        coEvery { signInUseCase(any(), any()) } returns
+    fun `signIn failure keeps SignedOut with error and clears loading`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase(any(), any()) } returns
                 Result.Error(AuthError.InvalidCredentials)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem()
-            viewModel.signIn("a@b.com", "wrong")
-            awaitItem() // loading = true
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem()
+                viewModel.signIn("a@b.com", "wrong")
+                awaitItem() // loading = true
 
-            val failed = awaitItem() as AuthState.SignedOut
-            assertEquals(false, failed.isLoading)
-            assertEquals("Incorrect email or password.", failed.error)
+                val failed = awaitItem() as AuthState.SignedOut
+                assertEquals(false, failed.isLoading)
+                assertEquals("Incorrect email or password.", failed.error)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `signIn is a no-op when state is not SignedOut`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `signIn is a no-op when state is not SignedOut`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "x@x.com", isEmailVerified = false)
 
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
 
-        viewModel.signIn("a@b.com", "pw")
-        advanceUntilIdle()
+            viewModel.signIn("a@b.com", "pw")
+            advanceUntilIdle()
 
-        assertEquals(before, viewModel.state.value)
-    }
+            assertEquals(before, viewModel.state.value)
+        }
 
     // ---------------------------------------------------------------------
     // resendVerificationEmail() + cooldown timer
     // ---------------------------------------------------------------------
 
     @Test
-    fun `resendVerificationEmail success starts 60s cooldown`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `resendVerificationEmail success starts 60s cooldown`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
-        coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
+            coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // initial AwaitingEmailVerification
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // initial AwaitingEmailVerification
 
-            viewModel.resendVerificationEmail()
+                viewModel.resendVerificationEmail()
 
-            val resending = awaitItem() as AuthState.AwaitingEmailVerification
-            assertTrue(resending.isResending)
+                val resending = awaitItem() as AuthState.AwaitingEmailVerification
+                assertTrue(resending.isResending)
 
-            val started = awaitItem() as AuthState.AwaitingEmailVerification
-            assertEquals(false, started.isResending)
-            assertEquals(60, started.resendCooldownSeconds)
+                val started = awaitItem() as AuthState.AwaitingEmailVerification
+                assertEquals(false, started.isResending)
+                assertEquals(60, started.resendCooldownSeconds)
 
-            cancelAndIgnoreRemainingEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `resendVerificationEmail cooldown counts down to zero`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `resendVerificationEmail cooldown counts down to zero`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
-        coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
+            coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
-        viewModel.resendVerificationEmail()
-        advanceUntilIdle() // let resend complete + run the full 60s countdown
+            val viewModel = buildViewModel()
+            viewModel.resendVerificationEmail()
+            advanceUntilIdle() // let resend complete + run the full 60s countdown
 
-        val finalState = viewModel.state.value as AuthState.AwaitingEmailVerification
-        assertEquals(0, finalState.resendCooldownSeconds)
-        assertEquals(false, finalState.isResending)
-    }
+            val finalState = viewModel.state.value as AuthState.AwaitingEmailVerification
+            assertEquals(0, finalState.resendCooldownSeconds)
+            assertEquals(false, finalState.isResending)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `resendVerificationEmail cooldown decrements one second at a time`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `resendVerificationEmail cooldown decrements one second at a time`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
-        coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
+            coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
-        viewModel.resendVerificationEmail()
-        advanceTimeBy(1.milliseconds) // resolve the resend call itself, cooldown starts at 60
+            val viewModel = buildViewModel()
+            viewModel.resendVerificationEmail()
+            advanceTimeBy(1.milliseconds) // resolve the resend call itself, cooldown starts at 60
 
-        // Advance ~5 seconds of virtual time into the countdown.
-        advanceTimeBy(5_000.milliseconds)
+            // Advance ~5 seconds of virtual time into the countdown.
+            advanceTimeBy(5_000.milliseconds)
 
-        val midState = viewModel.state.value as AuthState.AwaitingEmailVerification
-        assertTrue(midState.resendCooldownSeconds in 54..59)
-    }
+            val midState = viewModel.state.value as AuthState.AwaitingEmailVerification
+            assertTrue(midState.resendCooldownSeconds in 54..59)
+        }
 
     @Test
-    fun `resendVerificationEmail failure clears isResending without starting cooldown`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `resendVerificationEmail failure clears isResending without starting cooldown`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
-        coEvery { resendVerificationEmailUseCase() } returns
+            coEvery { resendVerificationEmailUseCase() } returns
                 Result.Error(AuthError.TooManyRequests)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // initial
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // initial
+
+                viewModel.resendVerificationEmail()
+                awaitItem() // isResending = true
+
+                val after = awaitItem() as AuthState.AwaitingEmailVerification
+                assertEquals(false, after.isResending)
+                assertEquals(0, after.resendCooldownSeconds)
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `resendVerificationEmail is a no-op when state is not AwaitingEmailVerification`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
 
             viewModel.resendVerificationEmail()
-            awaitItem() // isResending = true
+            advanceUntilIdle()
 
-            val after = awaitItem() as AuthState.AwaitingEmailVerification
-            assertEquals(false, after.isResending)
-            assertEquals(0, after.resendCooldownSeconds)
+            assertEquals(before, viewModel.state.value)
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `resendVerificationEmail is a no-op when state is not AwaitingEmailVerification`() = runTest {
-        every { observeAuthState.currentSession() } returns null
-
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
-
-        viewModel.resendVerificationEmail()
-        advanceUntilIdle()
-
-        assertEquals(before, viewModel.state.value)
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    @Test
-    fun `calling resendVerificationEmail again restarts the cooldown timer`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `calling resendVerificationEmail again restarts the cooldown timer`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
-        coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
+            coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
 
-        val viewModel = buildViewModel()
+            val viewModel = buildViewModel()
 
-        viewModel.resendVerificationEmail()
-        advanceTimeBy(10_000.milliseconds) // 10s into the first cooldown
+            viewModel.resendVerificationEmail()
+            advanceTimeBy(10_000.milliseconds) // 10s into the first cooldown
 
-        viewModel.resendVerificationEmail() // should cancel old job, restart at 60
-        advanceUntilIdle()
+            viewModel.resendVerificationEmail() // should cancel old job, restart at 60
+            advanceUntilIdle()
 
-        val finalState = viewModel.state.value as AuthState.AwaitingEmailVerification
-        // Old job was canceled and a fresh one ran to completion.
-        assertEquals(0, finalState.resendCooldownSeconds)
-    }
+            val finalState = viewModel.state.value as AuthState.AwaitingEmailVerification
+            // Old job was canceled and a fresh one ran to completion.
+            assertEquals(0, finalState.resendCooldownSeconds)
+        }
 
     // ---------------------------------------------------------------------
     // checkEmailVerified()
     // ---------------------------------------------------------------------
 
     @Test
-    fun `checkEmailVerified true transitions to Authenticated`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `checkEmailVerified true transitions to Authenticated`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(uid = "uid-7", email = "a@b.com", isEmailVerified = false)
-        coEvery { checkEmailVerifiedUseCase() } returns Result.Success(true)
+            coEvery { checkEmailVerifiedUseCase() } returns Result.Success(true)
 
-        val viewModel = buildViewModel()
-        viewModel.state.test {
-            awaitItem() // AwaitingEmailVerification
-            viewModel.checkEmailVerified()
-            assertEquals(AuthState.Authenticated("uid-7"), awaitItem())
+            val viewModel = buildViewModel()
+            viewModel.state.test {
+                awaitItem() // AwaitingEmailVerification
+                viewModel.checkEmailVerified()
+                assertEquals(AuthState.Authenticated("uid-7"), awaitItem())
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `checkEmailVerified false leaves state unchanged`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `checkEmailVerified false leaves state unchanged`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(uid = "uid-7", email = "a@b.com", isEmailVerified = false)
-        coEvery { checkEmailVerifiedUseCase() } returns Result.Success(false)
+            coEvery { checkEmailVerifiedUseCase() } returns Result.Success(false)
 
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
 
-        viewModel.checkEmailVerified()
-        advanceUntilIdle()
+            viewModel.checkEmailVerified()
+            advanceUntilIdle()
 
-        assertEquals(before, viewModel.state.value)
-    }
+            assertEquals(before, viewModel.state.value)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `checkEmailVerified error leaves state unchanged so user can retry`() = runTest {
-        every { observeAuthState.currentSession() } returns
+    fun `checkEmailVerified error leaves state unchanged so user can retry`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
                 session(uid = "uid-7", email = "a@b.com", isEmailVerified = false)
-        coEvery { checkEmailVerifiedUseCase() } returns Result.Error(AuthError.NoNetwork)
+            coEvery { checkEmailVerifiedUseCase() } returns Result.Error(AuthError.NoNetwork)
 
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
 
-        viewModel.checkEmailVerified()
-        advanceUntilIdle()
+            viewModel.checkEmailVerified()
+            advanceUntilIdle()
 
-        assertEquals(before, viewModel.state.value)
-    }
+            assertEquals(before, viewModel.state.value)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `checkEmailVerified with no current session is a no-op`() = runTest {
-        // First call (init) returns a session, second call (inside checkEmailVerified) returns null
-        // to simulate the session disappearing between init and the check.
-        every { observeAuthState.currentSession() } returnsMany listOf(
-            session(uid = "uid-7", email = "a@b.com", isEmailVerified = false),
-            null,
-        )
+    fun `checkEmailVerified with no current session is a no-op`() =
+        runTest {
+            // First call (init) returns a session, second call (inside checkEmailVerified) returns null
+            // to simulate the session disappearing between init and the check.
+            every { observeAuthState.currentSession() } returnsMany
+                listOf(
+                    session(uid = "uid-7", email = "a@b.com", isEmailVerified = false),
+                    null,
+                )
 
-        val viewModel = buildViewModel()
-        val before = viewModel.state.value
+            val viewModel = buildViewModel()
+            val before = viewModel.state.value
 
-        viewModel.checkEmailVerified()
-        advanceUntilIdle()
+            viewModel.checkEmailVerified()
+            advanceUntilIdle()
 
-        assertEquals(before, viewModel.state.value)
-        coVerify(exactly = 0) { checkEmailVerifiedUseCase() }
-    }
+            assertEquals(before, viewModel.state.value)
+            coVerify(exactly = 0) { checkEmailVerifiedUseCase() }
+        }
 
     // ---------------------------------------------------------------------
     // signOut()
@@ -487,7 +510,7 @@ class AuthViewModelTest {
     @Test
     fun `signOut invokes use case and resets to SignedOut`() {
         every { observeAuthState.currentSession() } returns
-                session(uid = "uid-7", isEmailVerified = true)
+            session(uid = "uid-7", isEmailVerified = true)
         every { signOutUseCase() } returns Unit // assumed synchronous, see class-level NOTE
 
         val viewModel = buildViewModel()

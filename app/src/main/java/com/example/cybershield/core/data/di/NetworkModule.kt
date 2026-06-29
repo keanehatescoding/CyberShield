@@ -13,8 +13,9 @@ import javax.inject.Singleton
 object NetworkModule {
     @Provides
     @Singleton
-    fun provideOkHttpClient(authInterceptor: AuthInterceptor) : OkHttpClient =
-    OkHttpClient.Builder()
-    .addInterceptor(authInterceptor)
-    .build()
+    fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient =
+        OkHttpClient
+            .Builder()
+            .addInterceptor(authInterceptor)
+            .build()
 }

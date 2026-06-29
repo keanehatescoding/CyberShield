@@ -56,23 +56,24 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModuleDetailScreen(
-    onNavigateBack:   () -> Unit,
+    onNavigateBack: () -> Unit,
     onNavigateToQuiz: (quizId: String) -> Unit,
     viewModel: ModuleViewModel = hiltViewModel(),
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val savedPosition by viewModel.savedPositionMs.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     val isSavedPositionLoaded by viewModel.isSavedPositionLoaded.collectAsStateWithLifecycle()
-    var showSpeedMenu  by remember { mutableStateOf(false) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.loadModule()
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    viewModel.loadModule()
+                }
             }
-        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -81,9 +82,9 @@ fun ModuleDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text       = uiState.module?.title ?: "",
+                        text = uiState.module?.title ?: "",
                         fontWeight = FontWeight.SemiBold,
-                        maxLines   = 1,
+                        maxLines = 1,
                     )
                 },
                 navigationIcon = {
@@ -101,12 +102,12 @@ fun ModuleDetailScreen(
                             Text("${playbackSpeed}x")
                         }
                         DropdownMenu(
-                            expanded        = showSpeedMenu,
+                            expanded = showSpeedMenu,
                             onDismissRequest = { showSpeedMenu = false },
                         ) {
                             listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { speed ->
                                 DropdownMenuItem(
-                                    text    = { Text("${speed}x") },
+                                    text = { Text("${speed}x") },
                                     onClick = {
                                         viewModel.setPlaybackSpeed(speed)
                                         showSpeedMenu = false
@@ -115,7 +116,7 @@ fun ModuleDetailScreen(
                                         if (speed == playbackSpeed) {
                                             Icon(Icons.Default.Check, null)
                                         }
-                                    }
+                                    },
                                 )
                             }
                         }
@@ -134,7 +135,7 @@ fun ModuleDetailScreen(
             uiState.error != null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text  = uiState.error ?: "Something went wrong",
+                        text = uiState.error ?: "Something went wrong",
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -143,20 +144,22 @@ fun ModuleDetailScreen(
                 val module = uiState.module!!
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .verticalScroll(rememberScrollState()),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .verticalScroll(rememberScrollState()),
                 ) {
-                    if(uiState.isStale){
+                    if (uiState.isStale) {
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
@@ -183,9 +186,10 @@ fun ModuleDetailScreen(
                             playbackSpeed = playbackSpeed,
                             onVideoEnded = { viewModel.onVideoCompleted() },
                             onPositionChanged = { pos -> viewModel.savePosition(pos) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f),
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f),
                         )
                     } else {
                         Box(
@@ -194,29 +198,34 @@ fun ModuleDetailScreen(
                         ) { CircularProgressIndicator() }
                     }
                     Column(modifier = Modifier.padding(16.dp)) {
-
                         // ── Module info ────────────────────────────────────
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             AssistChip(
                                 onClick = {},
-                                label   = { Text(module.category) },
+                                label = { Text(module.category) },
                             )
                             AssistChip(
                                 onClick = {},
-                                label   = { Text("${module.durationMins} min") },
+                                label = { Text("${module.durationMins} min") },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Schedule, null,
-                                        Modifier.size(14.dp))
+                                    Icon(
+                                        Icons.Default.Schedule,
+                                        null,
+                                        Modifier.size(14.dp),
+                                    )
                                 },
                             )
                             AssistChip(
                                 onClick = {},
-                                label   = { Text("+${module.xpReward} XP") },
+                                label = { Text("+${module.xpReward} XP") },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Star, null,
-                                        Modifier.size(14.dp))
+                                    Icon(
+                                        Icons.Default.Star,
+                                        null,
+                                        Modifier.size(14.dp),
+                                    )
                                 },
                             )
                         }
@@ -224,15 +233,15 @@ fun ModuleDetailScreen(
                         Spacer(Modifier.height(12.dp))
 
                         Text(
-                            text       = module.title,
-                            style      = MaterialTheme.typography.headlineSmall,
+                            text = module.title,
+                            style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                         )
 
                         Spacer(Modifier.height(8.dp))
 
                         Text(
-                            text  = module.description,
+                            text = module.description,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -245,26 +254,29 @@ fun ModuleDetailScreen(
 
                         // ── Take quiz CTA ──────────────────────────────────
                         Text(
-                            text       = "Test your knowledge",
-                            style      = MaterialTheme.typography.titleMedium,
+                            text = "Test your knowledge",
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text  = "Complete the quiz to earn your XP and unlock a certificate.",
+                            text = "Complete the quiz to earn your XP and unlock a certificate.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
                         Button(
-                            onClick  = { onNavigateToQuiz(module.quizId) },
+                            onClick = { onNavigateToQuiz(module.quizId) },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
                             Icon(Icons.Default.Quiz, null)
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                if (uiState.isAlreadyCompleted) "Retake quiz"
-                                else "Take the quiz · ${module.xpReward} XP"
+                                if (uiState.isAlreadyCompleted) {
+                                    "Retake quiz"
+                                } else {
+                                    "Take the quiz · ${module.xpReward} XP"
+                                },
                             )
                         }
                         Spacer(Modifier.height(32.dp))
@@ -275,12 +287,12 @@ fun ModuleDetailScreen(
                 if (uiState.showCompletionDialog) {
                     AlertDialog(
                         onDismissRequest = viewModel::onCompletionDialogDismissed,
-                        icon    = { Text("🎉", style = MaterialTheme.typography.displaySmall) },
-                        title   = { Text("Lesson complete!") },
-                        text    = {
+                        icon = { Text("🎉", style = MaterialTheme.typography.displaySmall) },
+                        title = { Text("Lesson complete!") },
+                        text = {
                             Text(
                                 "You've earned +${module.xpReward} XP. " +
-                                        "Take the quiz to unlock your certificate!"
+                                    "Take the quiz to unlock your certificate!",
                             )
                         },
                         confirmButton = {

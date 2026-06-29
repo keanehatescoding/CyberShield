@@ -8,7 +8,6 @@ import com.example.cybershield.core.database.entity.QuizEntity
 
 @Dao
 interface QuizDao {
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(quizzes: List<QuizEntity>)
 

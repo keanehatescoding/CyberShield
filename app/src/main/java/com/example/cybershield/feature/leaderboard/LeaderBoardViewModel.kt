@@ -15,33 +15,38 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class LeaderboardViewModel @Inject constructor(
-    private val leaderboardRepository: LeaderboardRepository,
-    getCurrentSession: GetCurrentSessionUseCase,
-) : ViewModel() {
+class LeaderboardViewModel
+    @Inject
+    constructor(
+        private val leaderboardRepository: LeaderboardRepository,
+        getCurrentSession: GetCurrentSessionUseCase,
+    ) : ViewModel() {
+        private val _uiState =
+            MutableStateFlow(
+                LeaderboardUiState(
+                    currentUid = getCurrentSession()?.uid ?: "",
+                ),
+            )
+        val uiState: StateFlow<LeaderboardUiState> = _uiState.asStateFlow()
 
-    private val _uiState = MutableStateFlow(LeaderboardUiState(
-        currentUid = getCurrentSession()?.uid ?: ""
-    ))
-    val uiState: StateFlow<LeaderboardUiState> = _uiState.asStateFlow()
+        init {
+            loadLeaderboard()
+        }
 
-    init { loadLeaderboard() }
-
-    private fun loadLeaderboard() {
-        viewModelScope.launch {
-            leaderboardRepository.getTopLeaderboard().collect { result ->
-                result
-                    .onSuccess { entries ->
-                        _uiState.update {
-                            it.copy(entries = entries, isLoading = false, error = null)
+        private fun loadLeaderboard() {
+            viewModelScope.launch {
+                leaderboardRepository.getTopLeaderboard().collect { result ->
+                    result
+                        .onSuccess { entries ->
+                            _uiState.update {
+                                it.copy(entries = entries, isLoading = false, error = null)
+                            }
+                        }.onError { e ->
+                            _uiState.update {
+                                it.copy(isLoading = false, error = e.message)
+                            }
                         }
-                    }
-                    .onError { e ->
-                        _uiState.update {
-                            it.copy(isLoading = false, error = e.message)
-                        }
-                    }
+                }
             }
         }
     }
-}

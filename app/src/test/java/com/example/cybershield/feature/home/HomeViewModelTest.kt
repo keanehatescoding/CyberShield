@@ -36,7 +36,6 @@ import java.time.ZoneOffset
  * scripted FakeEnsureUserProfileUseCase rather than re-deriving repair logic here.
  */
 class HomeViewModelTest {
-
     @get:Rule
     val coroutineRule = TestCoroutineRule()
 
@@ -46,11 +45,12 @@ class HomeViewModelTest {
     private lateinit var fakeEnsureUserProfile: FakeEnsureUserProfileUseCase
     private lateinit var getCurrentSession: GetCurrentSessionUseCase
 
-    private val signedInSession = AuthSession(
-        uid = "test-uid",
-        email = "test@cybershield.com",
-        isEmailVerified = true,
-    )
+    private val signedInSession =
+        AuthSession(
+            uid = "test-uid",
+            email = "test@cybershield.com",
+            isEmailVerified = true,
+        )
 
     // Arbitrary fixed instant for tests that don't care about greeting() —
     // 2026-01-01T10:00:00Z, i.e. 10 AM UTC, chosen only so the default never
@@ -61,9 +61,10 @@ class HomeViewModelTest {
 
     @Before
     fun setUp() {
-        fakeAuthRepository = FakeAuthRepository().apply {
-            currentSessionToReturn = signedInSession
-        }
+        fakeAuthRepository =
+            FakeAuthRepository().apply {
+                currentSessionToReturn = signedInSession
+            }
         // fakeUserRepository.fakeUser already defaults to uid="test-uid",
         // email="test@cybershield.com" — matches signedInSession above so the
         // happy path needs no extra wiring.
@@ -75,280 +76,302 @@ class HomeViewModelTest {
         getCurrentSession = GetCurrentSessionUseCase(fakeAuthRepository)
     }
 
-    private fun buildViewModel(clock: Clock = defaultClock) = HomeViewModel(
-        userRepository = fakeUserRepository,
-        moduleRepository = fakeModuleRepository,
-        getCurrentSession = getCurrentSession,
-        ensureUserProfile = fakeEnsureUserProfile,
-        clock = clock,
-    )
+    private fun buildViewModel(clock: Clock = defaultClock) =
+        HomeViewModel(
+            userRepository = fakeUserRepository,
+            moduleRepository = fakeModuleRepository,
+            getCurrentSession = getCurrentSession,
+            ensureUserProfile = fakeEnsureUserProfile,
+            clock = clock,
+        )
 
     // ── Profile loading — happy path ────────────────────────────────────
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `loadUserProfile emits user on success`() = runTest {
-        val viewModel = buildViewModel()
+    fun `loadUserProfile emits user on success`() =
+        runTest {
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            assertFalse(state.isUserLoading)
-            assertEquals(fakeUserRepository.fakeUser, state.user)
-            assertNull(state.userError)
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                assertFalse(state.isUserLoading)
+                assertEquals(fakeUserRepository.fakeUser, state.user)
+                assertNull(state.userError)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `loadUserProfile surfaces isUserLoading while pending`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Loading
-        val viewModel = buildViewModel()
+    fun `loadUserProfile surfaces isUserLoading while pending`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Loading
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            assertTrue(expectMostRecentItem().isUserLoading)
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                assertTrue(expectMostRecentItem().isUserLoading)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `successful profile load notifies the use case so repair can be attempted again later`() = runTest {
-        advanceUntilIdle()
+    fun `successful profile load notifies the use case so repair can be attempted again later`() =
+        runTest {
+            advanceUntilIdle()
 
-        assertEquals(1, fakeEnsureUserProfile.onProfileLoadedSuccessfullyCallCount)
-    }
+            assertEquals(1, fakeEnsureUserProfile.onProfileLoadedSuccessfullyCallCount)
+        }
 
     // ── Profile loading — error delegation to EnsureUserProfileUseCase ──────
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `NotApplicable outcome surfaces its message as userError`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Error(Exception("network unreachable"))
-        fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.NotApplicable("network unreachable")
+    fun `NotApplicable outcome surfaces its message as userError`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Error(Exception("network unreachable"))
+            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.NotApplicable("network unreachable")
 
-        val viewModel = buildViewModel()
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            assertFalse(state.isUserLoading)
-            assertEquals("network unreachable", state.userError)
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                assertFalse(state.isUserLoading)
+                assertEquals("network unreachable", state.userError)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `RepairSucceeded outcome does not surface an error and stays in loading state`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
-        fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
+    fun `RepairSucceeded outcome does not surface an error and stays in loading state`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
+            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
 
-        val viewModel = buildViewModel()
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            // isUserLoading was set true by the preceding Result.Loading emission and
-            // RepairSucceeded intentionally does not update _uiState — the real profile
-            // flow is expected to re-emit Success once Firestore reflects the repair.
-            assertNull(state.userError)
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                // isUserLoading was set true by the preceding Result.Loading emission and
+                // RepairSucceeded intentionally does not update _uiState — the real profile
+                // flow is expected to re-emit Success once Firestore reflects the repair.
+                assertNull(state.userError)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `RepairFailed outcome surfaces a stable user-facing error and stops loading`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
-        fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairFailed
+    fun `RepairFailed outcome surfaces a stable user-facing error and stops loading`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
+            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairFailed
 
-        val viewModel = buildViewModel()
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            assertFalse(state.isUserLoading)
-            assertEquals(
-                "Couldn't set up your profile. Please check your connection and restart the app.",
-                state.userError,
-            )
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                assertFalse(state.isUserLoading)
+                assertEquals(
+                    "Couldn't set up your profile. Please check your connection and restart the app.",
+                    state.userError,
+                )
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `AlreadyAttempted outcome surfaces its carried message as userError`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
-        fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.AlreadyAttempted("Profile not found")
+    fun `AlreadyAttempted outcome surfaces its carried message as userError`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
+            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.AlreadyAttempted("Profile not found")
 
-        val viewModel = buildViewModel()
+            val viewModel = buildViewModel()
 
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            assertFalse(state.isUserLoading)
-            assertEquals("Profile not found", state.userError)
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                assertFalse(state.isUserLoading)
+                assertEquals("Profile not found", state.userError)
+            }
         }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `error path passes the current session into the use case`() = runTest {
-        fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
-        fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
+    fun `error path passes the current session into the use case`() =
+        runTest {
+            fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
+            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
 
-        advanceUntilIdle()
+            advanceUntilIdle()
 
-        assertEquals(signedInSession, fakeEnsureUserProfile.lastSessionPassed)
-    }
+            assertEquals(signedInSession, fakeEnsureUserProfile.lastSessionPassed)
+        }
 
     // ── Modules ──────────────────────────────────────────────────────────
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `loadModules emits modules on success`() = runTest {
-        val modules = listOf(sampleModule("m1"), sampleModule("m2"))
-        fakeModuleRepository.getModulesFlowProvider = {
-            flow {
-                emit(Result.Loading)
-                emit(Result.Success(modules))
+    fun `loadModules emits modules on success`() =
+        runTest {
+            val modules = listOf(sampleModule("m1"), sampleModule("m2"))
+            fakeModuleRepository.getModulesFlowProvider = {
+                flow {
+                    emit(Result.Loading)
+                    emit(Result.Success(modules))
+                }
+            }
+
+            val viewModel = buildViewModel()
+
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                val state = expectMostRecentItem()
+                assertFalse(state.isModulesLoading)
+                assertEquals(modules, state.modules)
+                assertNull(state.modulesError)
             }
         }
-
-        val viewModel = buildViewModel()
-
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            val state = expectMostRecentItem()
-            assertFalse(state.isModulesLoading)
-            assertEquals(modules, state.modules)
-            assertNull(state.modulesError)
-        }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `loadModules surfaces error message on failure`() = runTest {
-        fakeModuleRepository.getModulesFlowProvider = {
-            flow {
-                emit(Result.Loading)
-                emit(Result.Error(Exception("offline")))
+    fun `loadModules surfaces error message on failure`() =
+        runTest {
+            fakeModuleRepository.getModulesFlowProvider = {
+                flow {
+                    emit(Result.Loading)
+                    emit(Result.Error(Exception("offline")))
+                }
+            }
+
+            val viewModel = buildViewModel()
+
+            viewModel.uiState.test {
+                advanceUntilIdle()
+                assertEquals("offline", expectMostRecentItem().modulesError)
             }
         }
-
-        val viewModel = buildViewModel()
-
-        viewModel.uiState.test {
-            advanceUntilIdle()
-            assertEquals("offline", expectMostRecentItem().modulesError)
-        }
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `clearModulesError resets modulesError to null`() = runTest {
-        fakeModuleRepository.getModulesFlowProvider = {
-            flow {
-                emit(Result.Loading)
-                emit(Result.Error(Exception("offline")))
+    fun `clearModulesError resets modulesError to null`() =
+        runTest {
+            fakeModuleRepository.getModulesFlowProvider = {
+                flow {
+                    emit(Result.Loading)
+                    emit(Result.Error(Exception("offline")))
+                }
             }
+            val viewModel = buildViewModel()
+            advanceUntilIdle()
+
+            viewModel.clearModulesError()
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.modulesError)
         }
-        val viewModel = buildViewModel()
-        advanceUntilIdle()
-
-        viewModel.clearModulesError()
-        advanceUntilIdle()
-
-        assertNull(viewModel.uiState.value.modulesError)
-    }
 
     // ── Refresh ──────────────────────────────────────────────────────────
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `refresh success re-runs loadModules and picks up fresh data`() = runTest {
-        val refreshedModules = listOf(sampleModule("fresh-1"))
-        var callCount = 0
-        fakeModuleRepository.getModulesFlowProvider = {
-            callCount++
-            flow {
-                emit(Result.Loading)
-                // First call (init) returns empty; second call (post-refresh) returns fresh data.
-                if (callCount == 1) emit(Result.Success(emptyList()))
-                else emit(Result.Success(refreshedModules))
+    fun `refresh success re-runs loadModules and picks up fresh data`() =
+        runTest {
+            val refreshedModules = listOf(sampleModule("fresh-1"))
+            var callCount = 0
+            fakeModuleRepository.getModulesFlowProvider = {
+                callCount++
+                flow {
+                    emit(Result.Loading)
+                    // First call (init) returns empty; second call (post-refresh) returns fresh data.
+                    if (callCount == 1) {
+                        emit(Result.Success(emptyList()))
+                    } else {
+                        emit(Result.Success(refreshedModules))
+                    }
+                }
             }
+            val viewModel = buildViewModel()
+            advanceUntilIdle()
+
+            fakeModuleRepository.refreshModulesResult = Result.Success(Unit)
+
+            viewModel.refresh()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isRefreshing)
+            assertEquals(refreshedModules, state.modules)
+            assertEquals(1, fakeModuleRepository.refreshModulesCallCount)
         }
-        val viewModel = buildViewModel()
-        advanceUntilIdle()
-
-        fakeModuleRepository.refreshModulesResult = Result.Success(Unit)
-
-        viewModel.refresh()
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertFalse(state.isRefreshing)
-        assertEquals(refreshedModules, state.modules)
-        assertEquals(1, fakeModuleRepository.refreshModulesCallCount)
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `refresh failure surfaces a connection error and clears isRefreshing`() = runTest {
-        val viewModel = buildViewModel()
-        advanceUntilIdle()
+    fun `refresh failure surfaces a connection error and clears isRefreshing`() =
+        runTest {
+            val viewModel = buildViewModel()
+            advanceUntilIdle()
 
-        fakeModuleRepository.refreshModulesResult = Result.Error(Exception("timeout"))
+            fakeModuleRepository.refreshModulesResult = Result.Error(Exception("timeout"))
 
-        viewModel.refresh()
-        advanceUntilIdle()
+            viewModel.refresh()
+            advanceUntilIdle()
 
-        val state = viewModel.uiState.value
-        assertFalse(state.isRefreshing)
-        assertEquals("Couldn't refresh modules. Check your connection.", state.modulesError)
-    }
+            val state = viewModel.uiState.value
+            assertFalse(state.isRefreshing)
+            assertEquals("Couldn't refresh modules. Check your connection.", state.modulesError)
+        }
 
     // ── Greeting (now testable via injected Clock) ─────────────────────
 
     @Test
-    fun `greeting returns Good morning for early hours`() = runTest {
-        val morningClock = Clock.fixed(Instant.parse("2026-01-01T07:00:00Z"), ZoneOffset.UTC)
-        val viewModel = buildViewModel(clock = morningClock)
+    fun `greeting returns Good morning for early hours`() =
+        runTest {
+            val morningClock = Clock.fixed(Instant.parse("2026-01-01T07:00:00Z"), ZoneOffset.UTC)
+            val viewModel = buildViewModel(clock = morningClock)
 
-        assertEquals("Good morning", viewModel.greeting())
-    }
-
-    @Test
-    fun `greeting returns Good afternoon for midday hours`() = runTest {
-        val afternoonClock = Clock.fixed(Instant.parse("2026-01-01T14:00:00Z"), ZoneOffset.UTC)
-        val viewModel = buildViewModel(clock = afternoonClock)
-
-        assertEquals("Good afternoon", viewModel.greeting())
-    }
+            assertEquals("Good morning", viewModel.greeting())
+        }
 
     @Test
-    fun `greeting returns Good evening for night hours`() = runTest {
-        val nightClock = Clock.fixed(Instant.parse("2026-01-01T22:00:00Z"), ZoneOffset.UTC)
-        val viewModel = buildViewModel(clock = nightClock)
+    fun `greeting returns Good afternoon for midday hours`() =
+        runTest {
+            val afternoonClock = Clock.fixed(Instant.parse("2026-01-01T14:00:00Z"), ZoneOffset.UTC)
+            val viewModel = buildViewModel(clock = afternoonClock)
 
-        assertEquals("Good evening", viewModel.greeting())
-    }
+            assertEquals("Good afternoon", viewModel.greeting())
+        }
 
     @Test
-    fun `greeting boundary at hour 5 is morning, hour 4 is evening`() = runTest {
-        val justBeforeMorning = Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)
-        val exactlyMorning = Clock.fixed(Instant.parse("2026-01-01T05:00:00Z"), ZoneOffset.UTC)
+    fun `greeting returns Good evening for night hours`() =
+        runTest {
+            val nightClock = Clock.fixed(Instant.parse("2026-01-01T22:00:00Z"), ZoneOffset.UTC)
+            val viewModel = buildViewModel(clock = nightClock)
 
-        assertEquals("Good evening", buildViewModel(clock = justBeforeMorning).greeting())
-        assertEquals("Good morning", buildViewModel(clock = exactlyMorning).greeting())
-    }
+            assertEquals("Good evening", viewModel.greeting())
+        }
 
-    private fun sampleModule(id: String) = com.example.cybershield.core.domain.model.Module(
-        id = id,
-        title = "Module $id",
-        description = "",
-        videoUrl = "",
-        order = 0,
-    )
+    @Test
+    fun `greeting boundary at hour 5 is morning, hour 4 is evening`() =
+        runTest {
+            val justBeforeMorning = Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)
+            val exactlyMorning = Clock.fixed(Instant.parse("2026-01-01T05:00:00Z"), ZoneOffset.UTC)
+
+            assertEquals("Good evening", buildViewModel(clock = justBeforeMorning).greeting())
+            assertEquals("Good morning", buildViewModel(clock = exactlyMorning).greeting())
+        }
+
+    private fun sampleModule(id: String) =
+        com.example.cybershield.core.domain.model.Module(
+            id = id,
+            title = "Module $id",
+            description = "",
+            videoUrl = "",
+            order = 0,
+        )
 }
 
 /**
@@ -360,23 +383,24 @@ private class FakeAuthRepository : AuthRepository {
 
     override fun currentSession(): AuthSession? = currentSessionToReturn
 
-    override fun observeAuthState() =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override fun observeAuthState() = throw NotImplementedError("Not used by HomeViewModel")
 
-    override suspend fun register(name: String, email: String, password: String) =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override suspend fun register(
+        name: String,
+        email: String,
+        password: String,
+    ) = throw NotImplementedError("Not used by HomeViewModel")
 
-    override suspend fun signIn(email: String, password: String) =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override suspend fun signIn(
+        email: String,
+        password: String,
+    ) = throw NotImplementedError("Not used by HomeViewModel")
 
-    override suspend fun resendVerificationEmail() =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override suspend fun resendVerificationEmail() = throw NotImplementedError("Not used by HomeViewModel")
 
-    override suspend fun refreshEmailVerified() =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override suspend fun refreshEmailVerified() = throw NotImplementedError("Not used by HomeViewModel")
 
-    override fun signOut() =
-        throw NotImplementedError("Not used by HomeViewModel")
+    override fun signOut() = throw NotImplementedError("Not used by HomeViewModel")
 }
 
 /**
@@ -394,7 +418,10 @@ private class FakeEnsureUserProfileUseCase : EnsureUserProfileUseCase {
         onProfileLoadedSuccessfullyCallCount++
     }
 
-    override suspend operator fun invoke(error: Exception, session: AuthSession?): ProfileRepairOutcome {
+    override suspend operator fun invoke(
+        error: Exception,
+        session: AuthSession?,
+    ): ProfileRepairOutcome {
         lastSessionPassed = session
         return outcomeToReturn
     }

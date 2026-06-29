@@ -17,7 +17,10 @@ class FakeEnsureUserProfileUseCase : EnsureUserProfileUseCase {
         onProfileLoadedSuccessfullyCallCount++
     }
 
-    override suspend operator fun invoke(error: Exception, session: AuthRepository.AuthSession?): ProfileRepairOutcome {
+    override suspend operator fun invoke(
+        error: Exception,
+        session: AuthRepository.AuthSession?,
+    ): ProfileRepairOutcome {
         lastSessionPassed = session
         return outcomeToReturn
     }

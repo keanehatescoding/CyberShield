@@ -9,7 +9,6 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
 
 @Dao
 interface QuizResultDao {
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(result: QuizResultEntity)
 
@@ -23,7 +22,7 @@ interface QuizResultDao {
     suspend fun markSynced(ids: List<Long>)
 
     @Transaction
-    suspend fun markSyncedAndDelete(localIds: List<Long>){
+    suspend fun markSyncedAndDelete(localIds: List<Long>) {
         markSynced(localIds)
         deleteByLocalIds(localIds)
     }

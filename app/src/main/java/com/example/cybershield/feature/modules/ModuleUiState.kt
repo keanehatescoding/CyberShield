@@ -8,5 +8,5 @@ data class ModuleUiState(
     val error: String? = null,
     val showCompletionDialog: Boolean = false,
     val isAlreadyCompleted: Boolean = false,
-    val isStale: Boolean = false
+    val isStale: Boolean = false,
 )

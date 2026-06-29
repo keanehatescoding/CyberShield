@@ -14,44 +14,52 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class NetworkMonitor @Inject constructor(
-    @ApplicationContext private val context: Context,
-) {
-    private val connectivityManager =
-        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+class NetworkMonitor
+    @Inject
+    constructor(
+        @ApplicationContext private val context: Context,
+    ) {
+        private val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    /** True when the device has an active internet-capable network. */
-    val isOnline: Flow<Boolean> = callbackFlow {
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                trySend(true)
-            }
-            override fun onLost(network: Network) {
-                trySend(false)
-            }
-            override fun onUnavailable() {
-                trySend(false)
-            }
-        }
+        /** True when the device has an active internet-capable network. */
+        val isOnline: Flow<Boolean> =
+            callbackFlow {
+                val callback =
+                    object : ConnectivityManager.NetworkCallback() {
+                        override fun onAvailable(network: Network) {
+                            trySend(true)
+                        }
 
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            .build()
+                        override fun onLost(network: Network) {
+                            trySend(false)
+                        }
 
-        connectivityManager.registerNetworkCallback(request, callback)
+                        override fun onUnavailable() {
+                            trySend(false)
+                        }
+                    }
 
-        // Emit current state immediately on collection
-        trySend(isCurrentlyOnline())
+                val request =
+                    NetworkRequest
+                        .Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                        .build()
 
-        awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
-    }.distinctUntilChanged()
+                connectivityManager.registerNetworkCallback(request, callback)
 
-    /** One-shot check — use in WorkManager tasks before attempting sync. */
-    fun isCurrentlyOnline(): Boolean {
-        val network = connectivityManager.activeNetwork ?: return false
-        val caps    = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                // Emit current state immediately on collection
+                trySend(isCurrentlyOnline())
+
+                awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+            }.distinctUntilChanged()
+
+        /** One-shot check — use in WorkManager tasks before attempting sync. */
+        fun isCurrentlyOnline(): Boolean {
+            val network = connectivityManager.activeNetwork ?: return false
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
+            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
     }
-}

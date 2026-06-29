@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.flow
  * simple success/error setters for the common cases.
  */
 class FakeModuleRepository : ModuleRepository {
-
     // ── Configurable behavior ────────────────────────────────────────
     var getModulesFlowProvider: () -> Flow<Result<List<Module>>> = {
         flow { emit(Result.Success(emptyList())) }
@@ -32,24 +31,33 @@ class FakeModuleRepository : ModuleRepository {
 
     override fun getModules(): Flow<Result<List<Module>>> = getModulesFlowProvider()
 
-    override fun getModuleById(moduleId: String): Flow<Result<Module>> =
-        getModuleByIdFlowProvider(moduleId)
+    override fun getModuleById(moduleId: String): Flow<Result<Module>> = getModuleByIdFlowProvider(moduleId)
 
     override suspend fun refreshModules(): Result<Unit> {
         refreshModulesCallCount++
         return refreshModulesResult
     }
 
-    override suspend fun savePlaybackPosition(moduleId: String, uid: String, positionMs: Long) {
+    override suspend fun savePlaybackPosition(
+        moduleId: String,
+        uid: String,
+        positionMs: Long,
+    ) {
         savePlaybackPositionCalls.add(Triple(moduleId, uid, positionMs))
         playbackPositions[moduleId to uid] = positionMs
     }
 
-    override suspend fun getPlaybackPosition(moduleId: String, uid: String): Long =
-        playbackPositions[moduleId to uid] ?: 0L
+    override suspend fun getPlaybackPosition(
+        moduleId: String,
+        uid: String,
+    ): Long = playbackPositions[moduleId to uid] ?: 0L
 
     /** Convenience: pre-seed a saved position without going through savePlaybackPosition. */
-    fun seedPlaybackPosition(moduleId: String, uid: String, positionMs: Long) {
+    fun seedPlaybackPosition(
+        moduleId: String,
+        uid: String,
+        positionMs: Long,
+    ) {
         playbackPositions[moduleId to uid] = positionMs
     }
 }

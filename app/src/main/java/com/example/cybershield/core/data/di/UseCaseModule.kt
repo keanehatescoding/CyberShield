@@ -20,10 +20,7 @@ import dagger.hilt.android.scopes.ViewModelScoped
 @Module
 @InstallIn(ViewModelComponent::class)
 abstract class UseCaseModule {
-
     @Binds
     @ViewModelScoped
-    abstract fun bindEnsureUserProfileUseCase(
-        impl: EnsureUserProfileUseCaseImpl,
-    ): EnsureUserProfileUseCase
+    abstract fun bindEnsureUserProfileUseCase(impl: EnsureUserProfileUseCaseImpl): EnsureUserProfileUseCase
 }

@@ -19,10 +19,9 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
     private val notificationPermissionLauncher =
         registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
+            ActivityResultContracts.RequestPermission(),
         ) { /* granted or denied — FCM still delivers data messages either way */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,8 +29,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestNotificationPermission()
 
-        val fcmScreen   = intent?.getStringExtra("screen")
-        val fcmQuizId   = intent?.getStringExtra("quizId")
+        val fcmScreen = intent?.getStringExtra("screen")
+        val fcmQuizId = intent?.getStringExtra("quizId")
         val fcmModuleId = intent?.getStringExtra("moduleId")
 
         setContent {
@@ -39,8 +38,8 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Surface(modifier = Modifier.padding(innerPadding)) {
                         NavigationRoot(
-                            deepLinkScreen   = fcmScreen,
-                            deepLinkQuizId   = fcmQuizId,
+                            deepLinkScreen = fcmScreen,
+                            deepLinkQuizId = fcmQuizId,
                             deepLinkModuleId = fcmModuleId,
                         )
                     }
@@ -48,16 +47,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
+            val granted =
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
 
             if (!granted) {
                 notificationPermissionLauncher.launch(
-                    Manifest.permission.POST_NOTIFICATIONS
+                    Manifest.permission.POST_NOTIFICATIONS,
                 )
             }
         }

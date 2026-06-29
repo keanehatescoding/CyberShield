@@ -34,7 +34,6 @@ import com.example.cybershield.ui.theme.LoadingScreen
 import com.example.cybershield.ui.theme.OfflineBanner
 import kotlinx.serialization.Serializable
 
-
 @Serializable
 object HomeRoute
 
@@ -45,20 +44,29 @@ object ProfileRoute
 object LeaderboardRoute
 
 @Serializable
-data class ModuleRoute(val moduleId: String)
-
-@Serializable
-data class QuizRoute(val quizId: String)
-
-@Serializable
-data class QuizResultRoute(
-    val quizId: String, val score: Int,
-    val xpEarned: Int, val passed: Boolean,
-    val timeTaken: Long, val totalQuestions: Int,
+data class ModuleRoute(
+    val moduleId: String,
 )
 
 @Serializable
-data class CertificateRoute(val certId: String)
+data class QuizRoute(
+    val quizId: String,
+)
+
+@Serializable
+data class QuizResultRoute(
+    val quizId: String,
+    val score: Int,
+    val xpEarned: Int,
+    val passed: Boolean,
+    val timeTaken: Long,
+    val totalQuestions: Int,
+)
+
+@Serializable
+data class CertificateRoute(
+    val certId: String,
+)
 
 @Composable
 fun NavigationRoot(
@@ -66,18 +74,17 @@ fun NavigationRoot(
     deepLinkQuizId: String? = null,
     deepLinkModuleId: String? = null,
 ) {
-
     val authViewModel: AuthViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
     val connectivityViewModel: ConnectivityViewModel =
         hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val isOnline by connectivityViewModel.isOnline.collectAsStateWithLifecycle()
 
-
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars),
     ) {
         OfflineBanner(isOffline = !isOnline)
         when (authState) {
@@ -85,7 +92,6 @@ fun NavigationRoot(
             is AuthState.SignedOut -> RegisterAndSignInScreen(authViewModel)
             is AuthState.AwaitingEmailVerification -> EmailVerificationScreen(authViewModel)
             is AuthState.Authenticated -> {
-
                 val navController = rememberNavController()
                 LaunchedEffect(deepLinkScreen, deepLinkQuizId, deepLinkModuleId) {
                     when (deepLinkScreen) {
@@ -142,10 +148,15 @@ fun NavigationRoot(
                     composable<QuizResultRoute> { back ->
                         val r = back.toRoute<QuizResultRoute>()
                         QuizResultScreen(
-                            result = QuizResult(
-                                r.quizId, r.score, r.totalQuestions,
-                                r.xpEarned, r.passed, r.timeTaken
-                            ),
+                            result =
+                                QuizResult(
+                                    r.quizId,
+                                    r.score,
+                                    r.totalQuestions,
+                                    r.xpEarned,
+                                    r.passed,
+                                    r.timeTaken,
+                                ),
                             onNavigateHome = {
                                 navController.navigate(HomeRoute) {
                                     popUpTo(HomeRoute) { inclusive = true }

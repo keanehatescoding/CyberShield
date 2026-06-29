@@ -27,27 +27,27 @@ fun OfflineBanner(
 ) {
     AnimatedVisibility(
         visible = isOffline,
-        enter   = expandVertically(),
-        exit    = shrinkVertically(),
+        enter = expandVertically(),
+        exit = shrinkVertically(),
         modifier = modifier,
     ) {
         Surface(
-            color    = MaterialTheme.colorScheme.errorContainer,
+            color = MaterialTheme.colorScheme.errorContainer,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
-                modifier          = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector        = Icons.Default.CloudOff,
+                    imageVector = Icons.Default.CloudOff,
                     contentDescription = null,
-                    tint               = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier           = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text  = "You're offline — showing cached content",
+                    text = "You're offline — showing cached content",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )

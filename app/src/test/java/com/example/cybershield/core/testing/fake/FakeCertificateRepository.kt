@@ -1,6 +1,5 @@
 package com.example.cybershield.core.testing.fake
 
-
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.repository.CertificateRepository
 import com.example.cybershield.core.domain.util.Result
@@ -10,16 +9,21 @@ import com.example.cybershield.core.domain.util.Result
  * used by FakeUserRepository / FakeModuleRepository.
  */
 class FakeCertificateRepository : CertificateRepository {
-
     private val certificatesByUid = mutableMapOf<String, List<Certificate>>()
     private val errorsByUid = mutableMapOf<String, Exception>()
 
-    fun setCertificates(uid: String, certificates: List<Certificate>) {
+    fun setCertificates(
+        uid: String,
+        certificates: List<Certificate>,
+    ) {
         errorsByUid.remove(uid)
         certificatesByUid[uid] = certificates
     }
 
-    fun setCertificatesError(uid: String, exception: Exception) {
+    fun setCertificatesError(
+        uid: String,
+        exception: Exception,
+    ) {
         certificatesByUid.remove(uid)
         errorsByUid[uid] = exception
     }

@@ -1,4 +1,3 @@
 package com.example.cybershield.core
 
-class NavigationRootTest {
-}
+class NavigationRootTest

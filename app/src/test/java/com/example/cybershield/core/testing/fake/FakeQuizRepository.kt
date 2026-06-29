@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 class FakeQuizRepository : QuizRepository {
-
     // Backing store
     private val quizzes = mutableMapOf<String, List<Question>>()
     private val passMarks = mutableMapOf<String, Int>()
@@ -19,11 +18,17 @@ class FakeQuizRepository : QuizRepository {
 
     // --- Test helpers ---
 
-    fun setQuizzesForModule(moduleId: String, items: List<Question>) {
+    fun setQuizzesForModule(
+        moduleId: String,
+        items: List<Question>,
+    ) {
         quizzes[moduleId] = items
     }
 
-    fun setPassMark(quizId: String, passMark: Int) {
+    fun setPassMark(
+        quizId: String,
+        passMark: Int,
+    ) {
         passMarks[quizId] = passMark
     }
 
@@ -36,13 +41,14 @@ class FakeQuizRepository : QuizRepository {
 
     // --- QuizRepository implementation ---
 
-    override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> = flow {
-        if (shouldReturnError) {
-            emit(Result.Error(Exception(errorMessage)))
-            return@flow
+    override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> =
+        flow {
+            if (shouldReturnError) {
+                emit(Result.Error(Exception(errorMessage)))
+                return@flow
+            }
+            emit(Result.Success(quizzes[quizId] ?: emptyList()))
         }
-        emit(Result.Success(quizzes[quizId] ?: emptyList()))
-    }
 
     override suspend fun getPassMark(quizId: String): Result<Int> {
         if (shouldReturnError) return Result.Error(Exception(errorMessage))
@@ -64,7 +70,7 @@ class FakeQuizRepository : QuizRepository {
                 moduleId = moduleId,
                 isCorrect = isCorrect,
                 selectedAnswer = selectedAnswer,
-            )
+            ),
         )
     }
 

@@ -9,12 +9,12 @@ import com.example.cybershield.core.database.Converters
 @TypeConverters(Converters::class)
 data class QuizEntity(
     @PrimaryKey
-    val id:           String,
-    val moduleId:     String,
-    val text:         String,
-    val options:      List<String>,
+    val id: String,
+    val moduleId: String,
+    val text: String,
+    val options: List<String>,
     val correctIndex: Int,
-    val explanation:  String = "",
+    val explanation: String = "",
     val order: Int,
-    val moduleName: String
+    val moduleName: String,
 )

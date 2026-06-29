@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
  * (the latter arrives inside Result.Error.exception).
  */
 interface AuthRepository {
-
     /** Null uid means "no signed-in user". */
     data class AuthSession(
         val uid: String,
@@ -23,9 +22,16 @@ interface AuthRepository {
     /** Emits whenever Firebase's auth state changes (sign in/out). */
     fun observeAuthState(): Flow<AuthSession?>
 
-    suspend fun register(name: String, email: String, password: String): Result<Unit>
+    suspend fun register(
+        name: String,
+        email: String,
+        password: String,
+    ): Result<Unit>
 
-    suspend fun signIn(email: String, password: String): Result<AuthSession>
+    suspend fun signIn(
+        email: String,
+        password: String,
+    ): Result<AuthSession>
 
     suspend fun resendVerificationEmail(): Result<Unit>
 

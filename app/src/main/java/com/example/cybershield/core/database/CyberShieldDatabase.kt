@@ -17,15 +17,18 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
         QuizEntity::class,
         QuizResultEntity::class,
         ModuleEntity::class,
-        PlaybackPositionEntity::class
+        PlaybackPositionEntity::class,
     ],
-    version  = 4,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
 abstract class CyberShieldDatabase : RoomDatabase() {
     abstract fun quizDao(): QuizDao
+
     abstract fun quizResultDao(): QuizResultDao
+
     abstract fun moduleDao(): ModuleDao
+
     abstract fun playbackPositionDao(): PlaybackPositionDao
 }

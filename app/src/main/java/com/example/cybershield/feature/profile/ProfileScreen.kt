@@ -48,9 +48,9 @@ import com.example.cybershield.feature.home.badgeEmoji
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onNavigateBack:        () -> Unit,
+    onNavigateBack: () -> Unit,
     onNavigateToCertificate: (certId: String) -> Unit,
-    onSignOut:             () -> Unit,
+    onSignOut: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -73,30 +73,31 @@ fun ProfileScreen(
         },
     ) { padding ->
         LazyColumn(
-            modifier       = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-
             // ── Profile card ───────────────────────────────────────────────
             item(key = "profile-card") {
                 uiState.user?.let { user ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
-                            modifier            = Modifier.padding(20.dp),
+                            modifier = Modifier.padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             // Avatar
                             Surface(
-                                shape    = CircleShape,
-                                color    = MaterialTheme.colorScheme.primaryContainer,
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
                                 modifier = Modifier.size(80.dp),
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
-                                        text  = user.displayName.firstOrNull()
-                                            ?.uppercaseChar()
-                                            ?.toString() ?: "?",
+                                        text =
+                                            user.displayName
+                                                .firstOrNull()
+                                                ?.uppercaseChar()
+                                                ?.toString() ?: "?",
                                         style = MaterialTheme.typography.headlineLarge,
                                         fontWeight = FontWeight.Bold,
                                     )
@@ -118,7 +119,7 @@ fun ProfileScreen(
                             // XP progress
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
                                     "Level ${user.computedLevel}",
@@ -132,8 +133,8 @@ fun ProfileScreen(
                             }
                             Spacer(Modifier.height(6.dp))
                             LinearProgressIndicator(
-                                progress   = { user.xpProgress },
-                                modifier   = Modifier.fillMaxWidth().height(8.dp),
+                                progress = { user.xpProgress },
+                                modifier = Modifier.fillMaxWidth().height(8.dp),
                             )
                         }
                     }
@@ -150,7 +151,7 @@ fun ProfileScreen(
                         listOf(
                             Triple("🏆", "${user.completedQuizzes.size}", "Quizzes"),
                             Triple("📚", "${user.completedModules.size}", "Modules"),
-                            Triple("🎖",  "${user.badges.size}",            "Badges"),
+                            Triple("🎖", "${user.badges.size}", "Badges"),
                         ).forEach { (emoji, value, label) ->
                             Card(modifier = Modifier.weight(1f)) {
                                 Column(
@@ -158,11 +159,13 @@ fun ProfileScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(emoji, fontSize = 24.sp)
-                                    Text(value,
+                                    Text(
+                                        value,
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                     )
-                                    Text(label,
+                                    Text(
+                                        label,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -175,22 +178,30 @@ fun ProfileScreen(
 
             // ── Badges ─────────────────────────────────────────────────────
             uiState.user?.let { user ->
-            if (user.badges.isNotEmpty() ) {
-                item(key = "badges-header") {
-                    Text("Earned badges", style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold)
-                }   }
+                if (user.badges.isNotEmpty()) {
+                    item(key = "badges-header") {
+                        Text(
+                            "Earned badges",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
                 item(key = "badges-row") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(uiState.user!!.badges, key = { it }) { badge ->
                             ElevatedCard(modifier = Modifier.size(72.dp)) {
-                                Box(Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center) {
+                                Box(
+                                    Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(badgeEmoji(badge), fontSize = 28.sp)
-                                        Text(badge,
+                                        Text(
+                                            badge,
                                             style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1)
+                                            maxLines = 1,
+                                        )
                                     }
                                 }
                             }
@@ -202,12 +213,15 @@ fun ProfileScreen(
             // ── Certificates ───────────────────────────────────────────────
             if (uiState.certificates.isNotEmpty()) {
                 item(key = "certs-header") {
-                    Text("My certificates", style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "My certificates",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 items(uiState.certificates, key = { it.id }) { cert ->
                     OutlinedCard(
-                        onClick  = { onNavigateToCertificate(cert.id) },
+                        onClick = { onNavigateToCertificate(cert.id) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
@@ -217,13 +231,18 @@ fun ProfileScreen(
                             Text("🎓", fontSize = 32.sp)
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(cert.quizTitle,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text  = "Score: ${cert.score} · ${cert.datePassed.let {
-                                        java.text.SimpleDateFormat("dd MMM yyyy",
-                                            java.util.Locale.getDefault()).format(it)
+                                    cert.quizTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "Score: ${cert.score} · ${cert.datePassed.let {
+                                        java.text
+                                            .SimpleDateFormat(
+                                                "dd MMM yyyy",
+                                                java.util.Locale.getDefault(),
+                                            ).format(it)
                                     } ?: ""}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -239,11 +258,12 @@ fun ProfileScreen(
             item(key = "signout") {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick  = onSignOut,
+                    onClick = onSignOut,
                     modifier = Modifier.fillMaxWidth(),
-                    colors   = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
+                    colors =
+                        ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Logout, null)
                     Spacer(Modifier.width(8.dp))

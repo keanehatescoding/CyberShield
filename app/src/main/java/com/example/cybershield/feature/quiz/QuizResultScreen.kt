@@ -25,49 +25,50 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cybershield.core.domain.model.QuizResult
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizResultScreen(
     result: QuizResult,
-    onNavigateHome:   () -> Unit,
-    onRetakeQuiz:     () -> Unit,
+    onNavigateHome: () -> Unit,
+    onRetakeQuiz: () -> Unit,
     onViewCertificate: () -> Unit,
 ) {
     Scaffold { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-
             // ── Pass / fail emoji ──────────────────────────────────────
             Text(
-                text     = if (result.passed) "🏆" else "💪",
+                text = if (result.passed) "🏆" else "💪",
                 fontSize = 72.sp,
             )
 
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text       = if (result.passed) "Quiz passed!" else "Keep practising!",
-                style      = MaterialTheme.typography.headlineMedium,
+                text = if (result.passed) "Quiz passed!" else "Keep practising!",
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                textAlign  = TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
 
             Spacer(Modifier.height(8.dp))
 
             Text(
-                text      = if (result.passed)
-                    "You earned +${result.xpEarned} XP and unlocked a certificate!"
-                else
-                    "You earned +${result.xpEarned} XP. Try again to pass and get a certificate.",
-                style     = MaterialTheme.typography.bodyLarge,
-                color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                text =
+                    if (result.passed) {
+                        "You earned +${result.xpEarned} XP and unlocked a certificate!"
+                    } else {
+                        "You earned +${result.xpEarned} XP. Try again to pass and get a certificate."
+                    },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
 
@@ -76,12 +77,12 @@ fun QuizResultScreen(
             // ── Stats card ─────────────────────────────────────────────
             Card(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier              = Modifier.padding(20.dp).fillMaxWidth(),
+                    modifier = Modifier.padding(20.dp).fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    ResultStat(label = "Score",    value = "${result.score}")
+                    ResultStat(label = "Score", value = "${result.score}")
                     ResultStat(label = "XP earned", value = "+${result.xpEarned}")
-                    ResultStat(label = "Time",      value = "${result.timeTaken}s")
+                    ResultStat(label = "Time", value = "${result.timeTaken}s")
                 }
             }
 
@@ -90,7 +91,7 @@ fun QuizResultScreen(
             // ── Certificate button (only if passed) ────────────────────
             if (result.passed) {
                 Button(
-                    onClick  = onViewCertificate,
+                    onClick = onViewCertificate,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Text("🎓 View my certificate")
@@ -100,7 +101,7 @@ fun QuizResultScreen(
 
             // ── Retake / Home ──────────────────────────────────────────
             OutlinedButton(
-                onClick  = onRetakeQuiz,
+                onClick = onRetakeQuiz,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) { Text(if (result.passed) "Retake quiz" else "Try again") }
 
@@ -114,15 +115,18 @@ fun QuizResultScreen(
 }
 
 @Composable
-private fun ResultStat(label: String, value: String) {
+private fun ResultStat(
+    label: String,
+    value: String,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text       = value,
-            style      = MaterialTheme.typography.titleLarge,
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text  = label,
+            text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

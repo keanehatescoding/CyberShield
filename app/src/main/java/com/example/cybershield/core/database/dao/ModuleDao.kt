@@ -9,7 +9,6 @@ import com.example.cybershield.core.database.entity.ModuleEntity
 
 @Dao
 interface ModuleDao {
-
     @Query("SELECT * FROM modules WHERE published = 1 ORDER BY `order` ASC")
     suspend fun getAll(): List<ModuleEntity>
 

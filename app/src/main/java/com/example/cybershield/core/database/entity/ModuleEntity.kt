@@ -21,35 +21,37 @@ data class ModuleEntity(
     val cachedAt: Long = System.currentTimeMillis(),
     val new: Boolean,
 ) {
-    fun toDomain(): Module = Module(
-        id = id,
-        title = title,
-        description = description,
-        thumbnailUrl = thumbnailUrl,
-        videoUrl = videoUrl,
-        category = category,
-        durationMins = durationMins,
-        order = order,
-        xpReward = xpReward,
-        quizId = quizId,
-        published = published,
-        new = new
-    )
+    fun toDomain(): Module =
+        Module(
+            id = id,
+            title = title,
+            description = description,
+            thumbnailUrl = thumbnailUrl,
+            videoUrl = videoUrl,
+            category = category,
+            durationMins = durationMins,
+            order = order,
+            xpReward = xpReward,
+            quizId = quizId,
+            published = published,
+            new = new,
+        )
 
     companion object {
-        fun fromDomain(module: Module): ModuleEntity = ModuleEntity(
-            id = module.id,
-            title = module.title,
-            description = module.description,
-            thumbnailUrl = module.thumbnailUrl,
-            videoUrl = module.videoUrl,
-            category = module.category,
-            durationMins = module.durationMins,
-            order = module.order,
-            xpReward = module.xpReward,
-            quizId = module.quizId,
-            published = module.published,
-            new = module.new
-        )
+        fun fromDomain(module: Module): ModuleEntity =
+            ModuleEntity(
+                id = module.id,
+                title = module.title,
+                description = module.description,
+                thumbnailUrl = module.thumbnailUrl,
+                videoUrl = module.videoUrl,
+                category = module.category,
+                durationMins = module.durationMins,
+                order = module.order,
+                xpReward = module.xpReward,
+                quizId = module.quizId,
+                published = module.published,
+                new = module.new,
+            )
     }
 }

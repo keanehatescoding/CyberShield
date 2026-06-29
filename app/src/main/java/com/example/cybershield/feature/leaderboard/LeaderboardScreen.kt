@@ -66,7 +66,7 @@ fun LeaderboardScreen(
             }
             else -> {
                 LazyColumn(
-                    modifier       = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize().padding(padding),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -80,11 +80,11 @@ fun LeaderboardScreen(
                     // Full ranked list
                     itemsIndexed(
                         items = uiState.entries,
-                        key   = { _, entry -> entry.uid },
+                        key = { _, entry -> entry.uid },
                     ) { index, entry ->
                         LeaderboardRow(
-                            rank      = index + 1,
-                            entry     = entry,
+                            rank = index + 1,
+                            entry = entry,
                             isCurrentUser = entry.uid == uiState.currentUid,
                         )
                     }
@@ -96,33 +96,48 @@ fun LeaderboardScreen(
 
 @Composable
 private fun LeaderboardRow(
-    rank:          Int,
+    rank: Int,
     entry: LeaderboardEntry,
     isCurrentUser: Boolean,
 ) {
-    val rankEmoji = when (rank) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "#$rank" }
+    val rankEmoji =
+        when (rank) {
+            1 -> "🥇"
+            2 -> "🥈"
+            3 -> "🥉"
+            else -> "#$rank"
+        }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors   = CardDefaults.cardColors(
-            containerColor = if (isCurrentUser)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surface,
-        ),
-        border = if (isCurrentUser)
-            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-        else null,
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (isCurrentUser) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+            ),
+        border =
+            if (isCurrentUser) {
+                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            } else {
+                null
+            },
     ) {
         Row(
-            modifier          = Modifier.padding(14.dp).fillMaxWidth(),
+            modifier = Modifier.padding(14.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(rankEmoji, fontSize = if (rank <= 3) 24.sp else 16.sp,
-                modifier = Modifier.width(48.dp))
+            Text(
+                rankEmoji,
+                fontSize = if (rank <= 3) 24.sp else 16.sp,
+                modifier = Modifier.width(48.dp),
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     if (isCurrentUser) "${entry.displayName} (You)" else entry.displayName,
-                    style      = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal,
                 )
                 Text(
@@ -134,9 +149,9 @@ private fun LeaderboardRow(
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     "${entry.xp} XP",
-                    style      = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color      = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -146,9 +161,9 @@ private fun LeaderboardRow(
 @Composable
 private fun PodiumRow(top3: List<LeaderboardEntry>) {
     Row(
-        modifier              = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment     = Alignment.Bottom,
+        verticalAlignment = Alignment.Bottom,
     ) {
         PodiumEntry(entry = top3[1], rank = 2, height = 80.dp)
         PodiumEntry(entry = top3[0], rank = 1, height = 110.dp)
@@ -158,11 +173,16 @@ private fun PodiumRow(top3: List<LeaderboardEntry>) {
 
 @Composable
 private fun PodiumEntry(
-    entry:  LeaderboardEntry,
-    rank:   Int,
+    entry: LeaderboardEntry,
+    rank: Int,
     height: androidx.compose.ui.unit.Dp,
 ) {
-    val medal = when (rank) { 1 -> "🥇"; 2 -> "🥈"; else -> "🥉" }
+    val medal =
+        when (rank) {
+            1 -> "🥇"
+            2 -> "🥈"
+            else -> "🥉"
+        }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(medal, fontSize = 28.sp)
         Text(
@@ -177,7 +197,7 @@ private fun PodiumEntry(
         )
         Spacer(Modifier.height(8.dp))
         Surface(
-            color    = MaterialTheme.colorScheme.primaryContainer,
+            color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier.width(80.dp).height(height),
         ) {}
     }

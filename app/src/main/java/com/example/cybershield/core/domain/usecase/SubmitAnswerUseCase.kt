@@ -10,25 +10,27 @@ import javax.inject.Inject
  * Returns a Result wrapping a Boolean — true if correct, false otherwise.
  * Also persists the quiz result via the repository for later sync.
  */
-class SubmitAnswerUseCase @Inject constructor(
-    private val quizRepository: QuizRepository,
-) {
-    suspend operator fun invoke(
-        question: Question,
-        selectedAnswer: String,
-        isCorrect: Boolean,
-        userId: String,
-    ): Result<Boolean> =
-        try {
-            quizRepository.saveQuizResult(
-                userId         = userId,
-                quizId         = question.id,
-                moduleId       = question.moduleId,
-                isCorrect      = isCorrect,
-                selectedAnswer = selectedAnswer,
-            )
-            Result.Success(isCorrect)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
-}
+class SubmitAnswerUseCase
+    @Inject
+    constructor(
+        private val quizRepository: QuizRepository,
+    ) {
+        suspend operator fun invoke(
+            question: Question,
+            selectedAnswer: String,
+            isCorrect: Boolean,
+            userId: String,
+        ): Result<Boolean> =
+            try {
+                quizRepository.saveQuizResult(
+                    userId = userId,
+                    quizId = question.id,
+                    moduleId = question.moduleId,
+                    isCorrect = isCorrect,
+                    selectedAnswer = selectedAnswer,
+                )
+                Result.Success(isCorrect)
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
+    }

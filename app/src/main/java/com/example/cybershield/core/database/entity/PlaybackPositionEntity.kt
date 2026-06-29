@@ -2,7 +2,6 @@ package com.example.cybershield.core.database.entity
 
 import androidx.room.Entity
 
-
 @Entity(
     tableName = "playback_positions",
     primaryKeys = ["moduleId", "uid"],

@@ -18,11 +18,11 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object SyncModule {
-
     @Provides
     @Singleton
-    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
-        WorkManager.getInstance(context)
+    fun provideWorkManager(
+        @ApplicationContext context: Context,
+    ): WorkManager = WorkManager.getInstance(context)
 
     /**
      * Schedules a periodic background sync that runs every 15 minutes
@@ -30,20 +30,22 @@ object SyncModule {
      * Call this once from Application.onCreate() or CyberShieldApp.
      */
     fun schedulePeriodic(workManager: WorkManager) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
+        val constraints =
+            Constraints
+                .Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
 
-        val request = PeriodicWorkRequestBuilder<SyncQuizResultsWorker>(
-            repeatInterval     = 15,
-            repeatIntervalTimeUnit = TimeUnit.MINUTES,
-        )
-            .setConstraints(constraints)
-            .build()
+        val request =
+            PeriodicWorkRequestBuilder<SyncQuizResultsWorker>(
+                repeatInterval = 15,
+                repeatIntervalTimeUnit = TimeUnit.MINUTES,
+            ).setConstraints(constraints)
+                .build()
 
         workManager.enqueueUniquePeriodicWork(
             SyncQuizResultsWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,   // don't restart if already scheduled
+            ExistingPeriodicWorkPolicy.KEEP, // don't restart if already scheduled
             request,
         )
     }

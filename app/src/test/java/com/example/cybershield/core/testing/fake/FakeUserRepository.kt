@@ -9,16 +9,17 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 
 class FakeUserRepository : UserRepository {
     // ── Mutable test state — inspect these in assertions ──────────────
-    var fakeUser: User = User(
-        uid = "test-uid",
-        displayName = "Test User",
-        email = "test@cybershield.com",
-    )
-    val savedCertificates  = mutableListOf<Certificate>()
-    val awardedBadges      = mutableListOf<String>()
-    val completedQuizIds   = mutableListOf<String>()
+    var fakeUser: User =
+        User(
+            uid = "test-uid",
+            displayName = "Test User",
+            email = "test@cybershield.com",
+        )
+    val savedCertificates = mutableListOf<Certificate>()
+    val awardedBadges = mutableListOf<String>()
+    val completedQuizIds = mutableListOf<String>()
     val completedModuleIds = mutableListOf<String>()
-    var totalXpAdded       = 0
+    var totalXpAdded = 0
 
     // ── getUserProfile() override controls ─────────────────────────────
     // Default (null) preserves the original behavior exactly: a fixed one-shot
@@ -51,16 +52,18 @@ class FakeUserRepository : UserRepository {
 
     private val profileFlows = mutableMapOf<String, MutableSharedFlow<Result<User>>>()
 
-    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> =
-        profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
-
+    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> = profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
 
     /**
      * @param emitImmediately when false, the flow is created but nothing is
      * emitted yet — useful for asserting the initial/loading state before
      * a result arrives. Call [emitUserProfile] later to push the value.
      */
-    fun setUserProfile(uid: String, user: User, emitImmediately: Boolean = true) {
+    fun setUserProfile(
+        uid: String,
+        user: User,
+        emitImmediately: Boolean = true,
+    ) {
         if (emitImmediately) {
             flowFor(uid).tryEmit(Result.Success(user))
         } else {
@@ -69,12 +72,18 @@ class FakeUserRepository : UserRepository {
         }
     }
 
-    fun setUserProfileError(uid: String, exception: Exception) {
+    fun setUserProfileError(
+        uid: String,
+        exception: Exception,
+    ) {
         flowFor(uid).tryEmit(Result.Error(exception))
     }
 
     /** Push a new emission onto an already-created flow for [uid]. */
-    fun emitUserProfile(uid: String, user: User) {
+    fun emitUserProfile(
+        uid: String,
+        user: User,
+    ) {
         flowFor(uid).tryEmit(Result.Success(user))
     }
 
@@ -91,48 +100,66 @@ class FakeUserRepository : UserRepository {
         userProfileFlow.tryEmit(result)
     }
 
-    override suspend fun getUserProfileOnce(uid: String): Result<User> =
-        Result.Success(fakeUser)
+    override suspend fun getUserProfileOnce(uid: String): Result<User> = Result.Success(fakeUser)
 
     // ── Write ─────────────────────────────────────────────────────────
     override suspend fun createUserProfile(
-        uid: String, displayName: String, email: String, photoUrl: String?,
+        uid: String,
+        displayName: String,
+        email: String,
+        photoUrl: String?,
     ): Result<Unit> = Result.Success(Unit)
 
     override suspend fun createUserProfileIfNotExists(
-        uid: String, displayName: String, email: String, photoUrl: String?,
+        uid: String,
+        displayName: String,
+        email: String,
+        photoUrl: String?,
     ): Result<Unit> {
         createUserProfileIfNotExistsCallCount++
         lastCreateUserProfileIfNotExistsArgs = CreateProfileArgs(uid, displayName, email, photoUrl)
         return createUserProfileIfNotExistsResult
     }
 
-    override suspend fun addXp(uid: String, points: Int): Result<Unit> {
+    override suspend fun addXp(
+        uid: String,
+        points: Int,
+    ): Result<Unit> {
         totalXpAdded += points
         fakeUser = fakeUser.copy(xp = fakeUser.xp + points)
         return Result.Success(Unit)
     }
 
-    override suspend fun awardBadge(uid: String, badge: String): Result<Unit> {
+    override suspend fun awardBadge(
+        uid: String,
+        badge: String,
+    ): Result<Unit> {
         awardedBadges.add(badge)
         return Result.Success(Unit)
     }
 
-    override suspend fun markQuizCompleted(uid: String, quizId: String): Result<Unit> {
+    override suspend fun markQuizCompleted(
+        uid: String,
+        quizId: String,
+    ): Result<Unit> {
         completedQuizIds.add(quizId)
         return Result.Success(Unit)
     }
 
-    override suspend fun markModuleCompleted(uid: String, moduleId: String): Result<Unit> {
+    override suspend fun markModuleCompleted(
+        uid: String,
+        moduleId: String,
+    ): Result<Unit> {
         completedModuleIds.add(moduleId)
         return Result.Success(Unit)
     }
 
-    override suspend fun updateFcmToken(uid: String, token: String): Result<Unit> =
-        Result.Success(Unit)
+    override suspend fun updateFcmToken(
+        uid: String,
+        token: String,
+    ): Result<Unit> = Result.Success(Unit)
 
-    override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
-        Result.Success(Unit)
+    override suspend fun updateLastSignedIn(uid: String): Result<Unit> = Result.Success(Unit)
 
     override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
         try {

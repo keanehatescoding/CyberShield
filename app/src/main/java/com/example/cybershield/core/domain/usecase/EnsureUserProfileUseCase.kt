@@ -12,7 +12,9 @@ import javax.inject.Inject
  */
 sealed class ProfileRepairOutcome {
     /** The error wasn't a missing-profile case (or there's no signed-in session) — pass it through as-is. */
-    data class NotApplicable(val message: String?) : ProfileRepairOutcome()
+    data class NotApplicable(
+        val message: String?,
+    ) : ProfileRepairOutcome()
 
     /** Missing-profile repair was attempted and succeeded. The live profile flow
      *  is expected to re-emit Success once Firestore reflects the new doc. */
@@ -25,7 +27,9 @@ sealed class ProfileRepairOutcome {
      *  hasn't been reset by a subsequent successful load. Matches the original
      *  ViewModel's behavior: don't retry the repair, but keep surfacing the
      *  underlying error message so the UI doesn't silently go stale. */
-    data class AlreadyAttempted(val message: String?) : ProfileRepairOutcome()
+    data class AlreadyAttempted(
+        val message: String?,
+    ) : ProfileRepairOutcome()
 }
 
 /**
@@ -41,7 +45,10 @@ interface EnsureUserProfileUseCase {
     /** Call when [UserRepository.getUserProfile] emits a [Result.Success] to allow a future repair attempt again. */
     fun onProfileLoadedSuccessfully()
 
-    suspend operator fun invoke(error: Exception, session: AuthSession?): ProfileRepairOutcome
+    suspend operator fun invoke(
+        error: Exception,
+        session: AuthSession?,
+    ): ProfileRepairOutcome
 }
 
 /**
@@ -49,41 +56,44 @@ interface EnsureUserProfileUseCase {
  * the "already attempted" flag lives exactly as long as it did when it was a
  * private field on HomeViewModel — tied to that ViewModel's lifecycle, not global.
  */
-class EnsureUserProfileUseCaseImpl @Inject constructor(
-    private val userRepository: UserRepository,
-) : EnsureUserProfileUseCase {
-    private var repairAttempted = false
+class EnsureUserProfileUseCaseImpl
+    @Inject
+    constructor(
+        private val userRepository: UserRepository,
+    ) : EnsureUserProfileUseCase {
+        private var repairAttempted = false
 
-    override fun onProfileLoadedSuccessfully() {
-        repairAttempted = false
+        override fun onProfileLoadedSuccessfully() {
+            repairAttempted = false
+        }
+
+        override suspend operator fun invoke(
+            error: Exception,
+            session: AuthSession?,
+        ): ProfileRepairOutcome {
+            val isMissingProfile = error.message?.contains("not found") == true
+
+            if (session == null || !isMissingProfile) {
+                return ProfileRepairOutcome.NotApplicable(error.message)
+            }
+
+            if (repairAttempted) {
+                return ProfileRepairOutcome.AlreadyAttempted(error.message)
+            }
+            repairAttempted = true
+
+            val repairResult =
+                userRepository.createUserProfileIfNotExists(
+                    uid = session.uid,
+                    displayName = "CyberShield User",
+                    email = session.email ?: "",
+                    photoUrl = null,
+                )
+
+            return if (repairResult is Result.Error) {
+                ProfileRepairOutcome.RepairFailed
+            } else {
+                ProfileRepairOutcome.RepairSucceeded
+            }
+        }
     }
-
-    override suspend operator fun invoke(
-        error: Exception,
-        session: AuthSession?,
-    ): ProfileRepairOutcome {
-        val isMissingProfile = error.message?.contains("not found") == true
-
-        if (session == null || !isMissingProfile) {
-            return ProfileRepairOutcome.NotApplicable(error.message)
-        }
-
-        if (repairAttempted) {
-            return ProfileRepairOutcome.AlreadyAttempted(error.message)
-        }
-        repairAttempted = true
-
-        val repairResult = userRepository.createUserProfileIfNotExists(
-            uid = session.uid,
-            displayName = "CyberShield User",
-            email = session.email ?: "",
-            photoUrl = null,
-        )
-
-        return if (repairResult is Result.Error) {
-            ProfileRepairOutcome.RepairFailed
-        } else {
-            ProfileRepairOutcome.RepairSucceeded
-        }
-    }
-}

@@ -17,11 +17,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun LoadingScreen(
     modifier: Modifier = Modifier,
-    message:  String? = null,
+    message: String? = null,
 ) {
     Box(
-        modifier          = modifier.fillMaxSize(),
-        contentAlignment  = Alignment.Center,
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -33,7 +33,7 @@ fun LoadingScreen(
             if (message != null) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text  = message,
+                    text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

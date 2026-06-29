@@ -49,15 +49,15 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CertificateScreen(
-    certId:         String,
+    certId: String,
     onNavigateBack: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
-    val uiState  by viewModel.uiState.collectAsStateWithLifecycle()
-    val context   = LocalContext.current
-    val scope     = rememberCoroutineScope()
-    val cert      = uiState.certificates.find { it.id == certId }
-    val user      = uiState.user
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cert = uiState.certificates.find { it.id == certId }
+    val user = uiState.user
     var isGenerating by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -78,20 +78,21 @@ fun CertificateScreen(
             }
         } else {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(24.dp),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // ── Certificate preview card ───────────────────────────────
                 CertificatePreviewCard(
-                    userName  = user.displayName,
+                    userName = user.displayName,
                     quizTitle = cert.quizTitle,
-                    score     = cert.score,
-                    date      = cert.datePassed,
-                    certId    = cert.id,
+                    score = cert.score,
+                    date = cert.datePassed,
+                    certId = cert.id,
                 )
 
                 HorizontalDivider()
@@ -102,25 +103,26 @@ fun CertificateScreen(
                         scope.launch {
                             isGenerating = true
                             val generator = CertificateGenerator(context)
-                            val file = generator.generate(
-                                userName  = user.displayName,
-                                quizTitle = cert.quizTitle,
-                                score     = cert.score,
-                                date      = cert.datePassed,
-                                certId    = cert.id,
-                            )
+                            val file =
+                                generator.generate(
+                                    userName = user.displayName,
+                                    quizTitle = cert.quizTitle,
+                                    score = cert.score,
+                                    date = cert.datePassed,
+                                    certId = cert.id,
+                                )
                             isGenerating = false
                             generator.share(context, file)
                         }
                     },
-                    enabled  = !isGenerating,
+                    enabled = !isGenerating,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     if (isGenerating) {
                         CircularProgressIndicator(
-                            modifier    = Modifier.size(20.dp),
+                            modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
-                            color       = MaterialTheme.colorScheme.onPrimary,
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
                         Icon(Icons.Default.Share, null)
@@ -131,21 +133,21 @@ fun CertificateScreen(
 
                 // ── Save to downloads ──────────────────────────────────────
                 OutlinedButton(
-                    onClick  = {
+                    onClick = {
                         scope.launch {
                             isGenerating = true
                             val generator = CertificateGenerator(context)
                             generator.saveToDownloads(
-                                userName  = user.displayName,
+                                userName = user.displayName,
                                 quizTitle = cert.quizTitle,
-                                score     = cert.score,
-                                date      = cert.datePassed,
-                                certId    = cert.id,
+                                score = cert.score,
+                                date = cert.datePassed,
+                                certId = cert.id,
                             )
                             isGenerating = false
                         }
                     },
-                    enabled  = !isGenerating,
+                    enabled = !isGenerating,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Icon(Icons.Default.Download, null)
@@ -160,30 +162,31 @@ fun CertificateScreen(
 // ── Certificate preview composable ────────────────────────────────────
 @Composable
 fun CertificatePreviewCard(
-    userName:  String,
+    userName: String,
     quizTitle: String,
-    score:     Int,
-    date:      java.util.Date?,
-    certId:    String,
+    score: Int,
+    date: java.util.Date?,
+    certId: String,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors   = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
         border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
     ) {
         Column(
-            modifier            = Modifier.padding(24.dp).fillMaxWidth(),
+            modifier = Modifier.padding(24.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("🛡", fontSize = 48.sp)
             Text(
                 "CYBERSHIELD",
-                style      = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 4.sp,
-                color      = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(16.dp))
             Text(
@@ -199,7 +202,7 @@ fun CertificatePreviewCard(
             )
             Text(
                 userName,
-                style      = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
@@ -210,9 +213,9 @@ fun CertificatePreviewCard(
             )
             Text(
                 quizTitle,
-                style      = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                textAlign  = TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(12.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
@@ -227,8 +230,11 @@ fun CertificatePreviewCard(
                 )
                 Text(
                     date?.let {
-                        java.text.SimpleDateFormat("dd MMM yyyy",
-                            java.util.Locale.getDefault()).format(it)
+                        java.text
+                            .SimpleDateFormat(
+                                "dd MMM yyyy",
+                                java.util.Locale.getDefault(),
+                            ).format(it)
                     } ?: "",
                     style = MaterialTheme.typography.labelMedium,
                 )

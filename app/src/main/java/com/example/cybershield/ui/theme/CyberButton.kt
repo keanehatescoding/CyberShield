@@ -1,4 +1,3 @@
 package com.example.cybershield.ui.theme
 
-class CyberButton {
-}
+class CyberButton

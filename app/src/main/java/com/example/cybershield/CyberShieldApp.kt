@@ -13,14 +13,17 @@ import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
 @HiltAndroidApp
-class CyberShieldApp : Application(), Configuration.Provider {
-
+class CyberShieldApp :
+    Application(),
+    Configuration.Provider {
     // Hilt-aware WorkerFactory — required for @HiltWorker to work
     @Inject lateinit var workerFactory: HiltWorkerFactory
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+        get() =
+            Configuration
+                .Builder()
+                .setWorkerFactory(workerFactory)
+                .build()
 
     override fun onCreate() {
         super.onCreate()

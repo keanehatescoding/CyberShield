@@ -8,15 +8,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FirestoreUserDataSource @Inject constructor(
-    private val firestore: FirebaseFirestore,
-) {
-    fun userDoc(uid: String) =
-        firestore.collection("users").document(uid)
+class FirestoreUserDataSource
+    @Inject
+    constructor(
+        private val firestore: FirebaseFirestore,
+    ) {
+        fun userDoc(uid: String) = firestore.collection("users").document(uid)
 
-    suspend fun getUser(uid: String): UserDto? =
-        userDoc(uid).get().await().toObject<UserDto>()
+        suspend fun getUser(uid: String): UserDto? = userDoc(uid).get().await().toObject<UserDto>()
 
-    suspend fun userExists(uid: String): Boolean =
-        userDoc(uid).get().await().exists()
-}
+        suspend fun userExists(uid: String): Boolean = userDoc(uid).get().await().exists()
+    }

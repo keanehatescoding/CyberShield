@@ -36,42 +36,50 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun RegisterAndSignInScreen(
-    viewModel: AuthViewModel,
-) {
+fun RegisterAndSignInScreen(viewModel: AuthViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val signedOut = state as? AuthState.SignedOut ?: return
 
     var isRegisterMode by rememberSaveable { mutableStateOf(false) }
-    var name     by rememberSaveable { mutableStateOf("") }
-    var email    by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
 
     var hasAttemptedSubmit by rememberSaveable { mutableStateOf(false) }
 
-    val emailError: String? = when {
-        !hasAttemptedSubmit          -> null
-        email.isBlank()              -> "Email is required"
-        !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    val emailError: String? =
+        when {
+            !hasAttemptedSubmit -> null
+            email.isBlank() -> "Email is required"
+            !android.util.Patterns.EMAIL_ADDRESS
+                .matcher(email)
+                .matches()
             -> "Enter a valid email address"
-        else                          -> null
-    }
-    val passwordError: String? = when {
-        !hasAttemptedSubmit          -> null
-        password.isBlank()           -> "Password is required"
-        isRegisterMode && password.length < 8
+            else -> null
+        }
+    val passwordError: String? =
+        when {
+            !hasAttemptedSubmit -> null
+            password.isBlank() -> "Password is required"
+            isRegisterMode && password.length < 8
             -> "Password must be at least 8 characters"
-        else                          -> null
-    }
-    val nameError: String? = when {
-        !isRegisterMode || !hasAttemptedSubmit -> null
-        name.isBlank()                          -> "Name is required"
-        else                                     -> null
-    }
+            else -> null
+        }
+    val nameError: String? =
+        when {
+            !isRegisterMode || !hasAttemptedSubmit -> null
+            name.isBlank() -> "Name is required"
+            else -> null
+        }
 
-    val isFormValid = emailError == null && passwordError == null && nameError == null &&
+    val isFormValid =
+        emailError == null &&
+            passwordError == null &&
+            nameError == null &&
             email.isNotBlank() &&
-            android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
+            android.util.Patterns.EMAIL_ADDRESS
+                .matcher(email)
+                .matches() &&
             password.length >= (if (isRegisterMode) 8 else 1) &&
             (!isRegisterMode || name.isNotBlank())
 
@@ -81,10 +89,11 @@ fun RegisterAndSignInScreen(
     // Column's available height to zero when the keyboard opens (the "black
     // screen" bug). This screen just fills the space it's given.
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(48.dp))
@@ -92,14 +101,17 @@ fun RegisterAndSignInScreen(
         Spacer(Modifier.height(16.dp))
         Text(
             if (isRegisterMode) "Create your account" else "Welcome back",
-            style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(32.dp))
 
         if (isRegisterMode) {
             OutlinedTextField(
-                value = name, onValueChange = { name = it },
-                label = { Text("Full name") }, singleLine = true,
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Full name") },
+                singleLine = true,
                 isError = nameError != null,
                 supportingText = { nameError?.let { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
@@ -108,8 +120,10 @@ fun RegisterAndSignInScreen(
         }
 
         OutlinedTextField(
-            value = email, onValueChange = { email = it },
-            label = { Text("Email address") }, singleLine = true,
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email address") },
+            singleLine = true,
             isError = emailError != null,
             supportingText = { emailError?.let { Text(it) } },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -119,8 +133,10 @@ fun RegisterAndSignInScreen(
 
         var passwordVisible by rememberSaveable { mutableStateOf(false) }
         OutlinedTextField(
-            value = password, onValueChange = { password = it },
-            label = { Text("Password") }, singleLine = true,
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            singleLine = true,
             isError = passwordError != null,
             supportingText = { passwordError?.let { Text(it) } },
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -143,14 +159,20 @@ fun RegisterAndSignInScreen(
                 hasAttemptedSubmit = true
                 if (!isFormValid) return@Button
 
-                if (isRegisterMode) viewModel.register(name, email, password)
-                else viewModel.signIn(email, password)
+                if (isRegisterMode) {
+                    viewModel.register(name, email, password)
+                } else {
+                    viewModel.signIn(email, password)
+                }
             },
             enabled = !signedOut.isLoading && isFormValid,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
-            if (signedOut.isLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            else Text(if (isRegisterMode) "Create account" else "Sign in")
+            if (signedOut.isLoading) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Text(if (isRegisterMode) "Create account" else "Sign in")
+            }
         }
 
         Spacer(Modifier.height(16.dp))
