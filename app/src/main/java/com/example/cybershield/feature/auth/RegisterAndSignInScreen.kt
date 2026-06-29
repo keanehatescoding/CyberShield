@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -17,7 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,52 +69,60 @@ fun RegisterAndSignInScreen(
         else                                     -> null
     }
 
-    val isFormValid = email.isNotBlank() &&
+    val isFormValid = emailError == null && passwordError == null && nameError == null &&
+            email.isNotBlank() &&
             android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
             password.length >= (if (isRegisterMode) 8 else 1) &&
             (!isRegisterMode || name.isNotBlank())
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(48.dp))
-            Text("🛡", style = MaterialTheme.typography.displaySmall)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                if (isRegisterMode) "Create your account" else "Welcome back",
-                style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(32.dp))
+    // NOTE: no local Scaffold here. MainActivity's outer Scaffold already
+    // reserves space for system bars + IME via its default contentWindowInsets,
+    // and a second nested Scaffold double-counts that inset, collapsing this
+    // Column's available height to zero when the keyboard opens (the "black
+    // screen" bug). This screen just fills the space it's given.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(48.dp))
+        Text("🛡", style = MaterialTheme.typography.displaySmall)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            if (isRegisterMode) "Create your account" else "Welcome back",
+            style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(32.dp))
 
-            if (isRegisterMode) {
-                OutlinedTextField(
-                    value = name, onValueChange = { name = it },
-                    label = { Text("Full name") }, singleLine = true,
-                    isError = nameError != null,
-                        supportingText = { nameError?.let { Text(it) } },
-                modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-
+        if (isRegisterMode) {
             OutlinedTextField(
-                value = email, onValueChange = { email = it },
-                label = { Text("Email address") }, singleLine = true,
-                isError = emailError != null,
-                    supportingText = { emailError?.let { Text(it) } },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            modifier = Modifier.fillMaxWidth(),
+                value = name, onValueChange = { name = it },
+                label = { Text("Full name") }, singleLine = true,
+                isError = nameError != null,
+                supportingText = { nameError?.let { Text(it) } },
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
+        }
 
-            var passwordVisible by rememberSaveable { mutableStateOf(false) }
-            OutlinedTextField(
-                value = password, onValueChange = { password = it },
-                label = { Text("Password") }, singleLine = true,
-                isError = passwordError != null,
-                    supportingText = { passwordError?.let { Text(it) } },
+        OutlinedTextField(
+            value = email, onValueChange = { email = it },
+            label = { Text("Email address") }, singleLine = true,
+            isError = emailError != null,
+            supportingText = { emailError?.let { Text(it) } },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+
+        var passwordVisible by rememberSaveable { mutableStateOf(false) }
+        OutlinedTextField(
+            value = password, onValueChange = { password = it },
+            label = { Text("Password") }, singleLine = true,
+            isError = passwordError != null,
+            supportingText = { passwordError?.let { Text(it) } },
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -121,36 +130,38 @@ fun RegisterAndSignInScreen(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            )
+        )
 
-            signedOut.error?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
+        signedOut.error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = {
-                    hasAttemptedSubmit = true
-                    if (!isFormValid) return@Button
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = {
+                hasAttemptedSubmit = true
+                if (!isFormValid) return@Button
 
-                    if (isRegisterMode) viewModel.register(name, email, password)
-                    else viewModel.signIn(email, password)
-                },
+                if (isRegisterMode) viewModel.register(name, email, password)
+                else viewModel.signIn(email, password)
+            },
             enabled = !signedOut.isLoading && isFormValid,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
+        ) {
             if (signedOut.isLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             else Text(if (isRegisterMode) "Create account" else "Sign in")
         }
 
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = {
+        Spacer(Modifier.height(16.dp))
+        TextButton(
+            onClick = {
                 isRegisterMode = !isRegisterMode
                 hasAttemptedSubmit = false
-            }) {
-                Text(if (isRegisterMode) "Already have an account? Sign in" else "New here? Create an account")
-            }
+            },
+            enabled = !signedOut.isLoading,
+        ) {
+            Text(if (isRegisterMode) "Already have an account? Sign in" else "New here? Create an account")
         }
     }
 }
