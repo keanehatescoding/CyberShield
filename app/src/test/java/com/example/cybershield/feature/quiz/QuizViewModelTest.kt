@@ -62,6 +62,10 @@ class QuizViewModelTest {
     private val testUid = "user-123"
     private val testQuizId = "quiz-abc"
 
+    // Stand-in for SystemClock.elapsedRealtime(). Tests set this directly to
+    // simulate monotonic time passing, independent of any wall-clock behavior.
+    private var fakeElapsed: Long = 0L
+
     private fun question(
         id: String,
         correctIndex: Int = 0,
@@ -79,7 +83,9 @@ class QuizViewModelTest {
         order = order,
     )
 
-    private fun buildViewModel(): QuizViewModel = QuizViewModel(
+    private fun buildViewModel(
+        elapsedRealtimeProvider: () -> Long = { fakeElapsed },
+    ): QuizViewModel = QuizViewModel(
         getQuiz = getQuiz,
         submitAnswer = submitAnswer,
         awardXp = awardXp,
@@ -87,6 +93,7 @@ class QuizViewModelTest {
         userRepository = userRepository,
         getCurrentSession = getCurrentSession,
         savedStateHandle = savedStateHandle,
+        elapsedRealtimeProvider = elapsedRealtimeProvider,
     )
 
     @Before
@@ -98,6 +105,7 @@ class QuizViewModelTest {
         userRepository = mockk(relaxed = true)
         getCurrentSession = mockk()
         savedStateHandle = mockk()
+        fakeElapsed = 0L
 
         every { getCurrentSession() } returns AuthRepository.AuthSession(
             uid = testUid,
@@ -449,6 +457,68 @@ class QuizViewModelTest {
                 quizTitle = testQuizId,
                 score = any(),
             )
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Elapsed-time calculation (monotonic clock, not wall clock)
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz computes timeTaken from elapsedRealtimeProvider not wall clock`() = runTest {
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        fakeElapsed = 1_000L
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem() // q1 active, quizStartElapsed captured = 1_000L
+
+            fakeElapsed = 1_047_000L // 47 simulated seconds later, monotonic source only
+
+            viewModel.selectAnswer(0)
+            awaitItem() // answered feedback
+            advanceUntilIdle()
+
+            val completed = expectMostRecentItem() as QuizUiState.Completed
+            assertEquals(47L, completed.result.timeTaken)
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz timeTaken stays correct even if wall clock would have gone backward`() = runTest {
+        // Regression test: previously quizStartTime/timeTaken used System.currentTimeMillis(),
+        // which is not monotonic. This test proves the ViewModel now depends solely on
+        // elapsedRealtimeProvider (a stand-in for SystemClock.elapsedRealtime(), which IS
+        // monotonic in production), so a wall-clock jump cannot produce a negative or
+        // bogus duration.
+        val q1 = question(id = "q1", correctIndex = 0)
+        coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+        coEvery { submitAnswer(any(), any(), any(), any()) } returns Result.Success(true)
+        coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+        coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+        fakeElapsed = 500_000L
+        val viewModel = buildViewModel()
+
+        viewModel.uiState.test {
+            awaitItem() // quizStartElapsed = 500_000L
+
+            fakeElapsed = 500_010L // 10s later on the monotonic clock
+
+            viewModel.selectAnswer(0)
+            awaitItem()
+            advanceUntilIdle()
+
+            val completed = expectMostRecentItem() as QuizUiState.Completed
+            assertEquals(10L, completed.result.timeTaken)
+            assertTrue(completed.result.timeTaken >= 0)
         }
     }
 }

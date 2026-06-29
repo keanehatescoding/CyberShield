@@ -1,5 +1,6 @@
 package com.example.cybershield.feature.quiz
 
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -36,6 +37,7 @@ class QuizViewModel @Inject constructor(
     private val userRepository: UserRepository,
     private val getCurrentSession: GetCurrentSessionUseCase,
     savedStateHandle: SavedStateHandle,
+    private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() },
 ) : ViewModel() {
 
     companion object {
@@ -58,7 +60,7 @@ class QuizViewModel @Inject constructor(
     private var score: Int = 0
     private var correctCount: Int = 0
     private var timerJob: Job? = null
-    private var quizStartTime: Long = 0L
+    private var quizStartElapsed: Long = 0L
 
     init {
         loadQuiz()
@@ -81,7 +83,7 @@ class QuizViewModel @Inject constructor(
                                 return@collect
                             }
                             questions = quizList
-                            quizStartTime = System.currentTimeMillis()
+                            quizStartElapsed = elapsedRealtimeProvider()
                             showQuestion(0)
                         }
 
@@ -189,7 +191,7 @@ class QuizViewModel @Inject constructor(
             val maxScore = total * (BASE_POINTS + (QUESTION_TIME_SECONDS * SPEED_BONUS))
             val percentage = if (maxScore > 0) (score * 100) / maxScore else 0
             val passed = percentage >= PASS_PERCENTAGE
-            val timeTaken = (System.currentTimeMillis() - quizStartTime) / 1000
+            val timeTaken = (elapsedRealtimeProvider() - quizStartElapsed) / 1000
 
             val xpResult = awardXp(
                 userId = uid,
