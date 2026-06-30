@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.google.services) // Firebase — reads google-services.json
     alias(libs.plugins.firebase.crashlytics) // crash reporting
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.jacoco)
 }
 
 android {
@@ -81,6 +82,42 @@ tasks.configureEach {
     if (name.contains("uploadCrashlyticsMappingFile")) {
         enabled = true
     }
+}
+
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    description = "Generates JaCoCo coverage report from debug unit tests."
+    dependsOn("testDebugUnitTest")
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+
+    val fileFilter = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
+        "**/*Test*.*", "android/**/*.*",
+        "**/*_Factory.*", "**/*_MembersInjector.*", "**/Hilt_*.*", "**/*_HiltModules*.*",
+        "**/di/**", "**/*Module.*"
+    )
+
+    val mainSrcDir = layout.projectDirectory.dir("src/main/java")
+
+    sourceDirectories.setFrom(files(mainSrcDir))
+    classDirectories.setFrom(
+        layout.buildDirectory.asFileTree.matching {
+            include("tmp/kotlin-classes/debug/**")
+            exclude(fileFilter)
+        }
+    )
+    executionData.setFrom(
+        layout.buildDirectory.asFileTree.matching {
+            include("**/*.exec", "**/*.ec")
+        }
+    )
 }
 
 dependencies {

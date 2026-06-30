@@ -53,6 +53,17 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      - name: Generate JaCoCo coverage report
+        run: ./gradlew jacocoTestReport --stacktrace
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-report
+          path: app/build/reports/jacoco/jacocoTestReport/html
+          retention-days: 14
+
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
 
