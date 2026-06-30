@@ -111,18 +111,18 @@ fun NavigationRoot(
             is AuthState.Authenticated -> {
                 val navController = rememberNavController()
                 LaunchedEffect(deepLinkScreen, deepLinkQuizId, deepLinkModuleId) {
-                    when (deepLinkScreen) {
-                        "quiz" if deepLinkQuizId != null ->
-                            navController.navigate(QuizRoute(deepLinkQuizId)) {
+                    when (val target = resolveDeepLink(deepLinkScreen, deepLinkQuizId, deepLinkModuleId)) {
+                        is  DeepLinkTarget.Quiz ->
+                            navController.navigate(QuizRoute(target.quizId)) {
                                 launchSingleTop = true
                             }
 
-                        "module" if deepLinkModuleId != null ->
-                            navController.navigate(ModuleRoute(deepLinkModuleId)) {
+                        is DeepLinkTarget.Module ->
+                            navController.navigate(ModuleRoute(target.moduleId)) {
                                 launchSingleTop = true
                             }
 
-                        else -> {
+                        DeepLinkTarget.None -> {
                         }
                     }
                 }

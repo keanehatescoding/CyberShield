@@ -1,6 +1,8 @@
-package com.example.cybershield.core.domain.usecase
+package com.example.cybershield.core.testing.di
 
 import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
+import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
 
 /**
  * Scripted fake for the extracted use case — HomeViewModelTest only needs to
