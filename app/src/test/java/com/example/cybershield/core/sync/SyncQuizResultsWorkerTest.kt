@@ -20,20 +20,6 @@ import org.junit.Before
 import org.junit.Test
 import androidx.work.ListenableWorker.Result as WorkResult
 
-/**
- * Pure JVM unit test — no Robolectric, no work-testing artifact (neither is on the
- * testImplementation classpath per the project's libs.versions.toml). Confirmed doWork() never
- * touches `context` directly, so a relaxed mockk<Context>() stands in for it; the worker is
- * constructed directly via its @AssistedInject constructor rather than TestListenableWorkerBuilder.
- * CONFIRMED AGAINST REAL SOURCE:
- *  - QuizResultEntity: localId: Long, userId: String, quizId: String, moduleId: String,
- *    isCorrect: Boolean, selectedAnswer: String, answeredAt: Long, synced: Boolean
- *  - QuizResultDao.getPendingResults(): suspend fun returning List<QuizResultEntity>
- *  - QuizResultDao.markSyncedAndDelete(localIds: List<Long>): suspend fun, @Transaction wrapping
- *    markSynced + deleteByLocalIds — mocked at the interface boundary here, so Room's actual
- *    transaction behavior is NOT exercised by this test (that belongs in a DAO/instrumented test).
- *  - NetworkMonitor.isCurrentlyOnline() is a plain (non-suspend) fun returning Boolean
- */
 class SyncQuizResultsWorkerTest {
     private lateinit var resultDao: QuizResultDao
     private lateinit var firestore: FirebaseFirestore
