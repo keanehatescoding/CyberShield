@@ -13,12 +13,12 @@ plugins {
 
 android {
     namespace = "com.example.cybershield"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.cybershield"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner =
@@ -76,6 +76,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testFixtures {
+        enable = true
     }
 }
 tasks.configureEach {
@@ -186,12 +190,15 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.room.testing)
+    testImplementation(testFixtures(project(":app")))
     androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.navigation.testing)
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.hilt.testing)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(testFixtures(project(":app") ))
     kspAndroidTest(libs.hilt.compiler)
     debugImplementation(libs.firebase.appcheck.debug)
     implementation(libs.firebase.appcheck.playintegrity)

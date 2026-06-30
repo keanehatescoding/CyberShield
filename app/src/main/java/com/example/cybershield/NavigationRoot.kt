@@ -70,6 +70,21 @@ data class CertificateRoute(
     val certId: String,
 )
 
+sealed interface DeepLinkTarget {
+    data class Quiz(val quizId: String) : DeepLinkTarget
+    data class Module(val moduleId: String) : DeepLinkTarget
+    data object None : DeepLinkTarget
+}
+
+fun resolveDeepLink(
+    screen: String?,
+    quizId: String?,
+    moduleId: String?,
+): DeepLinkTarget = when {
+    screen == "quiz" && quizId != null -> DeepLinkTarget.Quiz(quizId)
+    screen == "module" && moduleId != null -> DeepLinkTarget.Module(moduleId)
+    else -> DeepLinkTarget.None
+}
 @Composable
 fun NavigationRoot(
     deepLinkScreen: String? = null,

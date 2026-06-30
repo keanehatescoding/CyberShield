@@ -28,6 +28,7 @@ splashscreen            = "1.2.0"
 ui-text                 = "1.11.3"
 work-runtime            = "2.11.2"
 coreKtx = "1.7.0"
+navigationTesting = "2.9.8"
 
 
 [libraries]
@@ -44,6 +45,8 @@ lifecycle-viewmodel     = { module = "androidx.lifecycle:lifecycle-viewmodel-com
 lifecycle-runtime       = { module = "androidx.lifecycle:lifecycle-runtime-compose",      version.ref = "lifecycle" }
 # Navigation
 navigation-compose      = { module = "androidx.navigation:navigation-compose",           version.ref = "navigation" }
+navigation-testing      = { module = "androidx.navigation:navigation-testing",           version.ref = "navigation" }
+
 # Hilt
 hilt-android            = { module = "com.google.dagger:hilt-android",                   version.ref = "hilt" }
 hilt-compiler           = { module = "com.google.dagger:hilt-android-compiler",           version.ref = "hilt" }
@@ -94,6 +97,7 @@ androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "
 firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 androidx-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "coreKtx" }
+androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationTesting" }
 
 [plugins]
 android-application     = { id = "com.android.application",                               version.ref = "agp" }
