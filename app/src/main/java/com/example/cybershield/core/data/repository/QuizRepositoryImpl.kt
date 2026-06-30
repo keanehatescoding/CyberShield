@@ -87,6 +87,7 @@ private fun Question.toEntity() =
         explanation = explanation,
         moduleName = moduleName,
         order = order,
+        quizTitle = quizTitle
     )
 
 private fun QuizEntity.toDomain() =
@@ -99,4 +100,5 @@ private fun QuizEntity.toDomain() =
         explanation = explanation,
         moduleName = moduleName,
         order = order,
+        quizTitle = quizTitle
     )
