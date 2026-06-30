@@ -380,7 +380,7 @@ class QuizViewModelTest {
                     userName = "Keane M.",
                     moduleId = q1.moduleId,
                     moduleName = q1.moduleName,
-                    quizTitle = testQuizId,
+                    quizTitle = q1.quizTitle,
                     score = any(),
                 )
             }
@@ -460,7 +460,7 @@ class QuizViewModelTest {
                     userName = "CyberShield User",
                     moduleId = q1.moduleId,
                     moduleName = q1.moduleName,
-                    quizTitle = testQuizId,
+                    quizTitle = q1.quizTitle,
                     score = any(),
                 )
             }
