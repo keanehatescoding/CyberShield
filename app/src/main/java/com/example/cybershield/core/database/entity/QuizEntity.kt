@@ -18,7 +18,7 @@ data class QuizEntity(
     val explanation: String = "",
     val order: Int,
     val moduleName: String,
-    val quizTitle: String
+    val quizTitle: String,
 ) {
     private fun Question.toEntity() =
         QuizEntity(

@@ -82,7 +82,8 @@ fun QuizResultScreen(
                 ) {
                     ResultStat(label = "Score", value = "${result.correctCount}/${result.totalQuestions}")
                     ResultStat(label = "Accuracy", value = "${result.percentage}%")
-                    ResultStat(label = "XP earned", value = "+${result.xpEarned}")                }
+                    ResultStat(label = "XP earned", value = "+${result.xpEarned}")
+                }
             }
 
             Spacer(Modifier.height(32.dp))

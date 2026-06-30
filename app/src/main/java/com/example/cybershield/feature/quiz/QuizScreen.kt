@@ -108,7 +108,7 @@ fun QuizScreen(
             },
             transitionSpec = {
                 slideInHorizontally { it } + fadeIn() togetherWith
-                        slideOutHorizontally { -it } + fadeOut()
+                    slideOutHorizontally { -it } + fadeOut()
             },
             modifier = Modifier.padding(innerPadding),
         ) { state ->
