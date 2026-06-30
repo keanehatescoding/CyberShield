@@ -47,32 +47,33 @@ class ModuleRepositoryImpl
                 }
             }
 
-        override fun getModuleById(moduleId: String): Flow<Result<Module>> =
-            flow {
-                emit(Result.Loading)
-                try {
-                    val module = moduleDataSource.getModuleById(moduleId)?.toDomain()
-                    if (module != null) {
-                        moduleDao.insertAll(listOf(ModuleEntity.fromDomain(module)))
-                        emit(Result.Success(module))
-                    } else {
-                        val cached = moduleDao.getById(moduleId)?.toDomain()
-                        if (cached != null) {
-                            emit(Result.Success(cached))
-                        } else {
-                            emit(Result.Error(Exception("Module not found")))
-                        }
-                    }
-                } catch (e: Exception) {
+    override fun getModuleById(moduleId: String): Flow<Result<Module>> =
+        flow {
+            emit(Result.Loading)
+            try {
+                val module = moduleDataSource.getModuleById(moduleId)?.toDomain()
+                if (module != null) {
+                    moduleDao.insertAll(listOf(ModuleEntity.fromDomain(module)))
+                    emit(Result.Success(module))
+                } else {
                     val cached = moduleDao.getById(moduleId)?.toDomain()
                     if (cached != null) {
                         emit(Result.Success(cached))
+                        emit(Result.Error(Exception("Module not found remotely"), isStale = true))
                     } else {
-                        emit(Result.Error(e))
+                        emit(Result.Error(Exception("Module not found")))
                     }
                 }
+            } catch (e: Exception) {
+                val cached = moduleDao.getById(moduleId)?.toDomain()
+                if (cached != null) {
+                    emit(Result.Success(cached))
+                    emit(Result.Error(e, isStale = true))
+                } else {
+                    emit(Result.Error(e))
+                }
             }
-
+        }
         override suspend fun getPlaybackPosition(
             moduleId: String,
             uid: String,
