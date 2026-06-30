@@ -20,10 +20,14 @@ material                = "1.14.0"
 media3                  = "1.10.1"
 navigation              = "2.9.8"
 room                    = "2.8.4"
+robolectric = "4.13"
+roomTesting = "2.8.4"
 serialization-json      = "1.11.0"
 splashscreen            = "1.2.0"
 ui-text                 = "1.11.3"
 work-runtime            = "2.11.2"
+coreKtx = "1.7.0"
+
 
 [libraries]
 # Compose BOM
@@ -54,9 +58,11 @@ firebase-coroutines     = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-p
 credentials             = { module = "androidx.credentials:credentials",version.ref = "credentials" }
 credentials-play        = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 google-id               = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "google-id" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 # Room
 room-ktx                = { module = "androidx.room:room-ktx",                            version.ref = "room" }
 room-compiler           = { module = "androidx.room:room-compiler",                       version.ref = "room" }
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "roomTesting" }
 
 material = { module = "com.google.android.material:material", version.ref = "material" }
 androidx-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
@@ -86,6 +92,7 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidx-test-rules" }
 firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
+androidx-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "coreKtx" }
 
 [plugins]
 android-application     = { id = "com.android.application",                               version.ref = "agp" }

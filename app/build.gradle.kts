@@ -86,6 +86,7 @@ tasks.configureEach {
 dependencies {
     // ── Compose ───────────────────────────────────────────────────────
     implementation(platform(libs.compose.bom))
+    implementation(libs.androidx.core.ktx)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
@@ -146,6 +147,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.room.testing)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.hilt.testing)
