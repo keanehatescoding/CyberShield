@@ -3,6 +3,7 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import javax.inject.Inject
 
 /**
@@ -22,7 +23,7 @@ class SubmitAnswerUseCase
             isCorrect: Boolean,
             userId: String,
         ): Result<Boolean> =
-            try {
+            resultOf {
                 quizRepository.saveQuizResult(
                     userId = userId,
                     quizId = quizId,
@@ -31,7 +32,5 @@ class SubmitAnswerUseCase
                     selectedAnswer = selectedAnswer,
                 )
                 Result.Success(isCorrect)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
     }

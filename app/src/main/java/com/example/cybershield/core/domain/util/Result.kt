@@ -1,5 +1,7 @@
 package com.example.cybershield.core.domain.util
 
+import kotlinx.coroutines.CancellationException
+
 sealed class Result<out T> {
     data class Success<out T>(
         val data: T,
@@ -26,3 +28,19 @@ fun <T> Result<T>.onError(action: (Exception) -> Unit): Result<T> {
 
 val <T> Result<T>.dataOrNull: T?
     get() = (this as? Result.Success)?.data
+
+/**
+ * Runs [block], which must itself produce a [Result].
+ *
+ * Unlike a bare `catch (e: Exception)`, this rethrows [CancellationException]
+ * instead of swallowing it, so cancelling the coroutine (e.g. leaving a screen)
+ * still propagates correctly instead of being reported as a [Result.Error].
+ */
+inline fun <T> resultOf(block: () -> Result<T>): Result<T> =
+    try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.Error(e)
+    }

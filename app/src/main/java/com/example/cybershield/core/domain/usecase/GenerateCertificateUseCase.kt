@@ -3,6 +3,7 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import java.util.UUID
 import javax.inject.Inject
 
@@ -23,7 +24,7 @@ class GenerateCertificateUseCase
             quizTitle: String = moduleName,
             score: Int = 0,
         ): Result<Certificate> =
-            try {
+            resultOf {
                 val certificate =
                     Certificate(
                         id = UUID.randomUUID().toString(),
@@ -39,7 +40,5 @@ class GenerateCertificateUseCase
                 userRepository.saveCertificate(certificate)
 
                 Result.Success(certificate)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
     }

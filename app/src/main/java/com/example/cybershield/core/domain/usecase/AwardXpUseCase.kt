@@ -2,6 +2,7 @@ package com.example.cybershield.core.domain.usecase
 
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import javax.inject.Inject
 
 private const val XP_PER_CORRECT_ANSWER = 10
@@ -22,7 +23,7 @@ class AwardXpUseCase
             correctCount: Int,
             totalCount: Int,
         ): Result<Int> =
-            try {
+            resultOf {
                 val baseXp = correctCount * XP_PER_CORRECT_ANSWER
                 val bonusXp = if (correctCount == totalCount) XP_BONUS_PERFECT_SCORE else 0
                 val totalXp = baseXp + bonusXp
@@ -30,7 +31,5 @@ class AwardXpUseCase
                 userRepository.addXp(uid = userId, points = totalXp)
 
                 Result.Success(totalXp)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
     }

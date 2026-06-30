@@ -4,6 +4,7 @@ import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import com.example.cybershield.core.firebase.FirestoreUserDataSource
 import com.example.cybershield.core.firebase.model.UserDto
 import com.google.firebase.firestore.FieldValue
@@ -46,7 +47,7 @@ class UserRepositoryImpl
 
         // ── One-shot fetch ─────────────────────────────────────────────────
         override suspend fun getUserProfileOnce(uid: String): Result<User> =
-            try {
+            resultOf {
                 val snapshot = remoteSource.userDoc(uid).get().await()
                 val user = snapshot.toObject<UserDto>()?.toDomain()
                 if (user != null) {
@@ -54,8 +55,6 @@ class UserRepositoryImpl
                 } else {
                     Result.Error(Exception("User not found"))
                 }
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Create profile (first registration) ───────────────────────────
@@ -65,7 +64,7 @@ class UserRepositoryImpl
             email: String,
             photoUrl: String?,
         ): Result<Unit> =
-            try {
+            resultOf {
                 val profile =
                     mapOf(
                         "displayName" to displayName,
@@ -81,8 +80,6 @@ class UserRepositoryImpl
                     )
                 remoteSource.userDoc(uid).set(profile).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Create profile only if it doesn't exist (Google SSO) ──────────
@@ -92,7 +89,7 @@ class UserRepositoryImpl
             email: String,
             photoUrl: String?,
         ): Result<Unit> =
-            try {
+            resultOf {
                 val profile =
                     mapOf(
                         "displayName" to displayName,
@@ -100,19 +97,11 @@ class UserRepositoryImpl
                         "photoUrl" to photoUrl,
                         // in case a user already exists and is trying to sign in via Google then there is
                         // no need of overriding their progress
-//            "xp"              to 0,
-//            "level"           to 1,
-//            "badges"          to emptyList<String>(),
-//            "completedQuizzes" to emptyList<String>(),
-//            "completedModules" to emptyList<String>(),
-//            "lastSignedInAt"  to FieldValue.serverTimestamp(),
                     )
                 // merge = true → creates if missing, updates lastSignedInAt
                 // if exists — never overwrites xp, badges, completedQuizzes
                 remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Add XP atomically ──────────────────────────────────────────────
@@ -120,7 +109,7 @@ class UserRepositoryImpl
             uid: String,
             points: Int,
         ): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource
                     .userDoc(uid)
                     .update(
@@ -128,8 +117,6 @@ class UserRepositoryImpl
                         FieldValue.increment(points.toLong()),
                     ).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Award badge (idempotent) ───────────────────────────────────────
@@ -137,7 +124,7 @@ class UserRepositoryImpl
             uid: String,
             badge: String,
         ): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource
                     .userDoc(uid)
                     .update(
@@ -145,8 +132,6 @@ class UserRepositoryImpl
                         FieldValue.arrayUnion(badge),
                     ).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Mark quiz completed ────────────────────────────────────────────
@@ -154,7 +139,7 @@ class UserRepositoryImpl
             uid: String,
             quizId: String,
         ): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource
                     .userDoc(uid)
                     .update(
@@ -162,8 +147,6 @@ class UserRepositoryImpl
                         FieldValue.arrayUnion(quizId),
                     ).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Mark module completed ──────────────────────────────────────────
@@ -171,7 +154,7 @@ class UserRepositoryImpl
             uid: String,
             moduleId: String,
         ): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource
                     .userDoc(uid)
                     .update(
@@ -179,8 +162,6 @@ class UserRepositoryImpl
                         FieldValue.arrayUnion(moduleId),
                     ).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Save FCM token ─────────────────────────────────────────────────
@@ -188,16 +169,14 @@ class UserRepositoryImpl
             uid: String,
             token: String,
         ): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource.userDoc(uid).update("fcmToken", token).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         // ── Update last sign-in ────────────────────────────────────────────
         override suspend fun updateLastSignedIn(uid: String): Result<Unit> =
-            try {
+            resultOf {
                 remoteSource
                     .userDoc(uid)
                     .update(
@@ -205,12 +184,10 @@ class UserRepositoryImpl
                         FieldValue.serverTimestamp(),
                     ).await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
 
         override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
-            try {
+            resultOf {
                 val data =
                     mapOf(
                         "id" to certificate.id,
@@ -229,7 +206,5 @@ class UserRepositoryImpl
                     .set(data)
                     .await()
                 Result.Success(Unit)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
     }

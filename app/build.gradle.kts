@@ -193,6 +193,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.rules)
     kspAndroidTest(libs.hilt.compiler)
-    implementation(libs.firebase.appcheck.debug)
+    debugImplementation(libs.firebase.appcheck.debug)
     implementation(libs.firebase.appcheck.playintegrity)
 }

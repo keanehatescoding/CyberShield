@@ -8,6 +8,7 @@ import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -35,6 +36,8 @@ class QuizRepositoryImpl
                         val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }
                         emit(Result.Success(cached))
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }
                     if (cached.isNotEmpty()) {
@@ -49,6 +52,8 @@ class QuizRepositoryImpl
             withContext(Dispatchers.IO) {
                 try {
                     Result.Success(remoteSource.getPassMark(quizId))
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     Result.Success(70) // safe default — not an error worth surfacing
                 }

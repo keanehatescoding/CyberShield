@@ -5,10 +5,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.example.cybershield.core.data.di.SyncModule
-import com.google.firebase.Firebase
-import com.google.firebase.appcheck.appCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
+import com.example.cybershield.core.firebase.AppCheckInstaller
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -27,11 +24,9 @@ class CyberShieldApp :
 
     override fun onCreate() {
         super.onCreate()
-        if (BuildConfig.DEBUG) {
-            Firebase.appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
-        } else {
-            Firebase.appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
-        }
+        // AppCheckInstaller resolves to the debug or release implementation
+        // depending on build type — see app/src/debug and app/src/release.
+        AppCheckInstaller.install()
         SyncModule.schedulePeriodic(WorkManager.getInstance(this))
     }
 }

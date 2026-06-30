@@ -17,6 +17,7 @@ import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.dataOrNull
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -173,6 +174,8 @@ class QuizViewModel
                                 isCorrect = correct,
                                 userId = uid,
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Result.Error(e)
                         }

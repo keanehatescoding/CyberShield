@@ -12,6 +12,7 @@ import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -53,6 +54,8 @@ class AuthRepositoryImpl
 
                 authDataSource.sendEmailVerification(user)
                 Result.Success(Unit)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.Error(e.toAuthError())
             }
@@ -66,6 +69,8 @@ class AuthRepositoryImpl
                     authDataSource.signInWithEmailAndPassword(email, password)
                         ?: return Result.Error(AuthError.Unknown())
                 Result.Success(user.toSession())
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.Error(e.toAuthError())
             }
@@ -77,6 +82,8 @@ class AuthRepositoryImpl
                         ?: return Result.Error(AuthError.Unknown())
                 authDataSource.sendEmailVerification(user)
                 Result.Success(Unit)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.Error(e.toAuthError())
             }
@@ -87,6 +94,8 @@ class AuthRepositoryImpl
                     authDataSource.reloadCurrentUser()
                         ?: return Result.Error(AuthError.Unknown())
                 Result.Success(user.isEmailVerified)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.Error(e.toAuthError())
             }

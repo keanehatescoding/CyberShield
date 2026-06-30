@@ -3,6 +3,7 @@ package com.example.cybershield.core.data.repository
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.repository.CertificateRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -13,7 +14,7 @@ class CertificateRepositoryImpl
         private val firestore: FirebaseFirestore,
     ) : CertificateRepository {
         override suspend fun getCertificatesForUser(uid: String): Result<List<Certificate>> =
-            try {
+            resultOf {
                 val snap =
                     firestore
                         .collection("users")
@@ -37,7 +38,5 @@ class CertificateRepositoryImpl
                         )
                     }
                 Result.Success(certs)
-            } catch (e: Exception) {
-                Result.Error(e)
             }
     }
