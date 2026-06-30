@@ -11,26 +11,27 @@ import javax.inject.Inject
  * Also persists the quiz result via the repository for later sync.
  */
 class SubmitAnswerUseCase
-    @Inject
-    constructor(
-        private val quizRepository: QuizRepository,
-    ) {
-        suspend operator fun invoke(
-            question: Question,
-            selectedAnswer: String,
-            isCorrect: Boolean,
-            userId: String,
-        ): Result<Boolean> =
-            try {
-                quizRepository.saveQuizResult(
-                    userId = userId,
-                    quizId = question.id,
-                    moduleId = question.moduleId,
-                    isCorrect = isCorrect,
-                    selectedAnswer = selectedAnswer,
-                )
-                Result.Success(isCorrect)
-            } catch (e: Exception) {
-                Result.Error(e)
-            }
-    }
+@Inject
+constructor(
+    private val quizRepository: QuizRepository,
+) {
+    suspend operator fun invoke(
+        quizId: String,
+        question: Question,
+        selectedAnswer: String,
+        isCorrect: Boolean,
+        userId: String,
+    ): Result<Boolean> =
+        try {
+            quizRepository.saveQuizResult(
+                userId = userId,
+                quizId = quizId,
+                moduleId = question.moduleId,
+                isCorrect = isCorrect,
+                selectedAnswer = selectedAnswer,
+            )
+            Result.Success(isCorrect)
+        } catch (e: Exception) {
+            Result.Error(e)
+        }
+}

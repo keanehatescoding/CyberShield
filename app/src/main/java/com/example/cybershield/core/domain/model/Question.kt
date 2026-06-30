@@ -4,6 +4,7 @@ data class Question(
     val id: String,
     val moduleId: String,
     val moduleName: String,
+    val quizTitle: String,
     val text: String,
     val options: List<String>,
     val correctIndex: Int,

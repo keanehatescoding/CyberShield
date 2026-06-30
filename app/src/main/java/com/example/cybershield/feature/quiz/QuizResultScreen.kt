@@ -80,10 +80,9 @@ fun QuizResultScreen(
                     modifier = Modifier.padding(20.dp).fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    ResultStat(label = "Score", value = "${result.score}")
-                    ResultStat(label = "XP earned", value = "+${result.xpEarned}")
-                    ResultStat(label = "Time", value = "${result.timeTaken}s")
-                }
+                    ResultStat(label = "Score", value = "${result.correctCount}/${result.totalQuestions}")
+                    ResultStat(label = "Accuracy", value = "${result.percentage}%")
+                    ResultStat(label = "XP earned", value = "+${result.xpEarned}")                }
             }
 
             Spacer(Modifier.height(32.dp))

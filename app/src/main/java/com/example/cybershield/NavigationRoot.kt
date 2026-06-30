@@ -57,10 +57,12 @@ data class QuizRoute(
 data class QuizResultRoute(
     val quizId: String,
     val score: Int,
+    val totalQuestions: Int,
+    val correctCount: Int,
+    val percentage: Int,
     val xpEarned: Int,
     val passed: Boolean,
     val timeTaken: Long,
-    val totalQuestions: Int,
 )
 
 @Serializable
@@ -140,6 +142,8 @@ fun NavigationRoot(
                                         passed = result.passed,
                                         timeTaken = result.timeTaken,
                                         totalQuestions = result.totalQuestions,
+                                        correctCount = result.correctCount,
+                                        percentage = result.percentage,
                                     ),
                                 ) { popUpTo(QuizRoute::class) { inclusive = true } }
                             },
@@ -150,12 +154,14 @@ fun NavigationRoot(
                         QuizResultScreen(
                             result =
                                 QuizResult(
-                                    r.quizId,
-                                    r.score,
-                                    r.totalQuestions,
-                                    r.xpEarned,
-                                    r.passed,
-                                    r.timeTaken,
+                                    quizId = r.quizId,
+                                    score = r.score,
+                                    totalQuestions = r.totalQuestions,
+                                    correctCount = r.correctCount,
+                                    percentage = r.percentage,
+                                    xpEarned = r.xpEarned,
+                                    passed = r.passed,
+                                    timeTaken = r.timeTaken,
                                 ),
                             onNavigateHome = {
                                 navController.navigate(HomeRoute) {
