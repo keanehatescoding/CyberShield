@@ -1,11 +1,18 @@
 package com.example.cybershield.core.database
 
 import androidx.room.TypeConverter
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 class Converters {
-    @TypeConverter
-    fun fromList(list: List<String>): String = list.joinToString("||")
+    private val json = Json
 
     @TypeConverter
-    fun toList(value: String): List<String> = if (value.isEmpty()) emptyList() else value.split("||")
+    fun fromList(list: List<String>): String = json.encodeToString(list)
+
+    @TypeConverter
+    fun toList(value: String): List<String> =
+        if (value.isBlank()) emptyList()
+        else json.decodeFromString(value)
 }

@@ -35,6 +35,7 @@ class LeaderboardViewModel
 
         private fun loadLeaderboard() {
             viewModelScope.launch {
+                _uiState.update { it.copy(isLoading = true, error = null) }
                 leaderboardRepository.getTopLeaderboard().collect { result ->
                     result
                         .onSuccess { entries ->

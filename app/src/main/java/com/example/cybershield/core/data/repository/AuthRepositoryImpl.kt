@@ -49,6 +49,13 @@ class AuthRepositoryImpl
                         photoUrl = user.photoUrl?.toString(),
                     )
                 if (profileResult is Result.Error) {
+                    // Clean up the Firebase Auth user to avoid orphaned accounts
+                    try {
+                        user.delete()
+                    } catch (_: Exception) {
+                        // Best-effort cleanup; if deletion fails, the orphaned user
+                        // will have no Firestore profile, but they can still sign in.
+                    }
                     return Result.Error(AuthError.Unknown(profileResult.exception))
                 }
 
