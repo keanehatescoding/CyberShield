@@ -7,7 +7,9 @@ import com.example.cybershield.core.domain.util.resultOf
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class CertificateRepositoryImpl
     @Inject
     constructor(
