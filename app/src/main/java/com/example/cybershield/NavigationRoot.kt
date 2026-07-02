@@ -3,10 +3,7 @@ package com.example.cybershield
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.ui.ConnectivityViewModel
@@ -48,9 +46,15 @@ data class ModuleRoute(
     val moduleId: String,
 )
 
+val moduleDeepLinks = listOf(
+    navDeepLink<ModuleRoute>(basePath = "cybershield://module"),
+)
 @Serializable
 data class QuizRoute(
     val quizId: String,
+)
+val quizDeepLinks = listOf(
+    navDeepLink<QuizRoute>(basePath = "cybershield://quiz"),
 )
 
 @Serializable
@@ -64,18 +68,13 @@ data class QuizResultRoute(
     val passed: Boolean,
     val timeTaken: Long,
 )
-
 @Serializable
 data class CertificateRoute(
     val certId: String,
 )
 
 @Composable
-fun NavigationRoot(
-    deepLinkScreen: String? = null,
-    deepLinkQuizId: String? = null,
-    deepLinkModuleId: String? = null,
-) {
+fun NavigationRoot() {
     val authViewModel: AuthViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
     val connectivityViewModel: ConnectivityViewModel =
         hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
@@ -86,7 +85,6 @@ fun NavigationRoot(
         modifier =
             Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars),
     ) {
         OfflineBanner(isOffline = !isOnline)
         when (authState) {
@@ -95,22 +93,6 @@ fun NavigationRoot(
             is AuthState.AwaitingEmailVerification -> EmailVerificationScreen(authViewModel)
             is AuthState.Authenticated -> {
                 val navController = rememberNavController()
-                LaunchedEffect(deepLinkScreen, deepLinkQuizId, deepLinkModuleId) {
-                    when (deepLinkScreen) {
-                        "quiz" if deepLinkQuizId != null ->
-                            navController.navigate(QuizRoute(deepLinkQuizId)) {
-                                launchSingleTop = true
-                            }
-
-                        "module" if deepLinkModuleId != null ->
-                            navController.navigate(ModuleRoute(deepLinkModuleId)) {
-                                launchSingleTop = true
-                            }
-
-                        else -> {
-                        }
-                    }
-                }
                 NavHost(
                     navController = navController,
                     startDestination = HomeRoute,
@@ -124,13 +106,13 @@ fun NavigationRoot(
                             onNavigateToProfile = { navController.navigate(ProfileRoute) },
                         )
                     }
-                    composable<ModuleRoute> {
+                    composable<ModuleRoute>(deepLinks = moduleDeepLinks) {
                         ModuleDetailScreen(
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToQuiz = { navController.navigate(QuizRoute(it)) },
                         )
                     }
-                    composable<QuizRoute> {
+                    composable<QuizRoute>(deepLinks = quizDeepLinks) {
                         QuizScreen(
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToResult = { result ->
