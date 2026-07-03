@@ -29,6 +29,11 @@ class FakeUserRepository : UserRepository {
     var userProfileResult: Result<User>? = null
     private val userProfileFlow = MutableSharedFlow<Result<User>>(replay = 1)
 
+    // ── createUserProfile() call tracking ───────────────────────────────
+    var createUserProfileResult: Result<Unit> = Result.Success(Unit)
+    var createUserProfileCallCount = 0
+    var lastCreateUserProfileArgs: CreateProfileArgs? = null
+
     // ── createUserProfileIfNotExists() call tracking ────────────────────
     var createUserProfileIfNotExistsResult: Result<Unit> = Result.Success(Unit)
     var createUserProfileIfNotExistsCallCount = 0
@@ -108,7 +113,11 @@ class FakeUserRepository : UserRepository {
         displayName: String,
         email: String,
         photoUrl: String?,
-    ): Result<Unit> = Result.Success(Unit)
+    ): Result<Unit> {
+        createUserProfileCallCount++
+        lastCreateUserProfileArgs = CreateProfileArgs(uid, displayName, email, photoUrl)
+        return createUserProfileResult
+    }
 
     override suspend fun createUserProfileIfNotExists(
         uid: String,

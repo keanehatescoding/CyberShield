@@ -22,11 +22,19 @@ interface AuthRepository {
     /** Emits whenever Firebase's auth state changes (sign in/out). */
     fun observeAuthState(): Flow<AuthSession?>
 
+    /** Creates the Firebase Auth account only. No Firestore profile is touched here —
+     * that's [com.example.cybershield.core.domain.usecase.auth.RegisterUseCase]'s job. */
     suspend fun register(
-        name: String,
         email: String,
         password: String,
-    ): Result<Unit>
+    ): Result<AuthSession>
+
+    /** Sets the Firebase Auth display name for the current user. */
+    suspend fun updateDisplayName(name: String): Result<Unit>
+
+    /** Deletes the current Firebase Auth user. Used to roll back a registration
+     * when Firestore profile creation fails, avoiding an orphaned auth-only account. */
+    suspend fun deleteCurrentUser(): Result<Unit>
 
     suspend fun signIn(
         email: String,
