@@ -4,8 +4,7 @@ import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.repository.CertificateRepository
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
+import com.example.cybershield.core.firebase.FirestoreCertificateDataSource
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,30 +12,23 @@ import javax.inject.Singleton
 class CertificateRepositoryImpl
     @Inject
     constructor(
-        private val firestore: FirebaseFirestore,
+        private val certificateDataSource: FirestoreCertificateDataSource,
     ) : CertificateRepository {
         override suspend fun getCertificatesForUser(uid: String): Result<List<Certificate>> =
             resultOf {
-                val snap =
-                    firestore
-                        .collection("users")
-                        .document(uid)
-                        .collection("certificates")
-                        .get()
-                        .await()
-
+                val docs = certificateDataSource.getCertificatesForUser(uid)
                 val certs =
-                    snap.documents.mapNotNull { doc ->
-                        // ★ Field names here match the canonical domain model,
-                        // resolving the issuedAt/datePassed mismatch from the bug report
+                    docs.mapNotNull { data ->
+                        val id = data["_docId"] as? String ?: return@mapNotNull null
                         Certificate(
-                            id = doc.id,
+                            id = id,
                             userId = uid,
-                            userName = doc.getString("userName") ?: "",
-                            moduleId = doc.getString("moduleId") ?: "",
-                            moduleName = doc.getString("moduleName") ?: doc.getString("quizTitle") ?: "",
-                            score = doc.getLong("score")?.toInt() ?: 0,
-                            issuedAt = doc.getDate("issuedAt")?.time ?: System.currentTimeMillis(),
+                            userName = data["userName"] as? String ?: "",
+                            moduleId = data["moduleId"] as? String ?: "",
+                            moduleName = data["moduleName"] as? String ?: data["quizTitle"] as? String ?: "",
+                            score = (data["score"] as? Long)?.toInt() ?: 0,
+                            issuedAt = (data["issuedAt"] as? com.google.firebase.Timestamp)?.toDate()?.time
+                                ?: System.currentTimeMillis(),
                         )
                     }
                 Result.Success(certs)

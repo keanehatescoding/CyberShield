@@ -1,5 +1,8 @@
 package com.example.cybershield.feature.profile
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +30,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -44,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.cybershield.core.data.CertificateGenerator
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +65,54 @@ fun CertificateScreen(
     val cert = uiState.certificates.find { it.id == certId }
     val user = uiState.user
     var isGenerating by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val generator = remember { CertificateGenerator(context) }
+    var pendingSave by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val permissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (granted) {
+                pendingSave?.invoke()
+            } else {
+                isGenerating = false
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        "Storage permission is needed to save to Downloads on this Android version.",
+                    )
+                }
+            }
+            pendingSave = null
+        }
+    fun saveToDownloads(
+        userName: String,
+        quizTitle: String,
+        score: Int,
+        date: java.util.Date?,
+        id: String,
+    ) {
+        scope.launch {
+            isGenerating = true
+            try {
+                generator.saveToDownloads(
+                    userName = userName,
+                    quizTitle = quizTitle,
+                    score = score,
+                    date = date,
+                    certId = id,
+                )
+                isGenerating = false
+                snackbarHostState.showSnackbar("Saved to Downloads")
+            } catch (e: CertificateGenerator.MissingStoragePermissionException) {
+                // Keep isGenerating = true until the permission result comes back.
+                pendingSave = { saveToDownloads(userName, quizTitle, score, date, id) }
+                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            } catch (e: Exception) {
+                isGenerating = false
+                snackbarHostState.showSnackbar("Couldn't save certificate: ${e.message}")
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -71,7 +125,8 @@ fun CertificateScreen(
                 },
             )
         },
-    ) { padding ->
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        ) { padding ->
         if (cert == null || user == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -102,7 +157,6 @@ fun CertificateScreen(
                     onClick = {
                         scope.launch {
                             isGenerating = true
-                            val generator = CertificateGenerator(context)
                             val file =
                                 generator.generate(
                                     userName = user.displayName,
@@ -134,18 +188,13 @@ fun CertificateScreen(
                 // ── Save to downloads ──────────────────────────────────────
                 OutlinedButton(
                     onClick = {
-                        scope.launch {
-                            isGenerating = true
-                            val generator = CertificateGenerator(context)
-                            generator.saveToDownloads(
-                                userName = user.displayName,
-                                quizTitle = cert.quizTitle,
-                                score = cert.score,
-                                date = cert.datePassed,
-                                certId = cert.id,
-                            )
-                            isGenerating = false
-                        }
+                        saveToDownloads(
+                            userName = user.displayName,
+                            quizTitle = cert.quizTitle,
+                            score = cert.score,
+                            date = cert.datePassed,
+                            id = cert.id,
+                        )
                     },
                     enabled = !isGenerating,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
