@@ -1,21 +1,19 @@
 package com.example.cybershield.core.data.di
 
-import com.example.cybershield.core.network.interceptor.AuthInterceptor
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import okhttp3.OkHttpClient
-import javax.inject.Singleton
 
+/**
+ * Reserved for future custom backend API client.
+ *
+ * If CyberShield ever needs to call a REST backend (e.g. Cloud Functions),
+ * uncomment the OkHttpClient provider below and wire up AuthInterceptor.
+ *
+ *   @Provides @Singleton
+ *   fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient =
+ *       OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object NetworkModule {
-    @Provides
-    @Singleton
-    fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient =
-        OkHttpClient
-            .Builder()
-            .addInterceptor(authInterceptor)
-            .build()
-}
+object NetworkModule
