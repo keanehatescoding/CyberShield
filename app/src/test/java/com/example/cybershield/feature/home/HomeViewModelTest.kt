@@ -1,6 +1,7 @@
 package com.example.cybershield.feature.home
 
 import app.cash.turbine.test
+import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
 import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
@@ -15,7 +16,10 @@ import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertNull
 import junit.framework.TestCase.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -308,6 +312,56 @@ class HomeViewModelTest {
             assertEquals(1, fakeModuleRepository.refreshModulesCallCount)
         }
 
+        @OptIn(ExperimentalCoroutinesApi::class)
+        @Test
+        fun `isRefreshing stays true until the refreshed modules are actually collected`() =
+                runTest {
+                        // Second call to getModules() (triggered by refresh()) is backed by a
+                        // Channel we control by hand, so nothing is emitted until we say so —
+                        // this lets us catch the bug where isRefreshing flips to false the
+                        // instant refreshModules() succeeds, before loadModules()'s new
+                        // collector has actually received anything.
+                        var callCount = 0
+                        val secondCallChannel = Channel<Result<List<Module>>>(Channel.UNLIMITED)
+                        fakeModuleRepository.getModulesFlowProvider = {
+                                callCount++
+                                if (callCount == 1) {
+                                        flow {
+                                                emit(Result.Loading)
+                                                emit(Result.Success(emptyList()))
+                                            }
+                                    } else {
+                                        secondCallChannel.receiveAsFlow()
+                                    }
+                            }
+                        val viewModel = buildViewModel()
+                        advanceUntilIdle() // finish the init-time load (callCount == 1)
+
+                        fakeModuleRepository.refreshModulesResult = Result.Success(Unit)
+
+                        // Run refresh() concurrently so we can inspect mid-flight state —
+                        // it will suspend inside modulesJob?.join() until the channel emits.
+                        launch { viewModel.refresh() }
+                        advanceUntilIdle()
+
+                        // refreshModules() has succeeded and loadModules() has started collecting
+                        // the second flow, but secondCallChannel hasn't emitted anything yet.
+                        assertTrue(
+                                "isRefreshing should still be true while awaiting fresh module data",
+                                viewModel.uiState.value.isRefreshing,
+                            )
+
+                        val refreshedModules = listOf(sampleModule("fresh-1"))
+                        secondCallChannel.send(Result.Loading)
+                        secondCallChannel.send(Result.Success(refreshedModules))
+                        secondCallChannel.close()
+                        advanceUntilIdle()
+
+                        val state = viewModel.uiState.value
+                        assertFalse(state.isRefreshing)
+                        assertEquals(refreshedModules, state.modules)
+                    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `refresh failure surfaces a connection error and clears isRefreshing`() =
@@ -365,7 +419,7 @@ class HomeViewModelTest {
         }
 
     private fun sampleModule(id: String) =
-        com.example.cybershield.core.domain.model.Module(
+        Module(
             id = id,
             title = "Module $id",
             description = "",

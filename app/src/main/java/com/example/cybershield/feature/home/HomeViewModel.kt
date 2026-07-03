@@ -46,6 +46,7 @@ class HomeViewModel
         // ── Load user profile (real-time) ──────────────────────────────────
 
         private fun loadUserProfile() {
+            if (uid.isBlank()) return
             profileJob?.cancel()
             profileJob =
                 viewModelScope.launch {
@@ -139,6 +140,10 @@ class HomeViewModel
                         // Room now has fresh data — re-run loadModules() to pick it up
                         // since getModules() is a one-shot flow, not a live Room query
                         loadModules()
+                        // loadModules() launches modulesJob asynchronously — join it so
+                        // isRefreshing stays true until the fresh data has actually
+                        // been collected into _uiState, not just until the job starts.
+                        modulesJob?.join()
                     }
                     is Result.Error -> {
                         _uiState.update {

@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,6 +71,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val greeting = remember { viewModel.greeting() }
 
     LaunchedEffect(uiState.modulesError) {
         uiState.modulesError?.let { message ->
@@ -114,7 +118,7 @@ fun HomeScreen(
                 } else {
                     HomeContent(
                         uiState = uiState,
-                        greeting = viewModel.greeting(),
+                        greeting = greeting,
                         onNavigateToModule = onNavigateToModule,
                         onNavigateToQuiz = onNavigateToQuiz,
                         onNavigateToLeaderboard = onNavigateToLeaderboard,
@@ -136,7 +140,9 @@ private fun HomeContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
+        contentPadding = PaddingValues(
+            bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         // ── Greeting + XP card ────────────────────────────────────────
