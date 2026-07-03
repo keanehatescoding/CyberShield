@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import com.example.cybershield.MainActivity
 import com.example.cybershield.R
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.sync.FcmTokenSyncWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -21,18 +22,15 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class CyberShieldMessagingService : FirebaseMessagingService() {
-    @Inject lateinit var userRepository: UserRepository
-
-    @Inject lateinit var firebaseAuth: FirebaseAuth
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Deprecated("Deprecated in Java")
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        val uid = firebaseAuth.currentUser?.uid ?: return
-        serviceScope.launch {
-            userRepository.updateFcmToken(uid, token)
-        }
+        // Token persistence must survive this service being destroyed mid-write,
+        // so it's handed off to WorkManager instead of a service-scoped coroutine.
+        // WorkManager persists the request and retries with backoff even across
+        // process death, which a Service-lifetime CoroutineScope cannot do.
+        FcmTokenSyncWorker.enqueue(applicationContext, token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -122,10 +120,8 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
             else -> "General"
         }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        serviceScope.cancel()
-    }
+    // No serviceScope, no onDestroy override needed — there is no coroutine
+    // owned by this component anymore. The token write is WorkManager's job now.
 
     companion object {
         const val CHANNEL_GENERAL = "cybershield_general"
