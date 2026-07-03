@@ -29,6 +29,14 @@ fun <T> Result<T>.onError(action: (Exception) -> Unit): Result<T> {
 val <T> Result<T>.dataOrNull: T?
     get() = (this as? Result.Success)?.data
 
+/** Transforms the success value, passing Error/Loading through unchanged. */
+inline fun <T, R> Result<T>.map(transform: (T) -> R): Result<R> =
+    when (this) {
+        is Result.Success -> Result.Success(transform(data))
+        is Result.Error -> this
+        Result.Loading -> Result.Loading
+    }
+
 /**
  * Runs [block], which must itself produce a [Result].
  *
