@@ -1,8 +1,10 @@
-package com.example.cybershield.feature.profile
+package com.example.cybershield.core.data
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -11,6 +13,7 @@ import android.graphics.pdf.PdfDocument
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,6 +29,11 @@ class CertificateGenerator(
         const val PAGE_WIDTH = 842 // A4 landscape in points
         const val PAGE_HEIGHT = 595
     }
+
+    /** Thrown when saveToDownloads() needs WRITE_EXTERNAL_STORAGE on API 26-28, but it isn't granted. */
+    class MissingStoragePermissionException : Exception(
+        "WRITE_EXTERNAL_STORAGE permission is required to save files on this Android version.",
+    )
 
     // ── Generate PDF and save to cache ─────────────────────────────────
     suspend fun generate(
@@ -94,7 +102,7 @@ class CertificateGenerator(
                 typeface = Typeface.DEFAULT_BOLD
                 textAlign = Paint.Align.CENTER
             }
-        canvas.drawText("🛡 CYBERSHIELD", w / 2, 80f, titlePaint)
+        canvas.drawText("CYBERSHIELD", w / 2, 80f, titlePaint)
 
         val subtitlePaint =
             Paint().apply {
@@ -195,7 +203,12 @@ class CertificateGenerator(
         context.startActivity(Intent.createChooser(intent, "Share certificate"))
     }
 
-    // ── Save to Downloads (Android 10+) ───────────────────────────────
+    // ── Save to Downloads ─────────────────────────────────────────────
+    /**
+     * @throws MissingStoragePermissionException on API 26-28 if WRITE_EXTERNAL_STORAGE
+     *   has not been granted. Callers should catch this, request the permission via
+     *   the standard runtime permission flow, and retry on grant.
+     */
     suspend fun saveToDownloads(
         userName: String,
         quizTitle: String,
@@ -221,6 +234,21 @@ class CertificateGenerator(
                     file.inputStream().copyTo(os)
                 }
             }
+        } else {
+            // Pre-Q: writing to the public Downloads dir is a dangerous-permission
+            // operation and must be checked at runtime, not just declared in the manifest.
+            val granted =
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                throw MissingStoragePermissionException()
+            }
+
+            @Suppress("DEPRECATION")
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            file.copyTo(File(downloadsDir, "CyberShield_$certId.pdf"), overwrite = true)
         }
     }
 }
