@@ -9,37 +9,39 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import androidx.navigation.NavController
+import com.example.cybershield.navigation.DeepLinkViewModel
 import com.example.cybershield.ui.theme.CyberShieldTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val deepLinkViewModel: DeepLinkViewModel by viewModels()
 
     private val notificationPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { /* granted or denied — FCM still delivers data messages either way */ }
-    private var navController: NavController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermission()
 
+        // Cold start via deep link — seed the ViewModel from the launch intent.
+        deepLinkViewModel.onNewIntent(intent)
 
         setContent {
             CyberShieldTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Surface(modifier = Modifier.padding(innerPadding)) {
-                        NavigationRoot(
-                        )
+                        NavigationRoot()
                     }
                 }
             }
@@ -48,9 +50,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        navController?.handleDeepLink(intent)
+        deepLinkViewModel.onNewIntent(intent)
     }
-
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -59,7 +60,6 @@ class MainActivity : ComponentActivity() {
                     this,
                     Manifest.permission.POST_NOTIFICATIONS,
                 ) == PackageManager.PERMISSION_GRANTED
-
             if (!granted) {
                 notificationPermissionLauncher.launch(
                     Manifest.permission.POST_NOTIFICATIONS,

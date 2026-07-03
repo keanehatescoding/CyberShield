@@ -28,6 +28,7 @@ import com.example.cybershield.feature.profile.CertificateScreen
 import com.example.cybershield.feature.profile.ProfileScreen
 import com.example.cybershield.feature.quiz.QuizResultScreen
 import com.example.cybershield.feature.quiz.QuizScreen
+import com.example.cybershield.navigation.DeepLinkViewModel
 import com.example.cybershield.ui.theme.LoadingScreen
 import com.example.cybershield.ui.theme.OfflineBanner
 import kotlinx.serialization.Serializable
@@ -74,7 +75,10 @@ data class CertificateRoute(
 )
 
 @Composable
-fun NavigationRoot() {
+fun NavigationRoot(
+    deepLinkViewModel: DeepLinkViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity),
+
+    ) {
     val authViewModel: AuthViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
     val connectivityViewModel: ConnectivityViewModel =
         hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
@@ -93,6 +97,13 @@ fun NavigationRoot() {
             is AuthState.AwaitingEmailVerification -> EmailVerificationScreen(authViewModel)
             is AuthState.Authenticated -> {
                 val navController = rememberNavController()
+                val pendingIntent by deepLinkViewModel.pendingIntent.collectAsStateWithLifecycle()
+                LaunchedEffect(pendingIntent) {
+                    pendingIntent?.let { intent ->
+                        navController.handleDeepLink(intent)
+                        deepLinkViewModel.consumed()
+                    }
+                }
                 NavHost(
                     navController = navController,
                     startDestination = HomeRoute,
