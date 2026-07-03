@@ -32,12 +32,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.ui.theme.LoadingScreen
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,16 +64,30 @@ fun QuizScreen(
     viewModel: QuizViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
-    // Navigate to result screen when quiz completes.
-    // Keyed on the boolean transition, not the whole uiState object, so this
-    // doesn't relaunch on every per-second timer tick.
     LaunchedEffect(uiState is QuizUiState.Completed) {
         val completed = uiState as? QuizUiState.Completed ?: return@LaunchedEffect
         onNavigateToResult(completed.result)
     }
+        // One-shot sync-failure notifications. Uses viewModel.events (Channel), not
+        // uiState, because a Channel guarantees delivery exactly once even when
+        // advanceQuiz() immediately overwrites the state on the same frame.
+        LaunchedEffect(Unit) {
+                viewModel.events.collect { event ->
+                        when (event) {
+                                is QuizUiEvent.AnswerSyncFailed -> {
+                                        coroutineScope.launch {
+                                                snackbarHostState.showSnackbar(event.message)
+                                            }
+                                    }
+                            }
+                    }
+            }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {

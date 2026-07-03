@@ -32,6 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
 import kotlin.time.Duration.Companion.milliseconds
 
 class QuizViewModelTest {
@@ -72,7 +73,15 @@ class QuizViewModelTest {
         quizTitle = quizTitle,
     )
 
-    private fun buildViewModel(elapsedRealtimeProvider: () -> Long = { fakeElapsed }): QuizViewModel =
+    // NOTE: QuizViewModel's @Inject constructor only takes the six real
+    // dependencies + SavedStateHandle. elapsedRealtimeProvider and loadTimeoutMs
+    // are exposed as internal vars on the ViewModel (not constructor params) so
+    // that Hilt's generated code never has to resolve a binding for a bare
+    // Long or () -> Long. Tests set them here, post-construction.
+    private fun buildViewModel(
+        elapsedRealtimeProvider: () -> Long = { fakeElapsed },
+        loadTimeoutMs: Long = QuizViewModel.LOAD_TIMEOUT_MS,
+    ): QuizViewModel =
         QuizViewModel(
             getQuiz = getQuiz,
             submitAnswer = submitAnswer,
@@ -81,8 +90,10 @@ class QuizViewModelTest {
             userRepository = userRepository,
             getCurrentSession = getCurrentSession,
             savedStateHandle = savedStateHandle,
-            elapsedRealtimeProvider = elapsedRealtimeProvider,
-        )
+        ).apply {
+            this.elapsedRealtimeProvider = elapsedRealtimeProvider
+            this.loadTimeoutMs = loadTimeoutMs
+        }
 
     @Before
     fun setUp() {
@@ -96,11 +107,11 @@ class QuizViewModelTest {
         fakeElapsed = 0L
 
         every { getCurrentSession() } returns
-            AuthRepository.AuthSession(
-                uid = testUid,
-                email = "keane@example.com",
-                isEmailVerified = true,
-            )
+                AuthRepository.AuthSession(
+                    uid = testUid,
+                    email = "keane@example.com",
+                    isEmailVerified = true,
+                )
         every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
     }
 
@@ -163,7 +174,7 @@ class QuizViewModelTest {
             // A flow that never emits simulates a hung/slow source.
             coEvery { getQuiz(testQuizId) } returns flow { /* never emits */ }
 
-            val viewModel = buildViewModel()
+            val viewModel = buildViewModel(loadTimeoutMs = QuizViewModel.LOAD_TIMEOUT_MS)
 
             viewModel.uiState.test {
                 advanceTimeBy((QuizViewModel.LOAD_TIMEOUT_MS + 100).milliseconds)
@@ -303,24 +314,23 @@ class QuizViewModelTest {
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
-            val viewModel = buildViewModel()
+            val viewModel = buildViewModel(elapsedRealtimeProvider = { fakeElapsed })
 
             viewModel.uiState.test {
                 awaitItem() // initial Active, timeLeft = 30
 
-                advanceTimeBy(((QuizViewModel.QUESTION_TIME_SECONDS * 1_000L) + 500).milliseconds)
+                repeat(QuizViewModel.QUESTION_TIME_SECONDS + 1) {
+                    fakeElapsed += 1_000L
+                    advanceTimeBy(1_000L.milliseconds)
+                }
 
-                // Only one question, so it should land on either the timed-out Active
-                // emission or have already advanced to Complete.
                 when (val timedOut = expectMostRecentItem()) {
                     is QuizUiState.Active -> {
                         assertTrue(timedOut.isAnswered)
                         assertEquals(-1, timedOut.selectedOption)
                         assertEquals(false, timedOut.isCorrect)
                     }
-                    is QuizUiState.Completed -> {
-                        assertFalse(timedOut.result.passed)
-                    }
+                    is QuizUiState.Completed -> assertFalse(timedOut.result.passed)
                     else -> error("Unexpected state after timeout: $timedOut")
                 }
             }
@@ -344,9 +354,9 @@ class QuizViewModelTest {
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.getUserProfileOnce(testUid) } returns
-                Result.Success(
-                    User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
-                )
+                    Result.Success(
+                        User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
+                    )
             coEvery {
                 generateCertificate(
                     userId = any(),
@@ -528,5 +538,64 @@ class QuizViewModelTest {
                 assertEquals(10L, completed.result.timeTaken)
                 assertTrue(completed.result.timeTaken >= 0)
             }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `emits AnswerSyncFailed event when submitAnswer throws`() =
+        runTest {
+            val q1 = question(id = "q1", correctIndex = 0)
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
+            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel()
+
+            viewModel.events.test {
+                viewModel.uiState.test {
+                    awaitItem()
+                    viewModel.selectAnswer(0)
+                    awaitItem()
+                    advanceUntilIdle()
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val event = awaitItem()
+                assertTrue(event is QuizUiEvent.AnswerSyncFailed)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `concurrent selectAnswer calls from different threads process exactly once`() =
+        runTest {
+            val q1 = question(id = "q1", correctIndex = 0)
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel()
+            advanceUntilIdle()
+
+            val ready = CountDownLatch(2)
+            val go = CountDownLatch(1)
+            val threads = List(2) { i ->
+                Thread {
+                    ready.countDown()
+                    go.await()
+                    viewModel.selectAnswer(i)
+                }
+            }
+            threads.forEach { it.start() }
+            ready.await()
+            go.countDown()
+            threads.forEach { it.join() }
+
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
         }
 }
