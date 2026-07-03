@@ -2,7 +2,6 @@ package com.example.cybershield.core.data.repository
 
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
-import com.example.cybershield.core.database.entity.QuizEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
@@ -79,31 +78,3 @@ class QuizRepositoryImpl
             )
         }
     }
-
-// ── Mapping extensions ────────────────────────────────────────────────
-
-private fun Question.toEntity() =
-    QuizEntity(
-        id = id,
-        moduleId = moduleId,
-        text = text,
-        options = options,
-        correctIndex = correctIndex,
-        explanation = explanation,
-        moduleName = moduleName,
-        order = order,
-        quizTitle = quizTitle,
-    )
-
-private fun QuizEntity.toDomain() =
-    Question(
-        id = id,
-        moduleId = moduleId,
-        text = text,
-        options = options,
-        correctIndex = correctIndex,
-        explanation = explanation,
-        moduleName = moduleName,
-        order = order,
-        quizTitle = quizTitle,
-    )
