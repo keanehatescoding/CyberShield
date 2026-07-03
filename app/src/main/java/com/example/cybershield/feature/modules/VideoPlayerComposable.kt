@@ -39,11 +39,14 @@ fun VideoPlayerComposable(
                 val mediaItem = MediaItem.fromUri(videoUrl)
                 setMediaItem(mediaItem)
                 prepare()
-                // Seek to saved position before playing
-                if (savedPosition > 0L) seekTo(savedPosition)
                 playWhenReady = true
             }
         }
+
+    // Seek when saved position arrives (may be async-loaded from DB)
+    LaunchedEffect(savedPosition) {
+        if (savedPosition > 0L) player.seekTo(savedPosition)
+    }
 
     // Apply playback speed when it changes
     LaunchedEffect(playbackSpeed) {

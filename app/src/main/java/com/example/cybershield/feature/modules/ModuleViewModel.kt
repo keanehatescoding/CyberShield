@@ -38,6 +38,7 @@ class ModuleViewModel
         private val _uiState = MutableStateFlow(ModuleUiState())
         val uiState: StateFlow<ModuleUiState> = _uiState.asStateFlow()
 
+        private var savePositionJob: Job? = null
         private val _savedPositionMs = MutableStateFlow(0L)
         val savedPositionMs: StateFlow<Long> = _savedPositionMs.asStateFlow()
 
@@ -95,6 +96,10 @@ class ModuleViewModel
         }
 
         private fun loadSavedPosition() {
+            if (uid.isBlank()) {
+                _isSavedPositionLoaded.value = true
+                return
+            }
             viewModelScope.launch {
                 val pos = moduleRepository.getPlaybackPosition(moduleId, uid)
                 _savedPositionMs.value = pos
@@ -103,12 +108,16 @@ class ModuleViewModel
         }
 
         fun savePosition(positionMs: Long) {
-            viewModelScope.launch {
-                moduleRepository.savePlaybackPosition(moduleId, uid, positionMs)
-            }
+            if (uid.isBlank()) return
+            savePositionJob?.cancel()
+            savePositionJob =
+                viewModelScope.launch {
+                    moduleRepository.savePlaybackPosition(moduleId, uid, positionMs)
+                }
         }
 
         fun onVideoCompleted() {
+            if (uid.isBlank()) return
             viewModelScope.launch {
                 val module = _uiState.value.module ?: return@launch
                 if (!_uiState.value.isAlreadyCompleted) {

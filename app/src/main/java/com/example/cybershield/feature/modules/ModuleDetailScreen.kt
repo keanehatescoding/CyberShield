@@ -125,6 +125,7 @@ fun ModuleDetailScreen(
             )
         },
     ) { innerPadding ->
+        val module = uiState.module
 
         when {
             uiState.isLoading -> {
@@ -140,8 +141,7 @@ fun ModuleDetailScreen(
                     )
                 }
             }
-            uiState.module != null -> {
-                val module = uiState.module!!
+            module != null -> {
 
                 Column(
                     modifier =
