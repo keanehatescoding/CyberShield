@@ -20,9 +20,13 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -32,7 +36,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
 import kotlin.time.Duration.Companion.milliseconds
 
 class QuizViewModelTest {
@@ -580,19 +583,22 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
             advanceUntilIdle()
 
-            val ready = CountDownLatch(2)
-            val go = CountDownLatch(1)
-            val threads = List(2) { i ->
-                Thread {
-                    ready.countDown()
-                    go.await()
-                    viewModel.selectAnswer(i)
+            // Drive both calls in concurrently from real background threads
+            // (Dispatchers.Default), synchronized with a shared start signal,
+            // then rejoin with a suspending `joinAll()`. A prior version of
+            // this test used raw Thread + CountDownLatch.join(), which blocks
+            // the runTest thread and can deadlock/flake against the virtual
+            // time scheduler; suspend-based joining plays nicely with it.
+            val go = CompletableDeferred<Unit>()
+            val jobs =
+                List(2) { i ->
+                    launch(Dispatchers.Default) {
+                        go.await()
+                        viewModel.selectAnswer(i)
+                    }
                 }
-            }
-            threads.forEach { it.start() }
-            ready.await()
-            go.countDown()
-            threads.forEach { it.join() }
+            go.complete(Unit)
+            jobs.joinAll()
 
             advanceUntilIdle()
 

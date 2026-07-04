@@ -34,3 +34,20 @@ data class QuizEntity(
             quizTitle = quizTitle,
         )
 }
+
+/**
+ * Domain -> data mapping. Lives here (data layer) rather than as a member of
+ * Question so the domain model has no dependency on Room/QuizEntity.
+ */
+fun Question.toEntity() =
+    QuizEntity(
+        id = id,
+        moduleId = moduleId,
+        text = text,
+        options = options,
+        correctIndex = correctIndex,
+        explanation = explanation,
+        moduleName = moduleName,
+        order = order,
+        quizTitle = quizTitle,
+    )

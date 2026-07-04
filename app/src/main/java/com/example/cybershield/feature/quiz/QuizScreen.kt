@@ -82,6 +82,12 @@ fun QuizScreen(
                                                 snackbarHostState.showSnackbar(event.message)
                                             }
                                     }
+
+                                is QuizUiEvent.CertificateGenerationFailed -> {
+                                        coroutineScope.launch {
+                                                snackbarHostState.showSnackbar(event.message)
+                                            }
+                                    }
                             }
                     }
             }

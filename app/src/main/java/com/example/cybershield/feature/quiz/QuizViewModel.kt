@@ -250,8 +250,10 @@ constructor(
 
         viewModelScope.launch {
             val total = questions.size
-            val maxScore = total * (BASE_POINTS + (QUESTION_TIME_SECONDS * SPEED_BONUS))
-            val percentage = if (maxScore > 0) (score * 100) / maxScore else 0
+            // Pass/fail (and the displayed percentage) reflects correctness, not
+            // the speed-weighted score — otherwise a user who answers everything
+            // right but slowly can fail, while a fast-but-wrong run can pass.
+            val percentage = if (total > 0) (correctCount * 100) / total else 0
             val passed = percentage >= PASS_PERCENTAGE
             val timeTaken = (elapsedRealtimeProvider() - quizStartElapsed) / 1000
 
@@ -261,14 +263,22 @@ constructor(
                 if (passed) {
                     userRepository.awardBadge(uid, "CyberDefender")
                     val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
-                    generateCertificate(
-                        userId = uid,
-                        userName = displayName,
-                        moduleId = questions.firstOrNull()?.moduleId ?: "",
-                        moduleName = questions.firstOrNull()?.moduleName ?: "",
-                        quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
-                        score = score,
-                    )
+                    val certificateResult =
+                        generateCertificate(
+                            userId = uid,
+                            userName = displayName,
+                            moduleId = questions.firstOrNull()?.moduleId ?: "",
+                            moduleName = questions.firstOrNull()?.moduleName ?: "",
+                            quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
+                            score = score,
+                        )
+                    if (certificateResult is Result.Error) {
+                        _events.send(
+                            QuizUiEvent.CertificateGenerationFailed(
+                                "You passed, but we couldn't generate your certificate. Please try again from your profile.",
+                            ),
+                        )
+                    }
                 }
                 xpResult.dataOrNull ?: 0
             } else 0

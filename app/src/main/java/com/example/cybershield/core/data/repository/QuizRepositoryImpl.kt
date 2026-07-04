@@ -7,6 +7,7 @@ import androidx.paging.map
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.QuizResultEntity
+import com.example.cybershield.core.database.entity.toEntity
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.repository.QuizRepository

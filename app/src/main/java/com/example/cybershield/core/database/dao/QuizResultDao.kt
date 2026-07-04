@@ -60,6 +60,10 @@ interface QuizResultDao {
      * Paged answer history for a user, newest first, with the owning
      * module's title joined in for display. Room re-runs this automatically
      * whenever `quiz_results` or `modules` changes underneath it.
+     *
+     * Ordered by `localId` (the auto-increment PK) rather than `answeredAt`
+     * (a wall-clock timestamp), since `answeredAt` is not monotonic — device
+     * clock changes or timezone shifts can reorder history unexpectedly.
      */
     @Query(
         """
@@ -67,7 +71,7 @@ interface QuizResultDao {
         FROM quiz_results
         LEFT JOIN modules ON modules.id = quiz_results.moduleId
         WHERE quiz_results.userId = :userId
-        ORDER BY quiz_results.answeredAt DESC
+        ORDER BY quiz_results.localId DESC
         """,
     )
     fun getResultsForUserPaged(userId: String): PagingSource<Int, QuizResultHistoryRow>
