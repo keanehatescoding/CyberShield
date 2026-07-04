@@ -14,16 +14,13 @@ sealed class QuizUiState {
         val questionIndex: Int,
         val totalQuestions: Int,
         val score: Int,
-        val timeLeft: Int, // countdown in seconds
-        val selectedOption: Int? = null, // null = not answered yet
+        val selectedOption: Int? = null,
         val isAnswered: Boolean = false,
         val isCorrect: Boolean? = null,
         val saveFailed: Boolean = false,
     ) : QuizUiState() {
         val progress: Float
             get() = (questionIndex + 1).toFloat() / totalQuestions.toFloat()
-        val timerProgress: Float
-            get() = timeLeft.toFloat() / QuizViewModel.QUESTION_TIME_SECONDS.toFloat()
     }
 
     // Quiz finished — show results

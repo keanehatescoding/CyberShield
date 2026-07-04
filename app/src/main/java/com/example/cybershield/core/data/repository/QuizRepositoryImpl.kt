@@ -4,11 +4,14 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
+import com.example.cybershield.core.database.dao.QuizAttemptDao
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
+import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.database.entity.toEntity
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
@@ -30,6 +33,7 @@ class QuizRepositoryImpl
     constructor(
         private val remoteSource: FirestoreQuizDataSource,
         private val quizDao: QuizDao,
+        private val quizAttemptDao: QuizAttemptDao,
         private val resultDao: QuizResultDao,
     ) : QuizRepository {
         override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> =
@@ -126,5 +130,35 @@ class QuizRepositoryImpl
             /** Firestore batch writes cap at 500; stay comfortably under it. */
             const val SYNC_CHUNK_SIZE = 450
             const val HISTORY_PAGE_SIZE = 20
+        }
+    override suspend fun saveQuizAttempt(resultId: String, result: QuizResult) {
+        quizAttemptDao.insert(
+            QuizAttemptEntity(
+                resultId = resultId,
+                quizId = result.quizId,
+                score = result.score,
+                totalQuestions = result.totalQuestions,
+                correctCount = result.correctCount,
+                percentage = result.percentage,
+                xpEarned = result.xpEarned,
+                passed = result.passed,
+                timeTaken = result.timeTaken,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    override suspend fun getQuizAttempt(resultId: String): QuizResult? =
+        quizAttemptDao.getById(resultId)?.let {
+            QuizResult(
+                quizId = it.quizId,
+                score = it.score,
+                totalQuestions = it.totalQuestions,
+                correctCount = it.correctCount,
+                percentage = it.percentage,
+                xpEarned = it.xpEarned,
+                passed = it.passed,
+                timeTaken = it.timeTaken,
+            )
         }
     }

@@ -64,14 +64,7 @@ val quizDeepLinks = listOf(
 
 @Serializable
 data class QuizResultRoute(
-    val quizId: String,
-    val score: Int,
-    val totalQuestions: Int,
-    val correctCount: Int,
-    val percentage: Int,
-    val xpEarned: Int,
-    val passed: Boolean,
-    val timeTaken: Long,
+    val resultId: String
 )
 @Serializable
 data class CertificateRoute(

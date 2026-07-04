@@ -2,6 +2,7 @@ package com.example.cybershield.core.domain.repository
 
 import androidx.paging.PagingData
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -40,4 +41,6 @@ interface QuizRepository {
      * Called by SyncQuizResultsWorker; safe to call when nothing is pending.
      */
     suspend fun syncPendingResults(): Result<Unit>
+    suspend fun saveQuizAttempt(resultId: String, result: QuizResult)
+    suspend fun getQuizAttempt(resultId: String): QuizResult?
 }

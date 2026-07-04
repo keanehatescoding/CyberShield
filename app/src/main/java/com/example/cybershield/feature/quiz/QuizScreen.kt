@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.cybershield.core.domain.model.Question
-import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.ui.theme.LoadingScreen
 import kotlinx.coroutines.launch
 
@@ -60,37 +59,35 @@ import kotlinx.coroutines.launch
 @Composable
 fun QuizScreen(
     onNavigateBack: () -> Unit,
-    onNavigateToResult: (QuizResult) -> Unit,
+    onNavigateToResult: (String) -> Unit,
     viewModel: QuizViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(uiState is QuizUiState.Completed) {
-        val completed = uiState as? QuizUiState.Completed ?: return@LaunchedEffect
-        onNavigateToResult(completed.result)
-    }
-        // One-shot sync-failure notifications. Uses viewModel.events (Channel), not
-        // uiState, because a Channel guarantees delivery exactly once even when
-        // advanceQuiz() immediately overwrites the state on the same frame.
-        LaunchedEffect(Unit) {
-                viewModel.events.collect { event ->
-                        when (event) {
-                                is QuizUiEvent.AnswerSyncFailed -> {
-                                        coroutineScope.launch {
-                                                snackbarHostState.showSnackbar(event.message)
-                                            }
-                                    }
 
-                                is QuizUiEvent.CertificateGenerationFailed -> {
-                                        coroutineScope.launch {
-                                                snackbarHostState.showSnackbar(event.message)
-                                            }
-                                    }
-                            }
+    // One-shot sync-failure notifications. Uses viewModel.events (Channel), not
+    // uiState, because a Channel guarantees delivery exactly once even when
+    // advanceQuiz() immediately overwrites the state on the same frame.
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is QuizUiEvent.NavigateToResult -> onNavigateToResult(event.resultId)
+                is QuizUiEvent.AnswerSyncFailed -> {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(event.message)
                     }
+                }
+
+                is QuizUiEvent.CertificateGenerationFailed -> {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                }
             }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -133,17 +130,19 @@ fun QuizScreen(
             },
             transitionSpec = {
                 slideInHorizontally { it } + fadeIn() togetherWith
-                    slideOutHorizontally { -it } + fadeOut()
+                        slideOutHorizontally { -it } + fadeOut()
             },
             modifier = Modifier.padding(innerPadding),
         ) { state ->
             when (state) {
                 is QuizUiState.Loading -> LoadingScreen(message = "Loading quiz")
-                is QuizUiState.Active ->
+                is QuizUiState.Active -> {
+                    val timeLeft by viewModel.timeLeft.collectAsStateWithLifecycle()
                     QuizActiveScreen(
                         state = state,
-                        onSelect = viewModel::selectAnswer,
-                    )
+                        timeLeft = timeLeft,
+                        onSelect = viewModel::selectAnswer,                    )
+                }
                 is QuizUiState.Error ->
                     QuizErrorScreen(
                         message = state.message,
@@ -159,6 +158,7 @@ fun QuizScreen(
 @Composable
 private fun QuizActiveScreen(
     state: QuizUiState.Active,
+    timeLeft: Int,
     onSelect: (Int) -> Unit,
 ) {
     Column(
@@ -177,8 +177,8 @@ private fun QuizActiveScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TimerDisplay(
-                timeLeft = state.timeLeft,
-                timerProgress = state.timerProgress,
+                timeLeft = timeLeft,
+                timerProgress =  timeLeft.toFloat() / QuizViewModel.QUESTION_TIME_SECONDS.toFloat()
             )
             ScoreDisplay(score = state.score)
         }

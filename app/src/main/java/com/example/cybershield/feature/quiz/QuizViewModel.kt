@@ -8,6 +8,7 @@ import androidx.navigation.toRoute
 import com.example.cybershield.QuizRoute
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
+import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
@@ -43,6 +45,7 @@ constructor(
     private val awardXp: AwardXpUseCase,
     private val generateCertificate: GenerateCertificateUseCase,
     private val userRepository: UserRepository,
+    private val quizRepository: QuizRepository,
     private val getCurrentSession: GetCurrentSessionUseCase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -62,12 +65,17 @@ constructor(
     // after construction while leaving the Hilt-visible constructor injectable.
     internal var elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
     internal var loadTimeoutMs: Long = LOAD_TIMEOUT_MS
+    internal var resultIdProvider: () -> String = { UUID.randomUUID().toString() }
 
     private val quizId: String = savedStateHandle.toRoute<QuizRoute>().quizId
     private val uid: String get() = getCurrentSession()?.uid ?: ""
 
     private val _uiState = MutableStateFlow<QuizUiState>(QuizUiState.Loading)
     val uiState: StateFlow<QuizUiState> = _uiState.asStateFlow()
+
+    private val _timeLeft = MutableStateFlow(QUESTION_TIME_SECONDS)
+    val timeLeft: StateFlow<Int> = _timeLeft.asStateFlow()
+
     private val _events = Channel<QuizUiEvent>(Channel.BUFFERED)
     val events: Flow<QuizUiEvent> = _events.receiveAsFlow()
     private var questions: List<Question> = emptyList()
@@ -137,14 +145,14 @@ constructor(
         hasAnswered.store(false)
         currentIndex = index
         val question = questions[index]
+        _timeLeft.value = QUESTION_TIME_SECONDS
 
         _uiState.value =
             QuizUiState.Active(
                 question = question,
                 questionIndex = index,
                 totalQuestions = questions.size,
-                score = score,
-                timeLeft = QUESTION_TIME_SECONDS,
+                score = score
             )
 
         timerJob =
@@ -152,7 +160,7 @@ constructor(
                 for (tick in QUESTION_TIME_SECONDS downTo 0) {
                     val current = _uiState.value as? QuizUiState.Active ?: break
                     if (current.isAnswered) break
-                    _uiState.value = current.copy(timeLeft = tick)
+                    _timeLeft.value = tick
                     if (tick == 0) {
                         processAnswer(selectedIndex = -1, timeRemaining = 0)
                         break
@@ -166,7 +174,7 @@ constructor(
         val current = _uiState.value as? QuizUiState.Active ?: return
         if (current.isAnswered) return
         timerJob?.cancel()
-        processAnswer(selectedIndex, current.timeLeft)
+        processAnswer(selectedIndex, _timeLeft.value)
     }
 
     @OptIn(ExperimentalAtomicApi::class)
@@ -283,19 +291,23 @@ constructor(
                 xpResult.dataOrNull ?: 0
             } else 0
 
-            _uiState.value =
-                QuizUiState.Completed(
-                    QuizResult(
-                        quizId = quizId,
-                        score = score,
-                        totalQuestions = total,
-                        correctCount = correctCount,
-                        percentage = percentage,
-                        xpEarned = xpEarned,
-                        passed = passed,
-                        timeTaken = timeTaken,
-                    ),
+            val quizResult =
+                QuizResult(
+                    quizId = quizId,
+                    score = score,
+                    totalQuestions = total,
+                    correctCount = correctCount,
+                    percentage = percentage,
+                    xpEarned = xpEarned,
+                    passed = passed,
+                    timeTaken = timeTaken,
                 )
+            val resultId = resultIdProvider()
+            quizRepository.saveQuizAttempt(resultId, quizResult)
+
+            _uiState.value = QuizUiState.Completed(quizResult)
+            _events.send(QuizUiEvent.NavigateToResult(resultId))
+
         }
     }
 

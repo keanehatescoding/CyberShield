@@ -8,6 +8,7 @@ import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
@@ -16,9 +17,11 @@ import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +50,7 @@ class QuizViewModelTest {
     private lateinit var awardXp: AwardXpUseCase
     private lateinit var generateCertificate: GenerateCertificateUseCase
     private lateinit var userRepository: UserRepository
+    private lateinit var quizRepository: QuizRepository
     private lateinit var getCurrentSession: GetCurrentSessionUseCase
     private lateinit var savedStateHandle: SavedStateHandle
 
@@ -84,6 +88,7 @@ class QuizViewModelTest {
     private fun buildViewModel(
         elapsedRealtimeProvider: () -> Long = { fakeElapsed },
         loadTimeoutMs: Long = QuizViewModel.LOAD_TIMEOUT_MS,
+        resultIdProvider: () -> String = { "result-fixed-id" },
     ): QuizViewModel =
         QuizViewModel(
             getQuiz = getQuiz,
@@ -91,11 +96,13 @@ class QuizViewModelTest {
             awardXp = awardXp,
             generateCertificate = generateCertificate,
             userRepository = userRepository,
+            quizRepository = quizRepository,
             getCurrentSession = getCurrentSession,
             savedStateHandle = savedStateHandle,
         ).apply {
             this.elapsedRealtimeProvider = elapsedRealtimeProvider
             this.loadTimeoutMs = loadTimeoutMs
+            this.resultIdProvider = resultIdProvider
         }
 
     @Before
@@ -105,6 +112,7 @@ class QuizViewModelTest {
         awardXp = mockk()
         generateCertificate = mockk()
         userRepository = mockk(relaxed = true)
+        quizRepository = mockk(relaxed = true)
         getCurrentSession = mockk()
         savedStateHandle = mockk()
         fakeElapsed = 0L
@@ -116,6 +124,7 @@ class QuizViewModelTest {
                     isEmailVerified = true,
                 )
         every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
+        coEvery { quizRepository.saveQuizAttempt(any(), any()) } just Runs
     }
 
     // ---------------------------------------------------------------------
@@ -137,7 +146,7 @@ class QuizViewModelTest {
                 assertEquals(0, active.questionIndex)
                 assertEquals(2, active.totalQuestions)
                 assertEquals(0, active.score)
-                assertEquals(QuizViewModel.QUESTION_TIME_SECONDS, active.timeLeft)
+                assertEquals(QuizViewModel.QUESTION_TIME_SECONDS, viewModel.timeLeft.value)
                 assertFalse(active.isAnswered)
             }
         }
@@ -345,6 +354,35 @@ class QuizViewModelTest {
     // Quiz completion: pass / fail, certificate, badge
     // ---------------------------------------------------------------------
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz saves attempt and emits NavigateToResult with matching id`() =
+        runTest {
+            val q1 = question(id = "q1", correctIndex = 0)
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel(resultIdProvider = { "result-abc" })
+
+            viewModel.events.test {
+                viewModel.uiState.test {
+                    awaitItem()
+                    viewModel.selectAnswer(0)
+                    awaitItem()
+                    advanceUntilIdle()
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val event = awaitItem()
+                assertTrue(event is QuizUiEvent.NavigateToResult)
+                assertEquals("result-abc", (event as QuizUiEvent.NavigateToResult).resultId)
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            coVerify { quizRepository.saveQuizAttempt("result-abc", any()) }
+        }
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `finishQuiz awards badge and generates certificate when passed`() =
