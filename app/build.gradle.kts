@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.google.services) // Firebase — reads google-services.json
     alias(libs.plugins.firebase.crashlytics) // crash reporting
     alias(libs.plugins.compose.compiler)
+    jacoco
 }
 
 android {
@@ -84,6 +85,13 @@ tasks.configureEach {
 }
 
 
+jacoco {
+    // Gradle's bundled default lags behind on Kotlin coroutine/inline-function
+    // debug-info handling; pin to a recent release for more accurate counts
+    // on suspend functions, Flow operators, and inline fun call sites.
+    toolVersion = "0.8.12"
+}
+
 tasks.register<JacocoReport>("jacocoTestReport") {
     description = "Generates JaCoCo coverage report from debug unit tests."
     dependsOn("testDebugUnitTest")
@@ -93,11 +101,16 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         html.required.set(true)
     }
 
+    // NOTE: "**/*Module.*" used to be listed here to skip Hilt DI modules,
+    // but every Hilt module in this codebase already lives under a `di/`
+    // package and is caught by "**/di/**" below. The pattern was too broad:
+    // it also matched core/domain/model/Module.kt — the app's core domain
+    // entity — and silently excluded it from coverage. Removed.
     val fileFilter = listOf(
         "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
         "**/*Test*.*", "android/**/*.*",
         "**/*_Factory.*", "**/*_MembersInjector.*", "**/Hilt_*.*", "**/*_HiltModules*.*",
-        "**/di/**", "**/*Module.*"
+        "**/di/**"
     )
 
     val mainSrcDir = layout.projectDirectory.dir("src/main/java")
