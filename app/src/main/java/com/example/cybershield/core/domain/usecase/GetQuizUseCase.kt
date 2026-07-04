@@ -11,5 +11,5 @@ class GetQuizUseCase
     constructor(
         private val quizRepository: QuizRepository,
     ) {
-        suspend operator fun invoke(moduleId: String): Flow<Result<List<Question>>> = quizRepository.getQuizzesForModule(moduleId)
+        suspend operator fun invoke(quizId: String): Flow<Result<List<Question>>> = quizRepository.getQuizzesForModule(quizId)
     }
