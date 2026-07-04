@@ -1,11 +1,37 @@
 package com.example.cybershield.core.database.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.example.cybershield.core.database.entity.QuizResultEntity
+import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+
+/**
+ * A single past answer joined with the module it belongs to, for display in
+ * the quiz history screen. `moduleTitle` falls back to null if the module was
+ * later deleted from the cache — the UI shows a generic label in that case.
+ */
+data class QuizResultHistoryRow(
+    @Embedded
+    val result: QuizResultEntity,
+    val moduleTitle: String?,
+) {
+    fun toDomain(): QuizResultHistoryItem =
+        QuizResultHistoryItem(
+            localId = result.localId,
+            quizId = result.quizId,
+            moduleId = result.moduleId,
+            moduleTitle = moduleTitle ?: "Unknown module",
+            isCorrect = result.isCorrect,
+            selectedAnswer = result.selectedAnswer,
+            answeredAt = result.answeredAt,
+            synced = result.synced,
+        )
+}
 
 @Dao
 interface QuizResultDao {
@@ -29,6 +55,22 @@ interface QuizResultDao {
 
     @Query("SELECT * FROM quiz_results WHERE userId = :userId")
     suspend fun getResultsForUser(userId: String): List<QuizResultEntity>
+
+    /**
+     * Paged answer history for a user, newest first, with the owning
+     * module's title joined in for display. Room re-runs this automatically
+     * whenever `quiz_results` or `modules` changes underneath it.
+     */
+    @Query(
+        """
+        SELECT quiz_results.*, modules.title AS moduleTitle
+        FROM quiz_results
+        LEFT JOIN modules ON modules.id = quiz_results.moduleId
+        WHERE quiz_results.userId = :userId
+        ORDER BY quiz_results.answeredAt DESC
+        """,
+    )
+    fun getResultsForUserPaged(userId: String): PagingSource<Int, QuizResultHistoryRow>
 
     @Query("DELETE FROM quiz_results WHERE synced = 1")
     suspend fun deleteSyncedResults()

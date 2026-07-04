@@ -2,6 +2,9 @@ package com.example.cybershield.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
@@ -9,10 +12,17 @@ import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Clock
@@ -42,6 +52,30 @@ class HomeViewModel
             loadUserProfile()
             loadModules()
         }
+
+        // ── Paged module lists — Room-backed, used by the LazyColumn instead
+        // of materializing the full module list in memory. Re-derives from
+        // uiState so the pager restarts (via flatMapLatest) whenever the
+        // user's completed-module set actually changes, rather than on every
+        // unrelated uiState update.
+        @OptIn(ExperimentalCoroutinesApi::class)
+        private val completedModuleIds: StateFlow<List<String>> =
+            uiState
+                .map { it.user?.completedModules ?: emptyList() }
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val pendingModulesPaged: Flow<PagingData<Module>> =
+            completedModuleIds
+                .flatMapLatest { ids -> moduleRepository.getPendingModulesPaged(ids) }
+                .cachedIn(viewModelScope)
+
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val completedModulesPaged: Flow<PagingData<Module>> =
+            completedModuleIds
+                .flatMapLatest { ids -> moduleRepository.getCompletedModulesPaged(ids) }
+                .cachedIn(viewModelScope)
 
         // ── Load user profile (real-time) ──────────────────────────────────
 

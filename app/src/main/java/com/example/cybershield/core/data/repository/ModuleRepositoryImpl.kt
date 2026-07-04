@@ -1,5 +1,9 @@
 package com.example.cybershield.core.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.example.cybershield.core.database.dao.ModuleDao
 import com.example.cybershield.core.database.dao.PlaybackPositionDao
 import com.example.cybershield.core.database.entity.ModuleEntity
@@ -12,6 +16,7 @@ import com.example.cybershield.core.firebase.FirestoreModuleDataSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -52,6 +57,19 @@ class ModuleRepositoryImpl
                     }
                 }
             }
+
+        // ── Paged module lists — Room-backed, live-updating ─────────────────
+        override fun getPendingModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
+            Pager(
+                config = PAGING_CONFIG,
+                pagingSourceFactory = { moduleDao.pendingModulesPagingSource(completedIds) },
+            ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
+
+        override fun getCompletedModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
+            Pager(
+                config = PAGING_CONFIG,
+                pagingSourceFactory = { moduleDao.completedModulesPagingSource(completedIds) },
+            ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
 
         override fun getModuleById(moduleId: String): Flow<Result<Module>> =
             flow {
@@ -108,4 +126,13 @@ class ModuleRepositoryImpl
                 fetchAndCacheModules()
                 Result.Success(Unit)
             }
+
+        private companion object {
+            val PAGING_CONFIG =
+                PagingConfig(
+                    pageSize = 20,
+                    enablePlaceholders = false,
+                    initialLoadSize = 20,
+                )
+        }
     }

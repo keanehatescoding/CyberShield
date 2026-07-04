@@ -21,6 +21,7 @@ import com.example.cybershield.feature.auth.AuthState
 import com.example.cybershield.feature.auth.AuthViewModel
 import com.example.cybershield.feature.auth.EmailVerificationScreen
 import com.example.cybershield.feature.auth.RegisterAndSignInScreen
+import com.example.cybershield.feature.history.QuizHistoryScreen
 import com.example.cybershield.feature.home.HomeScreen
 import com.example.cybershield.feature.leaderboard.LeaderboardScreen
 import com.example.cybershield.feature.modules.ModuleDetailScreen
@@ -41,6 +42,9 @@ object ProfileRoute
 
 @Serializable
 object LeaderboardRoute
+
+@Serializable
+object QuizHistoryRoute
 
 @Serializable
 data class ModuleRoute(
@@ -173,6 +177,7 @@ fun NavigationRoot(
                         ProfileScreen(
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToCertificate = { navController.navigate(CertificateRoute(it)) },
+                            onNavigateToHistory = { navController.navigate(QuizHistoryRoute) },
                             onSignOut = { authViewModel.signOut() },
                         )
                     }
@@ -184,6 +189,9 @@ fun NavigationRoot(
                     }
                     composable<LeaderboardRoute> {
                         LeaderboardScreen(onNavigateBack = { navController.popBackStack() })
+                    }
+                    composable<QuizHistoryRoute> {
+                        QuizHistoryScreen(onNavigateBack = { navController.popBackStack() })
                     }
                 }
             }

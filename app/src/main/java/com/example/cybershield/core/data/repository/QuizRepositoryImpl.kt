@@ -1,9 +1,14 @@
 package com.example.cybershield.core.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
@@ -13,6 +18,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,6 +54,12 @@ class QuizRepositoryImpl
                     }
                 }
             }
+
+        override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> =
+            Pager(
+                config = PagingConfig(pageSize = HISTORY_PAGE_SIZE, enablePlaceholders = false),
+                pagingSourceFactory = { resultDao.getResultsForUserPaged(userId) },
+            ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
 
         override suspend fun getPassMark(quizId: String): Result<Int> =
             withContext(Dispatchers.IO) {
@@ -112,5 +124,6 @@ class QuizRepositoryImpl
         private companion object {
             /** Firestore batch writes cap at 500; stay comfortably under it. */
             const val SYNC_CHUNK_SIZE = 450
+            const val HISTORY_PAGE_SIZE = 20
         }
     }

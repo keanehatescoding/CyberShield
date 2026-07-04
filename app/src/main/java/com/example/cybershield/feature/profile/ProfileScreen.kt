@@ -50,6 +50,7 @@ import com.example.cybershield.feature.home.badgeEmoji
 fun ProfileScreen(
     onNavigateBack: () -> Unit,
     onNavigateToCertificate: (certId: String) -> Unit,
+    onNavigateToHistory: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
@@ -250,6 +251,35 @@ fun ProfileScreen(
                             }
                             Icon(Icons.Default.ChevronRight, null)
                         }
+                    }
+                }
+            }
+
+            // ── Quiz history ──────────────────────────────────────────────
+            item(key = "quiz-history-entry") {
+                OutlinedCard(
+                    onClick = onNavigateToHistory,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("📜", fontSize = 32.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Quiz history",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "See every past answer",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(Icons.Default.ChevronRight, null)
                     }
                 }
             }

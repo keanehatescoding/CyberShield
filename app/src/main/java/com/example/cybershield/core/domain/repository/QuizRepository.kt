@@ -1,12 +1,20 @@
 package com.example.cybershield.core.domain.repository
 
+import androidx.paging.PagingData
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 
 interface QuizRepository {
     /** Fetches all questions for a given module from Firestore (or Room cache). */
     suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>>
+
+    /**
+     * Paged history of a user's past quiz answers, newest first, backed by
+     * Room. Includes both synced and not-yet-synced answers.
+     */
+    fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>>
 
     /** Returns the pass mark percentage for a quiz (default 70). */
     suspend fun getPassMark(quizId: String): Result<Int>

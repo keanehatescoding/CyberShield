@@ -1,10 +1,12 @@
 package com.example.cybershield.core.testing.fake
 
+import androidx.paging.PagingData
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Test double for ModuleRepository. Configure emission sequences per-call
@@ -23,6 +25,14 @@ class FakeModuleRepository : ModuleRepository {
 
     var refreshModulesResult: Result<Unit> = Result.Success(Unit)
 
+    var pendingModulesPagingProvider: (List<String>) -> Flow<PagingData<Module>> = {
+        flowOf(PagingData.empty())
+    }
+
+    var completedModulesPagingProvider: (List<String>) -> Flow<PagingData<Module>> = {
+        flowOf(PagingData.empty())
+    }
+
     private val playbackPositions = mutableMapOf<Pair<String, String>, Long>()
 
     // ── Call tracking ────────────────────────────────────────────────
@@ -32,6 +42,12 @@ class FakeModuleRepository : ModuleRepository {
     override fun getModules(): Flow<Result<List<Module>>> = getModulesFlowProvider()
 
     override fun getModuleById(moduleId: String): Flow<Result<Module>> = getModuleByIdFlowProvider(moduleId)
+
+    override fun getPendingModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
+        pendingModulesPagingProvider(completedIds)
+
+    override fun getCompletedModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
+        completedModulesPagingProvider(completedIds)
 
     override suspend fun refreshModules(): Result<Unit> {
         refreshModulesCallCount++

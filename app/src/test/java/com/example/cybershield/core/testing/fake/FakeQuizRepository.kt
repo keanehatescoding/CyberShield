@@ -1,10 +1,13 @@
 package com.example.cybershield.core.testing.fake
 
+import androidx.paging.PagingData
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 
 class FakeQuizRepository : QuizRepository {
     // Backing store
@@ -15,6 +18,9 @@ class FakeQuizRepository : QuizRepository {
     val savedResults = mutableListOf<SavedQuizResult>()
     var shouldReturnError = false
     var errorMessage = "Fake error"
+    var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
+        flowOf(PagingData.empty())
+    }
 
     // --- Test helpers ---
 
@@ -78,6 +84,9 @@ class FakeQuizRepository : QuizRepository {
         if (shouldReturnError) return Result.Error(Exception(errorMessage))
         return Result.Success(Unit)
     }
+
+    override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> =
+        quizResultHistoryProvider(userId)
 
     companion object {
         const val DEFAULT_PASS_MARK = 70

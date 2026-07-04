@@ -55,8 +55,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.model.User
 
@@ -72,6 +77,8 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val greeting = remember { viewModel.greeting() }
+    val pendingModules = viewModel.pendingModulesPaged.collectAsLazyPagingItems()
+    val completedModules = viewModel.completedModulesPaged.collectAsLazyPagingItems()
 
     LaunchedEffect(uiState.modulesError) {
         uiState.modulesError?.let { message ->
@@ -119,6 +126,8 @@ fun HomeScreen(
                     HomeContent(
                         uiState = uiState,
                         greeting = greeting,
+                        pendingModules = pendingModules,
+                        completedModules = completedModules,
                         onNavigateToModule = onNavigateToModule,
                         onNavigateToQuiz = onNavigateToQuiz,
                         onNavigateToLeaderboard = onNavigateToLeaderboard,
@@ -134,6 +143,8 @@ fun HomeScreen(
 private fun HomeContent(
     uiState: HomeUiState,
     greeting: String,
+    pendingModules: LazyPagingItems<Module>,
+    completedModules: LazyPagingItems<Module>,
     onNavigateToModule: (String) -> Unit,
     onNavigateToQuiz: (String) -> Unit,
     onNavigateToLeaderboard: () -> Unit,
@@ -166,8 +177,8 @@ private fun HomeContent(
             }
         }
 
-        // ── Continue learning section ──────────────────────────────────
-        if (uiState.pendingModules.isNotEmpty()) {
+        // ── Continue learning section (paged) ───────────────────────────
+        if (pendingModules.itemCount > 0) {
             item(key = "continue-header") {
                 SectionHeader(
                     title = "Continue learning",
@@ -175,9 +186,10 @@ private fun HomeContent(
                 )
             }
             items(
-                items = uiState.pendingModules,
-                key = { it.id },
-            ) { module ->
+                count = pendingModules.itemCount,
+                key = pendingModules.itemKey { it.id },
+            ) { index ->
+                val module = pendingModules[index] ?: return@items
                 ModuleCard(
                     module = module,
                     isCompleted = false,
@@ -185,6 +197,9 @@ private fun HomeContent(
                     onStartQuiz = { onNavigateToQuiz(module.quizId) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
+            }
+            if (pendingModules.loadState.append is LoadState.Loading) {
+                item(key = "pending-append-loading") { PagingAppendSpinner() }
             }
         }
 
@@ -197,18 +212,19 @@ private fun HomeContent(
             )
         }
 
-        // ── Completed modules ──────────────────────────────────────────
-        if (uiState.completedModules.isNotEmpty()) {
+        // ── Completed modules (paged) ────────────────────────────────────
+        if (completedModules.itemCount > 0) {
             item(key = "completed-header") {
                 SectionHeader(
-                    title = "Completed (${uiState.completedModules.size})",
+                    title = "Completed (${completedModules.itemCount})",
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
                 )
             }
             items(
-                items = uiState.completedModules,
-                key = { it.id },
-            ) { module ->
+                count = completedModules.itemCount,
+                key = completedModules.itemKey { it.id },
+            ) { index ->
+                val module = completedModules[index] ?: return@items
                 ModuleCard(
                     module = module,
                     isCompleted = true,
@@ -217,7 +233,22 @@ private fun HomeContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
+            if (completedModules.loadState.append is LoadState.Loading) {
+                item(key = "completed-append-loading") { PagingAppendSpinner() }
+            }
         }
+    }
+}
+
+// Small spinner row shown at the bottom of a paged section while the next
+// page is loading.
+@Composable
+private fun PagingAppendSpinner() {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp))
     }
 }
 
