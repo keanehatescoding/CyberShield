@@ -8,7 +8,6 @@ plugins {
     alias(libs.plugins.google.services) // Firebase — reads google-services.json
     alias(libs.plugins.firebase.crashlytics) // crash reporting
     alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.jacoco)
 }
 
 android {
@@ -84,9 +83,6 @@ tasks.configureEach {
     }
 }
 
-jacoco {
-    toolVersion = libs.versions.jacoco.get()
-}
 
 tasks.register<JacocoReport>("jacocoTestReport") {
     description = "Generates JaCoCo coverage report from debug unit tests."
