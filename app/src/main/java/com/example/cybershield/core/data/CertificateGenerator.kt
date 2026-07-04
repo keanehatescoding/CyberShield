@@ -18,9 +18,7 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 class CertificateGenerator(
     private val context: Context,
@@ -54,7 +52,7 @@ class CertificateGenerator(
             document.finishPage(page)
 
             val subDir = File(context.cacheDir, "certificates").apply { mkdirs() }
-            val file = File(subDir, "certificate_$certId.pdf")
+            val file = File(subDir, CertificateFormatting.cacheFileName(certId))
             file.outputStream().use { document.writeTo(it) }
             document.close()
             file
@@ -161,13 +159,13 @@ class CertificateGenerator(
                 textSize = 13f
             }
         canvas.drawText(
-            "Score: $score",
+            CertificateFormatting.scoreLabel(score),
             100f,
             375f,
             footerPaint,
         )
         canvas.drawText(
-            date?.let { SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(it) } ?: "",
+            CertificateFormatting.formatDate(date),
             w - 100f,
             375f,
             footerPaint.apply { textAlign = Paint.Align.RIGHT },
@@ -180,7 +178,7 @@ class CertificateGenerator(
                 textSize = 10f
                 textAlign = Paint.Align.CENTER
             }
-        canvas.drawText("Certificate ID: $certId", w / 2, h - 30f, idPaint)
+        canvas.drawText(CertificateFormatting.certificateIdLabel(certId), w / 2, h - 30f, idPaint)
     }
 
     // ── Share via Android share sheet ──────────────────────────────────
@@ -220,7 +218,7 @@ class CertificateGenerator(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values =
                 ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, "CyberShield_$certId.pdf")
+                    put(MediaStore.Downloads.DISPLAY_NAME, CertificateFormatting.downloadsFileName(certId))
                     put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
                     put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                 }
@@ -248,7 +246,7 @@ class CertificateGenerator(
 
             @Suppress("DEPRECATION")
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            file.copyTo(File(downloadsDir, "CyberShield_$certId.pdf"), overwrite = true)
+            file.copyTo(File(downloadsDir, CertificateFormatting.downloadsFileName(certId)), overwrite = true)
         }
     }
 }
