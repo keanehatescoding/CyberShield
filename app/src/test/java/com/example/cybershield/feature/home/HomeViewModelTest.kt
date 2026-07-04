@@ -3,7 +3,7 @@ package com.example.cybershield.feature.home
 import app.cash.turbine.test
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
-import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
+import com.example.cybershield.core.domain.usecase.FakeEnsureUserProfileUseCase
 import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
@@ -428,30 +428,3 @@ class HomeViewModelTest {
         )
 }
 
-/**
- * Minimal fake — HomeViewModel only ever calls currentSession() through
- * GetCurrentSessionUseCase, so that's the only member exercised here.
- */
-/**
- * Scripted fake for the extracted use case — HomeViewModelTest only needs to
- * verify delegation (call the use case, react to whatever it returns), not
- * re-derive the repair state machine, which EnsureUserProfileUseCaseTest already
- * covers directly against the real implementation.
- */
-private class FakeEnsureUserProfileUseCase : EnsureUserProfileUseCase {
-    var outcomeToReturn: ProfileRepairOutcome = ProfileRepairOutcome.NotApplicable(null)
-    var onProfileLoadedSuccessfullyCallCount = 0
-    var lastSessionPassed: AuthSession? = null
-
-    override fun onProfileLoadedSuccessfully() {
-        onProfileLoadedSuccessfullyCallCount++
-    }
-
-    override suspend operator fun invoke(
-        error: Exception,
-        session: AuthSession?,
-    ): ProfileRepairOutcome {
-        lastSessionPassed = session
-        return outcomeToReturn
-    }
-}
