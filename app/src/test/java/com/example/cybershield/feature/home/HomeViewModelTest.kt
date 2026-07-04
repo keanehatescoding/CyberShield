@@ -2,12 +2,12 @@ package com.example.cybershield.feature.home
 
 import app.cash.turbine.test
 import com.example.cybershield.core.domain.model.Module
-import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
 import com.example.cybershield.core.domain.usecase.EnsureUserProfileUseCase
 import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.testing.fake.FakeAuthRepository
 import com.example.cybershield.core.testing.fake.FakeModuleRepository
 import com.example.cybershield.core.testing.fake.FakeUserRepository
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
@@ -432,31 +432,6 @@ class HomeViewModelTest {
  * Minimal fake — HomeViewModel only ever calls currentSession() through
  * GetCurrentSessionUseCase, so that's the only member exercised here.
  */
-private class FakeAuthRepository : AuthRepository {
-    var currentSessionToReturn: AuthSession? = null
-
-    override fun currentSession(): AuthSession? = currentSessionToReturn
-
-    override fun observeAuthState() = throw NotImplementedError("Not used by HomeViewModel")
-
-    override suspend fun register(
-        name: String,
-        email: String,
-        password: String,
-    ) = throw NotImplementedError("Not used by HomeViewModel")
-
-    override suspend fun signIn(
-        email: String,
-        password: String,
-    ) = throw NotImplementedError("Not used by HomeViewModel")
-
-    override suspend fun resendVerificationEmail() = throw NotImplementedError("Not used by HomeViewModel")
-
-    override suspend fun refreshEmailVerified() = throw NotImplementedError("Not used by HomeViewModel")
-
-    override fun signOut() = throw NotImplementedError("Not used by HomeViewModel")
-}
-
 /**
  * Scripted fake for the extracted use case — HomeViewModelTest only needs to
  * verify delegation (call the use case, react to whatever it returns), not
