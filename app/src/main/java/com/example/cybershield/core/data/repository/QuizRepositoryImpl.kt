@@ -6,7 +6,9 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.domain.util.resultOf
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
+import com.example.cybershield.core.firebase.QuizResultUpload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -76,5 +78,39 @@ class QuizRepositoryImpl
                     synced = false,
                 ),
             )
+        }
+
+        override suspend fun syncPendingResults(): Result<Unit> =
+            withContext(Dispatchers.IO) {
+                resultOf {
+                    val pending = resultDao.getPendingResults()
+                    if (pending.isEmpty()) return@resultOf Result.Success(Unit)
+
+                    pending.chunked(SYNC_CHUNK_SIZE).forEach { chunk ->
+                        remoteSource.uploadQuizResults(
+                            chunk.map { entity ->
+                                QuizResultUpload(
+                                    localId = entity.localId,
+                                    userId = entity.userId,
+                                    quizId = entity.quizId,
+                                    moduleId = entity.moduleId,
+                                    isCorrect = entity.isCorrect,
+                                    selectedAnswer = entity.selectedAnswer,
+                                    answeredAt = entity.answeredAt,
+                                )
+                            },
+                        )
+                        // Mark and delete per-chunk so a later chunk's failure
+                        // doesn't force re-upload of chunks that already
+                        // committed successfully.
+                        resultDao.markSyncedAndDelete(chunk.map { it.localId })
+                    }
+                    Result.Success(Unit)
+                }
+            }
+
+        private companion object {
+            /** Firestore batch writes cap at 500; stay comfortably under it. */
+            const val SYNC_CHUNK_SIZE = 450
         }
     }

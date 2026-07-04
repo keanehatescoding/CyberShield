@@ -44,7 +44,7 @@ object SyncModule {
                 .build()
 
         workManager.enqueueUniquePeriodicWork(
-            SyncQuizResultsWorker.WORK_NAME,
+            SyncQuizResultsWorker.PERIODIC_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP, // don't restart if already scheduled
             request,
         )

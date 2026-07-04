@@ -23,4 +23,13 @@ interface QuizRepository {
         isCorrect: Boolean,
         selectedAnswer: String,
     )
+
+    /**
+     * Pushes all pending (unsynced) quiz results to Firestore, committing in
+     * chunks so that a later chunk's failure doesn't force re-upload of
+     * chunks that already committed successfully. Marks each chunk as
+     * synced-and-deleted locally as soon as its commit succeeds.
+     * Called by SyncQuizResultsWorker; safe to call when nothing is pending.
+     */
+    suspend fun syncPendingResults(): Result<Unit>
 }

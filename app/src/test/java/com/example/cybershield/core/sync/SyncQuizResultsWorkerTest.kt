@@ -2,73 +2,36 @@ package com.example.cybershield.core.sync
 
 import android.content.Context
 import androidx.work.WorkerParameters
-import com.example.cybershield.core.database.dao.QuizResultDao
-import com.example.cybershield.core.database.entity.QuizResultEntity
-import com.google.android.gms.tasks.Tasks
-import com.google.firebase.firestore.CollectionReference
-import com.google.firebase.firestore.DocumentReference
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.WriteBatch
+import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.util.Result as DomainResult
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import androidx.work.ListenableWorker.Result as WorkResult
 
+/**
+ * The Firestore batching, chunking, and per-chunk mark-and-delete behavior
+ * now lives in QuizRepositoryImpl (see QuizRepositoryImplTest). This worker
+ * test only covers doWork()'s own responsibilities: the offline guard, and
+ * mapping QuizRepository.syncPendingResults()'s outcome to a WorkManager
+ * Result, including the runAttemptCount retry/failure cutoff.
+ */
 class SyncQuizResultsWorkerTest {
-    private lateinit var resultDao: QuizResultDao
-    private lateinit var firestore: FirebaseFirestore
+    private lateinit var quizRepository: QuizRepository
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var context: Context
-
-    // Firestore mock chain pieces, rebuilt per test so call captures don't bleed across tests
-    private lateinit var writeBatch: WriteBatch
 
     @Before
     fun setUp() {
         context = mockk(relaxed = true)
-        resultDao = mockk()
-        firestore = mockk()
+        quizRepository = mockk()
         networkMonitor = mockk()
-        writeBatch = mockk(relaxed = true)
-
-        // firestore.batch() always hands back the same mock batch in a given test
-        every { firestore.batch() } returns writeBatch
-        // batch.set(ref, map) — relaxed mock already returns the batch itself (chaining), but
-        // be explicit so intent is clear and so it survives if relaxed=true is removed later.
-        every { writeBatch.set(any<DocumentReference>(), any<Map<String, Any?>>()) } returns writeBatch
-        every { writeBatch.commit() } returns Tasks.forResult(null)
-
-        // firestore.collection(...).document(...).collection(...).document(...) chain
-        val usersCollection = mockk<CollectionReference>()
-        every { firestore.collection("users") } returns usersCollection
-        every { usersCollection.document(any()) } answers {
-            val userDocRef = mockk<DocumentReference>(relaxed = true)
-            val resultsCollection = mockk<CollectionReference>()
-            every { userDocRef.collection("quizResults") } returns resultsCollection
-            every { resultsCollection.document(any()) } returns mockk(relaxed = true)
-            userDocRef
-        }
     }
-
-    private fun fakeEntity(
-        localId: Long,
-        userId: String = "user1",
-    ) = QuizResultEntity(
-        localId = localId,
-        userId = userId,
-        quizId = "quiz1",
-        moduleId = "module1",
-        isCorrect = true,
-        selectedAnswer = "A",
-        answeredAt = 1_000_000L,
-        synced = false,
-    )
 
     @Test
     fun `doWork returns retry when offline`() =
@@ -79,111 +42,45 @@ class SyncQuizResultsWorkerTest {
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Retry)
-            coVerify(exactly = 0) { resultDao.getPendingResults() }
+            coVerify(exactly = 0) { quizRepository.syncPendingResults() }
         }
 
     @Test
-    fun `doWork returns success when no pending results`() =
+    fun `doWork returns success when repository reports success`() =
         runTest {
             every { networkMonitor.isCurrentlyOnline() } returns true
-            coEvery { resultDao.getPendingResults() } returns emptyList()
+            coEvery { quizRepository.syncPendingResults() } returns DomainResult.Success(Unit)
 
             val worker = directConstruct(runAttemptCount = 0)
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Success)
-            coVerify(exactly = 0) { resultDao.markSyncedAndDelete(any()) }
         }
 
     @Test
-    fun `doWork commits single batch and deletes synced rows for small pending list`() =
+    fun `doWork retries on repository error when under max retries`() =
         runTest {
             every { networkMonitor.isCurrentlyOnline() } returns true
-            val pending = (1L..5L).map { fakeEntity(it) }
-            coEvery { resultDao.getPendingResults() } returns pending
-            val deletedIdsSlot = slot<List<Long>>()
-            coEvery { resultDao.markSyncedAndDelete(capture(deletedIdsSlot)) } returns Unit
-
-            val worker = directConstruct(runAttemptCount = 0)
-            val result = worker.doWork()
-
-            assertTrue(result is WorkResult.Success)
-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(any()) }
-            assertTrue(deletedIdsSlot.captured.toSet() == pending.map { it.localId }.toSet())
-            // Exactly one commit — under BATCH_CHUNK_SIZE (450), should be a single chunk
-            coVerify(exactly = 1) { writeBatch.commit() }
-        }
-
-    @Test
-    fun `doWork splits into multiple commits when pending exceeds chunk size`() =
-        runTest {
-            every { networkMonitor.isCurrentlyOnline() } returns true
-            // 451 rows -> 2 chunks given BATCH_CHUNK_SIZE = 450
-            val pending = (1L..451L).map { fakeEntity(it) }
-            coEvery { resultDao.getPendingResults() } returns pending
-            coEvery { resultDao.markSyncedAndDelete(any()) } returns Unit
-
-            val worker = directConstruct(runAttemptCount = 0)
-            val result = worker.doWork()
-
-            assertTrue(result is WorkResult.Success)
-            coVerify(exactly = 2) { firestore.batch() }
-            coVerify(exactly = 2) { writeBatch.commit() }
-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(match { it.size == 451 }) }
-        }
-
-    @Test
-    fun `doWork retries on firestore exception when under max retries`() =
-        runTest {
-            every { networkMonitor.isCurrentlyOnline() } returns true
-            coEvery { resultDao.getPendingResults() } returns listOf(fakeEntity(1L))
-            every { writeBatch.commit() } returns Tasks.forException(RuntimeException("quota exceeded"))
+            coEvery { quizRepository.syncPendingResults() } returns
+                DomainResult.Error(RuntimeException("quota exceeded"))
 
             val worker = directConstruct(runAttemptCount = 1) // < MAX_RETRIES (3)
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Retry)
-            coVerify(exactly = 0) { resultDao.markSyncedAndDelete(any()) }
         }
 
     @Test
-    fun `doWork returns failure when exception occurs at max retries`() =
+    fun `doWork returns failure when repository error occurs at max retries`() =
         runTest {
             every { networkMonitor.isCurrentlyOnline() } returns true
-            coEvery { resultDao.getPendingResults() } returns listOf(fakeEntity(1L))
-            every { writeBatch.commit() } returns Tasks.forException(RuntimeException("quota exceeded"))
+            coEvery { quizRepository.syncPendingResults() } returns
+                DomainResult.Error(RuntimeException("quota exceeded"))
 
             val worker = directConstruct(runAttemptCount = 3) // == MAX_RETRIES
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Failure)
-        }
-
-    @Test
-    fun `doWork does not delete already-synced chunks if a later chunk fails`() =
-        runTest {
-            every { networkMonitor.isCurrentlyOnline() } returns true
-            val pending = (1L..451L).map { fakeEntity(it) } // 2 chunks
-            coEvery { resultDao.getPendingResults() } returns pending
-            coEvery { resultDao.markSyncedAndDelete(any()) } returns Unit
-
-            var callCount = 0
-            every { writeBatch.commit() } answers {
-                callCount++
-                if (callCount == 1) Tasks.forResult(null) else Tasks.forException(RuntimeException("boom"))
-            }
-
-            val worker = directConstruct(runAttemptCount = 0)
-            val result = worker.doWork()
-
-            // Whole doWork is wrapped in one try/catch, so a failure on chunk 2 means
-            // markSyncedAndDelete is never called at all — not even for chunk 1's synced IDs.
-            // This is worth flagging as a real behavior gap: chunk 1 successfully committed to
-            // Firestore but its local rows are never marked synced, so they'll be resent next run.
-            // That's safe (idempotent overwrite via deterministic doc IDs) but wasteful. Confirming
-            // this is intentional, not testing around a bug silently.
-            assertTrue(result is WorkResult.Retry)
-            coVerify(exactly = 0) { resultDao.markSyncedAndDelete(any()) }
         }
 
     private fun directConstruct(runAttemptCount: Int): SyncQuizResultsWorker {
@@ -192,8 +89,7 @@ class SyncQuizResultsWorkerTest {
         return SyncQuizResultsWorker(
             context = context,
             workerParams = workerParams,
-            resultDao = resultDao,
-            firestore = firestore,
+            quizRepository = quizRepository,
             networkMonitor = networkMonitor,
         )
     }

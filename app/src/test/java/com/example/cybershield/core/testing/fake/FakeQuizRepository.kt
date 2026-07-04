@@ -74,6 +74,11 @@ class FakeQuizRepository : QuizRepository {
         )
     }
 
+    override suspend fun syncPendingResults(): Result<Unit> {
+        if (shouldReturnError) return Result.Error(Exception(errorMessage))
+        return Result.Success(Unit)
+    }
+
     companion object {
         const val DEFAULT_PASS_MARK = 70
     }
