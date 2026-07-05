@@ -1,6 +1,7 @@
 package com.example.cybershield.core.domain.repository
 
 import androidx.paging.PagingData
+import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
@@ -8,12 +9,12 @@ import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 
 interface QuizRepository {
-    /** Fetches all questions for a given module from Firestore (or Room cache). */
+    /** Fetches all questions for a given module from Firestore (or Room cache). Never includes the answer key. */
     suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>>
 
     /**
      * Paged history of a user's past quiz answers, newest first, backed by
-     * Room. Includes both synced and not-yet-synced answers.
+     * Room. Includes both graded and not-yet-graded (offline, pending) answers.
      */
     fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>>
 
@@ -21,26 +22,52 @@ interface QuizRepository {
     suspend fun getPassMark(quizId: String): Result<Int>
 
     /**
-     * Persists a single answer result.
-     * Writes to Room immediately; SyncQuizResultsWorker pushes to Firestore
-     * when the device is online.
+     * Online path: submits the answer to the validateAnswer Cloud Function
+     * for immediate grading, caches the graded result locally, and returns
+     * the server's verdict. This is the ONLY source of truth for isCorrect —
+     * nothing in the app computes it locally.
      */
-    suspend fun saveQuizResult(
+    suspend fun validateAnswerOnline(
         userId: String,
         quizId: String,
+        questionId: String,
+        selectedIndex: Int,
+        selectedAnswer: String,
         moduleId: String,
-        isCorrect: Boolean,
+    ): Result<AnswerValidation>
+
+    /**
+     * Offline path: caches the raw answer (selectedIndex only — no verdict)
+     * in Room. SyncQuizResultsWorker grades it later via validateAnswersBatch
+     * once connectivity returns.
+     */
+    suspend fun cachePendingAnswer(
+        userId: String,
+        quizId: String,
+        questionId: String,
+        moduleId: String,
+        selectedIndex: Int,
         selectedAnswer: String,
     )
 
     /**
-     * Pushes all pending (unsynced) quiz results to Firestore, committing in
-     * chunks so that a later chunk's failure doesn't force re-upload of
-     * chunks that already committed successfully. Marks each chunk as
-     * synced-and-deleted locally as soon as its commit succeeds.
+     * Sends every not-yet-graded row to validateAnswersBatch and records the
+     * server's verdict for each. Chunked so a later chunk's failure doesn't
+     * force re-submission of chunks that already graded successfully.
      * Called by SyncQuizResultsWorker; safe to call when nothing is pending.
      */
     suspend fun syncPendingResults(): Result<Unit>
-    suspend fun saveQuizAttempt(resultId: String, result: QuizResult)
+
+    /**
+     * Persists a completed quiz's summary keyed by a locally-generated
+     * resultId, so the result screen can be reached via navigation (and
+     * reopened after process death / deep link) without ever trusting a
+     * QuizResult that arrived as a raw navigation argument.
+     */
+    suspend fun saveQuizAttempt(
+        resultId: String,
+        result: QuizResult,
+    )
+
     suspend fun getQuizAttempt(resultId: String): QuizResult?
 }

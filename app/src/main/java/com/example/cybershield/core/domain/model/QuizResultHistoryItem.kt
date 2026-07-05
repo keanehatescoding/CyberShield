@@ -6,7 +6,8 @@ data class QuizResultHistoryItem(
     val quizId: String,
     val moduleId: String,
     val moduleTitle: String,
-    val isCorrect: Boolean,
+    /** Null means "answered offline, not yet graded" — see QuizResultEntity.synced. */
+    val isCorrect: Boolean?,
     val selectedAnswer: String,
     val answeredAt: Long,
     val synced: Boolean,

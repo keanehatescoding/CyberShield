@@ -82,10 +82,13 @@ constructor(
     private var currentIndex: Int = 0
     private var score: Int = 0
     private var correctCount: Int = 0
+    private var pendingCount: Int = 0
     private var timerJob: Job? = null
     private var quizStartElapsed: Long = 0L
+
     @OptIn(ExperimentalAtomicApi::class)
     private val hasAnswered = AtomicBoolean(false)
+
     @OptIn(ExperimentalAtomicApi::class)
     private val hasFinished = AtomicBoolean(false)
 
@@ -152,7 +155,7 @@ constructor(
                 question = question,
                 questionIndex = index,
                 totalQuestions = questions.size,
-                score = score
+                score = score,
             )
 
         timerJob =
@@ -186,20 +189,21 @@ constructor(
         if (!hasAnswered.compareAndSet(false, newValue = true)) return
 
         val question = questions[currentIndex]
-        val correct = selectedIndex == question.correctIndex
-        val points = if (correct) BASE_POINTS + (timeRemaining * SPEED_BONUS) else 0
-        score += points
-        if (correct) correctCount++
 
+        // Show the "answered, awaiting result" state immediately — no
+        // correct/incorrect reveal yet, because the client doesn't know the
+        // answer. That only comes back from validateAnswer / a later sync.
         _uiState.value =
             current.copy(
                 selectedOption = selectedIndex,
                 isAnswered = true,
-                isCorrect = correct,
+                isCorrect = null,
                 score = score,
             )
 
         if (uid.isBlank()) {
+            // Not signed in — nothing to grade against server-side (no uid
+            // to attach the result to). Advance without a graded outcome.
             viewModelScope.launch {
                 delay(FEEDBACK_DELAY_MS.milliseconds)
                 advanceQuiz()
@@ -208,14 +212,14 @@ constructor(
         }
 
         viewModelScope.launch {
-            val saveJob =
+            val submitJob =
                 async {
                     try {
                         submitAnswer(
                             quizId = quizId,
                             question = question,
+                            selectedIndex = selectedIndex,
                             selectedAnswer = question.options.getOrElse(selectedIndex) { "" },
-                            isCorrect = correct,
                             userId = uid,
                         )
                     } catch (e: CancellationException) {
@@ -226,18 +230,53 @@ constructor(
                 }
             val feedbackDelay = async { delay(FEEDBACK_DELAY_MS.milliseconds) }
 
-            val result = saveJob.await()
+            val result = submitJob.await()
             feedbackDelay.await()
 
-            if (result is Result.Error) {
-                _uiState.value = (_uiState.value as? QuizUiState.Active)
-                    ?.copy(saveFailed = true)
-                    ?: _uiState.value
-                _events.send(
-                    QuizUiEvent.AnswerSyncFailed(
-                        "Couldn't save your answer — it'll sync once you're back online.",
-                    ),
-                )
+            when (result) {
+                is Result.Success -> {
+                    val validation = result.data
+                    if (validation != null) {
+                        // Online path — server graded it immediately.
+                        val points = if (validation.isCorrect) BASE_POINTS + (timeRemaining * SPEED_BONUS) else 0
+                        score += points
+                        if (validation.isCorrect) correctCount++
+
+                        _uiState.value =
+                            (_uiState.value as? QuizUiState.Active)?.copy(
+                                isCorrect = validation.isCorrect,
+                                revealedCorrectIndex = validation.correctIndex,
+                                revealedExplanation = validation.explanation,
+                                score = score,
+                            ) ?: _uiState.value
+                    } else {
+                        // Offline path — cached locally, no verdict yet.
+                        pendingCount++
+                        _uiState.value =
+                            (_uiState.value as? QuizUiState.Active)?.copy(
+                                isCorrect = null,
+                                isPending = true,
+                            ) ?: _uiState.value
+                        _events.send(
+                            QuizUiEvent.AnswerSyncFailed(
+                                "You're offline — this answer is saved and will be graded once you're back online.",
+                            ),
+                        )
+                    }
+                }
+
+                is Result.Error -> {
+                    _uiState.value =
+                        (_uiState.value as? QuizUiState.Active)?.copy(saveFailed = true)
+                            ?: _uiState.value
+                    _events.send(
+                        QuizUiEvent.AnswerSyncFailed(
+                            "Couldn't save your answer — it'll sync once you're back online.",
+                        ),
+                    )
+                }
+
+                Result.Loading -> Unit // never emitted by submitAnswer
             }
 
             advanceQuiz()
@@ -264,32 +303,50 @@ constructor(
             val percentage = if (total > 0) (correctCount * 100) / total else 0
             val passed = percentage >= PASS_PERCENTAGE
             val timeTaken = (elapsedRealtimeProvider() - quizStartElapsed) / 1000
+            val provisional = pendingCount > 0
 
-            val xpEarned = if (uid.isNotBlank()) {
-                val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
-                userRepository.markQuizCompleted(uid, quizId)
-                if (passed) {
-                    userRepository.awardBadge(uid, "CyberDefender")
-                    val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
-                    val certificateResult =
-                        generateCertificate(
-                            userId = uid,
-                            userName = displayName,
-                            moduleId = questions.firstOrNull()?.moduleId ?: "",
-                            moduleName = questions.firstOrNull()?.moduleName ?: "",
-                            quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
-                            score = score,
-                        )
-                    if (certificateResult is Result.Error) {
-                        _events.send(
-                            QuizUiEvent.CertificateGenerationFailed(
-                                "You passed, but we couldn't generate your certificate. Please try again from your profile.",
-                            ),
-                        )
+            // While any answer from this session is still awaiting server
+            // grading (answered offline), correctCount/percentage/passed are
+            // necessarily provisional — awarding XP, a badge, or a
+            // certificate off an unverified score would reopen the same
+            // hole this refactor closes. SyncQuizResultsWorker grades the
+            // rest once connectivity returns; finalizing rewards at that
+            // point is tracked as a follow-up.
+            val xpEarned =
+                if (uid.isNotBlank() && !provisional) {
+                    val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
+                    userRepository.markQuizCompleted(uid, quizId)
+                    if (passed) {
+                        userRepository.awardBadge(uid, "CyberDefender")
+                        val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
+                        val certificateResult =
+                            generateCertificate(
+                                userId = uid,
+                                userName = displayName,
+                                moduleId = questions.firstOrNull()?.moduleId ?: "",
+                                moduleName = questions.firstOrNull()?.moduleName ?: "",
+                                quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
+                                score = score,
+                            )
+                        if (certificateResult is Result.Error) {
+                            _events.send(
+                                QuizUiEvent.CertificateGenerationFailed(
+                                    "You passed, but we couldn't generate your certificate. Please try again from your profile.",
+                                ),
+                            )
+                        }
                     }
+                    xpResult.dataOrNull ?: 0
+                } else if (uid.isNotBlank() && provisional) {
+                    _events.send(
+                        QuizUiEvent.AnswerSyncFailed(
+                            "Some answers are still offline — your final score, XP, and certificate will be finalized once they sync.",
+                        ),
+                    )
+                    0
+                } else {
+                    0
                 }
-                xpResult.dataOrNull ?: 0
-            } else 0
 
             val quizResult =
                 QuizResult(
@@ -301,13 +358,13 @@ constructor(
                     xpEarned = xpEarned,
                     passed = passed,
                     timeTaken = timeTaken,
+                    provisional = provisional,
                 )
             val resultId = resultIdProvider()
             quizRepository.saveQuizAttempt(resultId, quizResult)
 
             _uiState.value = QuizUiState.Completed(quizResult)
             _events.send(QuizUiEvent.NavigateToResult(resultId))
-
         }
     }
 

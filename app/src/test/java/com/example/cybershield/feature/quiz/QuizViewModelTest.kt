@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.toRoute
 import app.cash.turbine.test
 import com.example.cybershield.QuizRoute
+import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.User
@@ -35,12 +36,25 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Grading now always comes from SubmitAnswerUseCase's return value — either
+ * Result.Success(AnswerValidation) for an online, server-graded answer, or
+ * Result.Success(null) for an offline answer that's cached and deferred.
+ * These tests script that return value directly rather than deriving
+ * correctness from a client-held correctIndex (which no longer exists).
+ *
+ * Quiz completion also no longer hands a QuizResult through navigation args —
+ * finishQuiz persists it via quizRepository.saveQuizAttempt(resultId, ...)
+ * and emits QuizUiEvent.NavigateToResult(resultId); QuizResultScreen re-reads
+ * it from Room by that id.
+ */
 class QuizViewModelTest {
     @get:Rule
     val coroutineRule = TestCoroutineRule()
@@ -63,7 +77,6 @@ class QuizViewModelTest {
 
     private fun question(
         id: String,
-        correctIndex: Int = 0,
         options: List<String> = listOf("A", "B", "C", "D"),
         moduleId: String = "module-1",
         moduleName: String = "Phishing Awareness",
@@ -75,16 +88,23 @@ class QuizViewModelTest {
         moduleName = moduleName,
         text = "Sample question $id",
         options = options,
-        correctIndex = correctIndex,
         order = order,
         quizTitle = quizTitle,
     )
 
-    // NOTE: QuizViewModel's @Inject constructor only takes the six real
-    // dependencies + SavedStateHandle. elapsedRealtimeProvider and loadTimeoutMs
-    // are exposed as internal vars on the ViewModel (not constructor params) so
-    // that Hilt's generated code never has to resolve a binding for a bare
-    // Long or () -> Long. Tests set them here, post-construction.
+    private fun validation(
+        questionId: String,
+        isCorrect: Boolean,
+        correctIndex: Int = 0,
+        explanation: String = "Because.",
+    ) = AnswerValidation(questionId = questionId, isCorrect = isCorrect, correctIndex = correctIndex, explanation = explanation)
+
+    // NOTE: QuizViewModel's @Inject constructor only takes the real
+    // dependencies + SavedStateHandle. elapsedRealtimeProvider, loadTimeoutMs,
+    // and resultIdProvider are exposed as internal vars on the ViewModel (not
+    // constructor params) so that Hilt's generated code never has to resolve
+    // a binding for a bare Long, () -> Long, or () -> String. Tests set them
+    // here, post-construction.
     private fun buildViewModel(
         elapsedRealtimeProvider: () -> Long = { fakeElapsed },
         loadTimeoutMs: Long = QuizViewModel.LOAD_TIMEOUT_MS,
@@ -118,11 +138,11 @@ class QuizViewModelTest {
         fakeElapsed = 0L
 
         every { getCurrentSession() } returns
-                AuthRepository.AuthSession(
-                    uid = testUid,
-                    email = "keane@example.com",
-                    isEmailVerified = true,
-                )
+            AuthRepository.AuthSession(
+                uid = testUid,
+                email = "keane@example.com",
+                isEmailVerified = true,
+            )
         every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
         coEvery { quizRepository.saveQuizAttempt(any(), any()) } just Runs
     }
@@ -197,16 +217,16 @@ class QuizViewModelTest {
         }
 
     // ---------------------------------------------------------------------
-    // Answer selection
+    // Answer selection — server-graded (online) path
     // ---------------------------------------------------------------------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `selectAnswer with correct option marks isCorrect true and increases score`() =
+    fun `selectAnswer shows a neutral awaiting state before the server responds`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 1)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -217,13 +237,44 @@ class QuizViewModelTest {
 
                 viewModel.selectAnswer(selectedIndex = 1)
 
-                val answered = awaitItem() as QuizUiState.Active
-                assertTrue(answered.isAnswered)
-                assertEquals(true, answered.isCorrect)
-                assertEquals(1, answered.selectedOption)
-                assertTrue(answered.score > 0)
+                // Immediate emission: answered, but not yet graded.
+                val awaiting = awaitItem() as QuizUiState.Active
+                assertTrue(awaiting.isAnswered)
+                assertNull(awaiting.isCorrect)
+                assertFalse(awaiting.isPending)
+                assertEquals(1, awaiting.selectedOption)
 
-                // Allow the feedback delay + advanceQuiz to run; only one question so it finishes.
+                advanceUntilIdle()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `selectAnswer with server-confirmed correct answer reveals correctIndex and increases score`() =
+        runTest {
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
+                Result.Success(validation("q1", isCorrect = true, correctIndex = 1, explanation = "B is correct."))
+            coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
+            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial Active state for q1
+
+                viewModel.selectAnswer(selectedIndex = 1)
+                awaitItem() // awaiting-grade emission
+
+                val graded = awaitItem() as QuizUiState.Active
+                assertEquals(true, graded.isCorrect)
+                assertEquals(1, graded.revealedCorrectIndex)
+                assertEquals("B is correct.", graded.revealedExplanation)
+                assertTrue(graded.score > 0)
+
+                // Only one question — grading completes the quiz next.
                 advanceUntilIdle()
                 val finalState = expectMostRecentItem()
                 assertTrue(finalState is QuizUiState.Completed)
@@ -232,11 +283,12 @@ class QuizViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `selectAnswer with incorrect option awards zero points for that question`() =
+    fun `selectAnswer with server-confirmed incorrect answer awards zero points`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 2)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
+                Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -244,12 +296,12 @@ class QuizViewModelTest {
 
             viewModel.uiState.test {
                 awaitItem()
+                viewModel.selectAnswer(selectedIndex = 0)
+                awaitItem() // awaiting-grade emission
 
-                viewModel.selectAnswer(selectedIndex = 0) // wrong
-
-                val answered = awaitItem() as QuizUiState.Active
-                assertEquals(false, answered.isCorrect)
-                assertEquals(0, answered.score)
+                val graded = awaitItem() as QuizUiState.Active
+                assertEquals(false, graded.isCorrect)
+                assertEquals(0, graded.score)
 
                 advanceUntilIdle()
                 cancelAndIgnoreRemainingEvents()
@@ -262,9 +314,9 @@ class QuizViewModelTest {
     @Test
     fun `selectAnswer ignored if question already answered`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -273,24 +325,66 @@ class QuizViewModelTest {
             viewModel.uiState.test {
                 awaitItem()
                 viewModel.selectAnswer(0)
-                val firstAnswered = awaitItem() as QuizUiState.Active
+                awaitItem()
 
                 // Second call should be a no-op since isAnswered is already true.
                 viewModel.selectAnswer(2)
 
                 advanceUntilIdle()
-                val finalState = expectMostRecentItem()
-                if (finalState is QuizUiState.Active) {
-                    assertEquals(firstAnswered.selectedOption, finalState.selectedOption)
-                }
+                cancelAndIgnoreRemainingEvents()
             }
+
+            // Only ever graded once, regardless of the second call.
+            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
+        }
+
+    // ---------------------------------------------------------------------
+    // Offline path — deferred grading
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `selectAnswer while offline shows pending state and defers scoring`() =
+        runTest {
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            // SubmitAnswerUseCase returns Success(null) for the offline / cached path.
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
+
+            val viewModel = buildViewModel()
+
+            viewModel.uiState.test {
+                awaitItem()
+                viewModel.selectAnswer(selectedIndex = 1)
+                awaitItem() // awaiting-grade emission
+
+                val pending = awaitItem() as QuizUiState.Active
+                assertTrue(pending.isPending)
+                assertNull(pending.isCorrect)
+                assertNull(pending.revealedCorrectIndex)
+                assertEquals(0, pending.score) // no points until graded
+
+                advanceUntilIdle()
+                val completed = expectMostRecentItem() as QuizUiState.Completed
+                assertTrue(completed.result.provisional)
+                assertEquals(0, completed.result.xpEarned)
+            }
+
+            // No reward path runs for a provisional (still-offline) completion.
+            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
+            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+            coVerify(exactly = 0) {
+                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
+            }
+            // The provisional attempt is still persisted (so the result screen has something to show).
+            coVerify(exactly = 1) { quizRepository.saveQuizAttempt(any(), match { it.provisional }) }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `saveFailed flag is set when submitAnswer throws`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
@@ -318,49 +412,51 @@ class QuizViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `question auto-submits as incorrect when timer reaches zero`() =
+    fun `question auto-submits with selectedIndex -1 when timer reaches zero`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel(elapsedRealtimeProvider = { fakeElapsed })
 
             viewModel.uiState.test {
-                awaitItem() // initial Active, timeLeft = 30
+                awaitItem() // initial Active
 
                 repeat(QuizViewModel.QUESTION_TIME_SECONDS + 1) {
                     fakeElapsed += 1_000L
                     advanceTimeBy(1_000L.milliseconds)
                 }
 
+                advanceUntilIdle()
+
                 when (val timedOut = expectMostRecentItem()) {
                     is QuizUiState.Active -> {
                         assertTrue(timedOut.isAnswered)
                         assertEquals(-1, timedOut.selectedOption)
-                        assertEquals(false, timedOut.isCorrect)
                     }
                     is QuizUiState.Completed -> assertFalse(timedOut.result.passed)
                     else -> error("Unexpected state after timeout: $timedOut")
                 }
             }
 
-            coVerify { submitAnswer(quizId = testQuizId, question = q1, selectedAnswer = "", isCorrect = false, userId = testUid) }
+            // The client sends -1 (its sentinel for "no answer") — never a claimed isCorrect.
+            coVerify { submitAnswer(quizId = testQuizId, question = q1, selectedIndex = -1, selectedAnswer = "", userId = testUid) }
         }
 
     // ---------------------------------------------------------------------
-    // Quiz completion: pass / fail, certificate, badge
+    // Quiz completion: pass / fail, certificate, badge, attempt persistence
     // ---------------------------------------------------------------------
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `finishQuiz saves attempt and emits NavigateToResult with matching id`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -370,6 +466,7 @@ class QuizViewModelTest {
                 viewModel.uiState.test {
                     awaitItem()
                     viewModel.selectAnswer(0)
+                    awaitItem()
                     awaitItem()
                     advanceUntilIdle()
                     cancelAndIgnoreRemainingEvents()
@@ -383,21 +480,23 @@ class QuizViewModelTest {
 
             coVerify { quizRepository.saveQuizAttempt("result-abc", any()) }
         }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `finishQuiz awards badge and generates certificate when passed`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
-            val q2 = question(id = "q2", correctIndex = 0, order = 1)
-            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            // Single question so the pass/fail outcome depends only on this one
+            // server-confirmed answer, not on timer/timeout interactions.
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.getUserProfileOnce(testUid) } returns
-                    Result.Success(
-                        User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
-                    )
+                Result.Success(
+                    User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
+                )
             coEvery {
                 generateCertificate(
                     userId = any(),
@@ -414,14 +513,15 @@ class QuizViewModelTest {
             viewModel.uiState.test {
                 awaitItem() // q1 active
 
-                // Answer correctly with most of the timer remaining -> guaranteed pass.
                 viewModel.selectAnswer(0)
-                awaitItem() // answered feedback for q1
+                awaitItem() // awaiting-grade emission
+                awaitItem() // graded emission
                 advanceUntilIdle()
 
                 val completed = expectMostRecentItem()
                 assertTrue(completed is QuizUiState.Completed)
                 assertTrue((completed as QuizUiState.Completed).result.passed)
+                assertFalse(completed.result.provisional)
             }
 
             coVerify { userRepository.awardBadge(testUid, "CyberDefender") }
@@ -441,9 +541,9 @@ class QuizViewModelTest {
     @Test
     fun `finishQuiz does not award badge or certificate when failed`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -451,7 +551,8 @@ class QuizViewModelTest {
 
             viewModel.uiState.test {
                 awaitItem()
-                viewModel.selectAnswer(selectedIndex = 99) // out of range -> always wrong, 0 points
+                viewModel.selectAnswer(selectedIndex = 3) // server reports it wrong
+                awaitItem()
                 awaitItem()
                 advanceUntilIdle()
 
@@ -477,9 +578,9 @@ class QuizViewModelTest {
     @Test
     fun `finishQuiz falls back to default display name when profile fetch fails`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
@@ -500,6 +601,7 @@ class QuizViewModelTest {
             viewModel.uiState.test {
                 awaitItem()
                 viewModel.selectAnswer(0)
+                awaitItem()
                 awaitItem()
                 advanceUntilIdle()
                 cancelAndIgnoreRemainingEvents()
@@ -525,9 +627,9 @@ class QuizViewModelTest {
     @Test
     fun `finishQuiz computes timeTaken from elapsedRealtimeProvider not wall clock`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -540,7 +642,8 @@ class QuizViewModelTest {
                 fakeElapsed = 1_047_000L // 47 simulated seconds later, monotonic source only
 
                 viewModel.selectAnswer(0)
-                awaitItem() // answered feedback
+                awaitItem()
+                awaitItem()
                 advanceUntilIdle()
 
                 val completed = expectMostRecentItem() as QuizUiState.Completed
@@ -557,9 +660,9 @@ class QuizViewModelTest {
             // elapsedRealtimeProvider (a stand-in for SystemClock.elapsedRealtime(), which IS
             // monotonic in production), so a wall-clock jump cannot produce a negative or
             // bogus duration.
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -573,6 +676,7 @@ class QuizViewModelTest {
 
                 viewModel.selectAnswer(0)
                 awaitItem()
+                awaitItem()
                 advanceUntilIdle()
 
                 val completed = expectMostRecentItem() as QuizUiState.Completed
@@ -585,7 +689,7 @@ class QuizViewModelTest {
     @Test
     fun `emits AnswerSyncFailed event when submitAnswer throws`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
@@ -610,11 +714,36 @@ class QuizViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `emits AnswerSyncFailed event when the answer is cached offline`() =
+        runTest {
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
+
+            val viewModel = buildViewModel()
+
+            viewModel.events.test {
+                viewModel.uiState.test {
+                    awaitItem()
+                    viewModel.selectAnswer(0)
+                    awaitItem()
+                    advanceUntilIdle()
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val event = awaitItem() as QuizUiEvent.AnswerSyncFailed
+                assertTrue(event.message.contains("offline", ignoreCase = true))
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `concurrent selectAnswer calls from different threads process exactly once`() =
         runTest {
-            val q1 = question(id = "q1", correctIndex = 0)
+            val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
+            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 

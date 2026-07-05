@@ -201,6 +201,9 @@ private fun QuizActiveScreen(
             selectedOption = state.selectedOption,
             isAnswered = state.isAnswered,
             isCorrect = state.isCorrect,
+            isPending = state.isPending,
+            revealedCorrectIndex = state.revealedCorrectIndex,
+            revealedExplanation = state.revealedExplanation,
             onSelect = onSelect,
         )
     }
@@ -217,6 +220,11 @@ private fun QuestionBody(
     selectedOption: Int?,
     isAnswered: Boolean,
     isCorrect: Boolean?,
+    isPending: Boolean,
+    // Both null until the server has graded this answer — the client never
+    // has these values before the user submits an answer.
+    revealedCorrectIndex: Int?,
+    revealedExplanation: String?,
     onSelect: (Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -251,13 +259,30 @@ private fun QuestionBody(
                 index = index,
                 isSelected = selectedOption == index,
                 isAnswered = isAnswered,
-                isCorrect = index == question.correctIndex,
+                // Only highlights green/red once the server has revealed
+                // the answer for THIS submission. While pending offline
+                // (revealedCorrectIndex == null) every option stays neutral.
+                isCorrect = revealedCorrectIndex != null && index == revealedCorrectIndex,
                 onClick = { onSelect(index) },
             )
         }
 
-        // ── Explanation (shown after answering) ────────────────────────
-        AnimatedVisibility(visible = isAnswered && question.explanation.isNotEmpty()) {
+        // ── Saved-but-pending notice (answered while offline) ──────────
+        AnimatedVisibility(visible = isAnswered && isPending) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "Saved — you're offline, so we'll show whether this was correct once you're back online.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+
+        // ── Explanation (shown after the server has graded the answer) ─
+        AnimatedVisibility(visible = isAnswered && !isPending && !revealedExplanation.isNullOrEmpty()) {
             Card(
                 colors =
                     CardDefaults.cardColors(
@@ -279,7 +304,7 @@ private fun QuestionBody(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = question.explanation,
+                        text = revealedExplanation.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

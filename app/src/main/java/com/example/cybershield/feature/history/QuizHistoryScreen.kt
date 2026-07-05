@@ -157,13 +157,23 @@ private fun QuizHistoryRow(entry: QuizResultHistoryItem) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = if (entry.isCorrect) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
-                contentDescription = if (entry.isCorrect) "Correct" else "Incorrect",
+                imageVector =
+                    when (entry.isCorrect) {
+                        true -> Icons.Filled.CheckCircle
+                        false -> Icons.Filled.Cancel
+                        null -> Icons.Filled.CloudOff // answered offline, not graded yet
+                    },
+                contentDescription =
+                    when (entry.isCorrect) {
+                        true -> "Correct"
+                        false -> "Incorrect"
+                        null -> "Pending — will be graded once you're back online"
+                    },
                 tint =
-                    if (entry.isCorrect) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
+                    when (entry.isCorrect) {
+                        true -> MaterialTheme.colorScheme.primary
+                        false -> MaterialTheme.colorScheme.error
+                        null -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
             )
             Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {

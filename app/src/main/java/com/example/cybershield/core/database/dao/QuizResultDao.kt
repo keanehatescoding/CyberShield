@@ -6,7 +6,6 @@ import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Transaction
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 
@@ -36,22 +35,30 @@ data class QuizResultHistoryRow(
 @Dao
 interface QuizResultDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(result: QuizResultEntity)
+    suspend fun insert(result: QuizResultEntity): Long
 
-    /** SyncWorker fetches these to push to Firestore. */
+    /** SyncWorker fetches these to send to validateAnswersBatch. */
     @Query("SELECT * FROM quiz_results WHERE synced = 0")
     suspend fun getPendingResults(): List<QuizResultEntity>
 
-    /** SyncWorker marks rows as synced after a successful Firestore write. */
-
-    @Query("UPDATE quiz_results SET synced = 1 WHERE localId IN (:ids)")
-    suspend fun markSynced(ids: List<Long>)
-
-    @Transaction
-    suspend fun markSyncedAndDelete(localIds: List<Long>) {
-        markSynced(localIds)
-        deleteByLocalIds(localIds)
-    }
+    /**
+     * SyncWorker calls this after validateAnswersBatch grades a row —
+     * records the server's verdict and marks it synced in one step. This
+     * replaces the old markSynced (which just flipped a bit after a raw
+     * client push); now the grade itself only ever arrives from the server.
+     */
+    @Query(
+        """
+        UPDATE quiz_results
+        SET isCorrect = :isCorrect, explanation = :explanation, synced = 1
+        WHERE localId = :localId
+        """,
+    )
+    suspend fun markGraded(
+        localId: Long,
+        isCorrect: Boolean,
+        explanation: String,
+    )
 
     @Query("SELECT * FROM quiz_results WHERE userId = :userId")
     suspend fun getResultsForUser(userId: String): List<QuizResultEntity>

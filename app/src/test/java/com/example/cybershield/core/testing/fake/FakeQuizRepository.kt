@@ -1,7 +1,9 @@
 package com.example.cybershield.core.testing.fake
 
 import androidx.paging.PagingData
+import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
@@ -13,11 +15,18 @@ class FakeQuizRepository : QuizRepository {
     // Backing store
     private val quizzes = mutableMapOf<String, List<Question>>()
     private val passMarks = mutableMapOf<String, Int>()
+    private val attempts = mutableMapOf<String, QuizResult>()
 
     // Inspection fields for assertions
-    val savedResults = mutableListOf<SavedQuizResult>()
+    val validatedAnswers = mutableListOf<SavedQuizResult>()
+    val pendingAnswers = mutableListOf<SavedQuizResult>()
     var shouldReturnError = false
     var errorMessage = "Fake error"
+
+    /** Lets tests script the server's verdict per question, mirroring what validateAnswer would return. */
+    var validationProvider: (questionId: String, selectedIndex: Int) -> AnswerValidation = { questionId, selectedIndex ->
+        AnswerValidation(questionId = questionId, isCorrect = false, correctIndex = -1, explanation = "")
+    }
     var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
         flowOf(PagingData.empty())
     }
@@ -41,7 +50,9 @@ class FakeQuizRepository : QuizRepository {
     fun clearAll() {
         quizzes.clear()
         passMarks.clear()
-        savedResults.clear()
+        validatedAnswers.clear()
+        pendingAnswers.clear()
+        attempts.clear()
         shouldReturnError = false
     }
 
@@ -61,20 +72,44 @@ class FakeQuizRepository : QuizRepository {
         return Result.Success(passMarks[quizId] ?: DEFAULT_PASS_MARK)
     }
 
-    override suspend fun saveQuizResult(
+    override suspend fun validateAnswerOnline(
         userId: String,
         quizId: String,
-        moduleId: String,
-        isCorrect: Boolean,
+        questionId: String,
+        selectedIndex: Int,
         selectedAnswer: String,
-    ) {
-        if (shouldReturnError) throw Exception(errorMessage)
-        savedResults.add(
+        moduleId: String,
+    ): Result<AnswerValidation> {
+        if (shouldReturnError) return Result.Error(Exception(errorMessage))
+        val validation = validationProvider(questionId, selectedIndex)
+        validatedAnswers.add(
             SavedQuizResult(
                 userId = userId,
                 quizId = quizId,
+                questionId = questionId,
                 moduleId = moduleId,
-                isCorrect = isCorrect,
+                isCorrect = validation.isCorrect,
+                selectedAnswer = selectedAnswer,
+            ),
+        )
+        return Result.Success(validation)
+    }
+
+    override suspend fun cachePendingAnswer(
+        userId: String,
+        quizId: String,
+        questionId: String,
+        moduleId: String,
+        selectedIndex: Int,
+        selectedAnswer: String,
+    ) {
+        pendingAnswers.add(
+            SavedQuizResult(
+                userId = userId,
+                quizId = quizId,
+                questionId = questionId,
+                moduleId = moduleId,
+                isCorrect = null,
                 selectedAnswer = selectedAnswer,
             ),
         )
@@ -88,6 +123,15 @@ class FakeQuizRepository : QuizRepository {
     override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> =
         quizResultHistoryProvider(userId)
 
+    override suspend fun saveQuizAttempt(
+        resultId: String,
+        result: QuizResult,
+    ) {
+        attempts[resultId] = result
+    }
+
+    override suspend fun getQuizAttempt(resultId: String): QuizResult? = attempts[resultId]
+
     companion object {
         const val DEFAULT_PASS_MARK = 70
     }
@@ -95,8 +139,9 @@ class FakeQuizRepository : QuizRepository {
     data class SavedQuizResult(
         val userId: String,
         val quizId: String,
+        val questionId: String,
         val moduleId: String,
-        val isCorrect: Boolean,
+        val isCorrect: Boolean?,
         val selectedAnswer: String,
     )
 }

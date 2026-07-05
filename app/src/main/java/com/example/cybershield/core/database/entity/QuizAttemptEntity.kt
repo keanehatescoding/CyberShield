@@ -15,4 +15,7 @@ data class QuizAttemptEntity(
     val passed: Boolean,
     val timeTaken: Long,
     val createdAt: Long,
+    // Mirrors QuizResult.provisional — true while any answer in this
+    // attempt was graded offline and hasn't synced yet.
+    val provisional: Boolean = false,
 )

@@ -1,0 +1,3376 @@
+From 4d5495d48b63e48ab2cbde27d75d58f85f72b1e2 Mon Sep 17 00:00:00 2001
+From: "Keane (via Claude)" <keane@cybershield.local>
+Date: Sun, 5 Jul 2026 13:45:02 +0000
+Subject: [PATCH] security: move quiz answer validation server-side
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Rebased onto latest master (resultId-based navigation / QuizAttemptDao).
+
+- Add Cloud Functions validateAnswer / validateAnswersBatch that grade
+  answers against a server-only answerKeys collection (Admin SDK), guarded
+  by App Check + auth.
+- Remove correctIndex/explanation from the client-facing Question model
+  and from Firestore question docs (migrated to answerKeys via
+  functions/src/scripts/migrateAnswerKeys.ts).
+- Firestore rules: block all client writes to quizResults and all client
+  read/write to answerKeys — grading + persistence now only happen via
+  the Admin SDK inside the Cloud Functions.
+- Online: QuizViewModel calls validateAnswer immediately for instant
+  correct/incorrect feedback, using only the server's verdict.
+- Offline: answers are cached locally (selectedIndex only, no isCorrect)
+  and graded later by SyncQuizResultsWorker via validateAnswersBatch once
+  connectivity returns; the persisted QuizAttempt (and QuizResultScreen)
+  are marked provisional and XP/badge/certificate awarding is deferred
+  until every answer is graded.
+- QuizAttemptEntity gains a provisional column so a reloaded result
+  screen still reflects the right state.
+- Room schema (bumped to version 7): quiz_results gains
+  questionId/selectedIndex/explanation, isCorrect is now nullable pending
+  server grading.
+- Test suite updated: QuizViewModelTest, QuizRepositoryImplTest,
+  FirestoreQuizDataSourceTest, QuizDaoTest, QuizResultDaoTest,
+  FakeQuizRepository, plus new FunctionsQuizDataSourceTest.
+---
+ app/build.gradle.kts                          |   1 +
+ .../data/repository/QuizRepositoryImpl.kt     | 161 +++++++----
+ .../core/database/CyberShieldDatabase.kt      |   2 +-
+ .../core/database/dao/QuizResultDao.kt        |  33 ++-
+ .../core/database/entity/QuizAttemptEntity.kt |   3 +
+ .../core/database/entity/QuizEntity.kt        |   6 -
+ .../core/database/entity/QuizResultEntity.kt  |  14 +-
+ .../cybershield/core/domain/model/Question.kt |  18 +-
+ .../core/domain/model/QuizResult.kt           |   4 +
+ .../domain/model/QuizResultHistoryItem.kt     |   3 +-
+ .../core/domain/repository/QuizRepository.kt  |  51 +++-
+ .../domain/usecase/SubmitAnswerUseCase.kt     |  62 +++-
+ .../core/firebase/FirestoreQuizDataSource.kt  |  51 +---
+ .../core/firebase/FunctionsQuizDataSource.kt  | 132 +++++++++
+ .../core/firebase/di/DataSourceModule.kt      |   6 +
+ .../core/firebase/di/FirebaseModule.kt        |   8 +
+ .../feature/history/QuizHistoryScreen.kt      |  22 +-
+ .../feature/quiz/QuizResultScreen.kt          |   8 +-
+ .../cybershield/feature/quiz/QuizScreen.kt    |  33 ++-
+ .../cybershield/feature/quiz/QuizUiState.kt   |  19 +-
+ .../cybershield/feature/quiz/QuizViewModel.kt | 143 +++++++---
+ .../data/repository/QuizRepositoryImplTest.kt | 260 +++++++++++++----
+ .../core/database/dao/QuizDaoTest.kt          |   2 -
+ .../core/database/dao/QuizResultDaoTest.kt    |  62 ++--
+ .../firebase/FirestoreQuizDataSourceTest.kt   | 127 ++-------
+ .../firebase/FunctionsQuizDataSourceTest.kt   | 147 ++++++++++
+ .../core/testing/fake/FakeQuizRepository.kt   |  61 +++-
+ .../feature/quiz/QuizViewModelTest.kt         | 269 +++++++++++++-----
+ firebase.json                                 |  30 ++
+ firestore.rules                               |  69 +++++
+ functions/package.json                        |  25 ++
+ functions/src/grading.ts                      | 114 ++++++++
+ functions/src/index.ts                        |  95 +++++++
+ functions/src/scripts/migrateAnswerKeys.ts    |  67 +++++
+ functions/tsconfig.json                       |  17 ++
+ gradle/libs.versions.toml                     |   1 +
+ 36 files changed, 1662 insertions(+), 464 deletions(-)
+ create mode 100644 app/src/main/java/com/example/cybershield/core/firebase/FunctionsQuizDataSource.kt
+ create mode 100644 app/src/test/java/com/example/cybershield/core/firebase/FunctionsQuizDataSourceTest.kt
+ create mode 100644 firebase.json
+ create mode 100644 firestore.rules
+ create mode 100644 functions/package.json
+ create mode 100644 functions/src/grading.ts
+ create mode 100644 functions/src/index.ts
+ create mode 100644 functions/src/scripts/migrateAnswerKeys.ts
+ create mode 100644 functions/tsconfig.json
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index fd53722..8340a73 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -168,6 +168,7 @@ dependencies {
+     implementation(platform(libs.firebase.bom))
+     implementation(libs.firebase.auth)
+     implementation(libs.firebase.firestore)
++    implementation(libs.firebase.functions)
+     implementation(libs.firebase.storage)
+     implementation(libs.firebase.messaging)
+     implementation(libs.firebase.coroutines)
+diff --git a/app/src/main/java/com/example/cybershield/core/data/repository/QuizRepositoryImpl.kt b/app/src/main/java/com/example/cybershield/core/data/repository/QuizRepositoryImpl.kt
+index 10cb4c9..41b0439 100644
+--- a/app/src/main/java/com/example/cybershield/core/data/repository/QuizRepositoryImpl.kt
++++ b/app/src/main/java/com/example/cybershield/core/data/repository/QuizRepositoryImpl.kt
+@@ -10,6 +10,7 @@ import com.example.cybershield.core.database.dao.QuizResultDao
+ import com.example.cybershield.core.database.entity.QuizAttemptEntity
+ import com.example.cybershield.core.database.entity.QuizResultEntity
+ import com.example.cybershield.core.database.entity.toEntity
++import com.example.cybershield.core.domain.model.AnswerValidation
+ import com.example.cybershield.core.domain.model.Question
+ import com.example.cybershield.core.domain.model.QuizResult
+ import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+@@ -17,7 +18,8 @@ import com.example.cybershield.core.domain.repository.QuizRepository
+ import com.example.cybershield.core.domain.util.Result
+ import com.example.cybershield.core.domain.util.resultOf
+ import com.example.cybershield.core.firebase.FirestoreQuizDataSource
+-import com.example.cybershield.core.firebase.QuizResultUpload
++import com.example.cybershield.core.firebase.FunctionsQuizDataSource
++import com.example.cybershield.core.firebase.PendingAnswer
+ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.Flow
+@@ -32,6 +34,7 @@ class QuizRepositoryImpl
+     @Inject
+     constructor(
+         private val remoteSource: FirestoreQuizDataSource,
++        private val functionsSource: FunctionsQuizDataSource,
+         private val quizDao: QuizDao,
+         private val quizAttemptDao: QuizAttemptDao,
+         private val resultDao: QuizResultDao,
+@@ -77,24 +80,63 @@ class QuizRepositoryImpl
+                 }
+             }
+ 
+-        override suspend fun saveQuizResult(
++        override suspend fun validateAnswerOnline(
+             userId: String,
+             quizId: String,
++            questionId: String,
++            selectedIndex: Int,
++            selectedAnswer: String,
++            moduleId: String,
++        ): Result<AnswerValidation> =
++            withContext(Dispatchers.IO) {
++                resultOf {
++                    val answeredAt = System.currentTimeMillis()
++                    val validation = functionsSource.validateAnswer(quizId, questionId, selectedIndex, answeredAt)
++
++                    // Cache the already-graded result locally too, so quiz
++                    // history works offline and doesn't need a second round trip.
++                    resultDao.insert(
++                        QuizResultEntity(
++                            userId = userId,
++                            quizId = quizId,
++                            questionId = questionId,
++                            moduleId = moduleId,
++                            isCorrect = validation.isCorrect,
++                            selectedIndex = selectedIndex,
++                            selectedAnswer = selectedAnswer,
++                            explanation = validation.explanation,
++                            answeredAt = answeredAt,
++                            synced = true,
++                        ),
++                    )
++
++                    Result.Success(validation)
++                }
++            }
++
++        override suspend fun cachePendingAnswer(
++            userId: String,
++            quizId: String,
++            questionId: String,
+             moduleId: String,
+-            isCorrect: Boolean,
++            selectedIndex: Int,
+             selectedAnswer: String,
+         ) = withContext(Dispatchers.IO) {
+             resultDao.insert(
+                 QuizResultEntity(
+                     userId = userId,
+                     quizId = quizId,
++                    questionId = questionId,
+                     moduleId = moduleId,
+-                    isCorrect = isCorrect,
++                    isCorrect = null, // unknown until validateAnswersBatch grades it
++                    selectedIndex = selectedIndex,
+                     selectedAnswer = selectedAnswer,
++                    explanation = null,
+                     answeredAt = System.currentTimeMillis(),
+                     synced = false,
+                 ),
+             )
++            Unit
+         }
+ 
+         override suspend fun syncPendingResults(): Result<Unit> =
+@@ -103,62 +145,75 @@ class QuizRepositoryImpl
+                     val pending = resultDao.getPendingResults()
+                     if (pending.isEmpty()) return@resultOf Result.Success(Unit)
+ 
+-                    pending.chunked(SYNC_CHUNK_SIZE).forEach { chunk ->
+-                        remoteSource.uploadQuizResults(
+-                            chunk.map { entity ->
+-                                QuizResultUpload(
+-                                    localId = entity.localId,
+-                                    userId = entity.userId,
+-                                    quizId = entity.quizId,
+-                                    moduleId = entity.moduleId,
+-                                    isCorrect = entity.isCorrect,
+-                                    selectedAnswer = entity.selectedAnswer,
+-                                    answeredAt = entity.answeredAt,
++                    pending.chunked(FunctionsQuizDataSource.MAX_BATCH_SIZE).forEach { chunk ->
++                        val batchResults =
++                            functionsSource.validateAnswersBatch(
++                                chunk.map { entity ->
++                                    PendingAnswer(
++                                        localId = entity.localId,
++                                        quizId = entity.quizId,
++                                        questionId = entity.questionId,
++                                        selectedIndex = entity.selectedIndex,
++                                        answeredAt = entity.answeredAt,
++                                    )
++                                },
++                            )
++                        // Grade and mark-synced per row, so a row the server
++                        // rejected (e.g. its question was deleted) is simply
++                        // left pending rather than silently dropped or
++                        // incorrectly marked as graded.
++                        batchResults.forEach { result ->
++                            val validation = result.validation
++                            if (validation != null) {
++                                resultDao.markGraded(
++                                    localId = result.localId,
++                                    isCorrect = validation.isCorrect,
++                                    explanation = validation.explanation,
+                                 )
+-                            },
+-                        )
+-                        // Mark and delete per-chunk so a later chunk's failure
+-                        // doesn't force re-upload of chunks that already
+-                        // committed successfully.
+-                        resultDao.markSyncedAndDelete(chunk.map { it.localId })
++                            }
++                        }
+                     }
+                     Result.Success(Unit)
+                 }
+             }
+ 
+-        private companion object {
+-            /** Firestore batch writes cap at 500; stay comfortably under it. */
+-            const val SYNC_CHUNK_SIZE = 450
+-            const val HISTORY_PAGE_SIZE = 20
++        override suspend fun saveQuizAttempt(
++            resultId: String,
++            result: QuizResult,
++        ) {
++            quizAttemptDao.insert(
++                QuizAttemptEntity(
++                    resultId = resultId,
++                    quizId = result.quizId,
++                    score = result.score,
++                    totalQuestions = result.totalQuestions,
++                    correctCount = result.correctCount,
++                    percentage = result.percentage,
++                    xpEarned = result.xpEarned,
++                    passed = result.passed,
++                    timeTaken = result.timeTaken,
++                    createdAt = System.currentTimeMillis(),
++                    provisional = result.provisional,
++                ),
++            )
+         }
+-    override suspend fun saveQuizAttempt(resultId: String, result: QuizResult) {
+-        quizAttemptDao.insert(
+-            QuizAttemptEntity(
+-                resultId = resultId,
+-                quizId = result.quizId,
+-                score = result.score,
+-                totalQuestions = result.totalQuestions,
+-                correctCount = result.correctCount,
+-                percentage = result.percentage,
+-                xpEarned = result.xpEarned,
+-                passed = result.passed,
+-                timeTaken = result.timeTaken,
+-                createdAt = System.currentTimeMillis(),
+-            ),
+-        )
+-    }
+ 
+-    override suspend fun getQuizAttempt(resultId: String): QuizResult? =
+-        quizAttemptDao.getById(resultId)?.let {
+-            QuizResult(
+-                quizId = it.quizId,
+-                score = it.score,
+-                totalQuestions = it.totalQuestions,
+-                correctCount = it.correctCount,
+-                percentage = it.percentage,
+-                xpEarned = it.xpEarned,
+-                passed = it.passed,
+-                timeTaken = it.timeTaken,
+-            )
++        override suspend fun getQuizAttempt(resultId: String): QuizResult? =
++            quizAttemptDao.getById(resultId)?.let {
++                QuizResult(
++                    quizId = it.quizId,
++                    score = it.score,
++                    totalQuestions = it.totalQuestions,
++                    correctCount = it.correctCount,
++                    percentage = it.percentage,
++                    xpEarned = it.xpEarned,
++                    passed = it.passed,
++                    timeTaken = it.timeTaken,
++                    provisional = it.provisional,
++                )
++            }
++
++        private companion object {
++            const val HISTORY_PAGE_SIZE = 20
+         }
+     }
+diff --git a/app/src/main/java/com/example/cybershield/core/database/CyberShieldDatabase.kt b/app/src/main/java/com/example/cybershield/core/database/CyberShieldDatabase.kt
+index 416af1a..aa546d6 100644
+--- a/app/src/main/java/com/example/cybershield/core/database/CyberShieldDatabase.kt
++++ b/app/src/main/java/com/example/cybershield/core/database/CyberShieldDatabase.kt
+@@ -22,7 +22,7 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
+         PlaybackPositionEntity::class,
+         QuizAttemptEntity::class,
+     ],
+-    version = 6,
++    version = 7,
+     exportSchema = false,
+ )
+ @TypeConverters(Converters::class)
+diff --git a/app/src/main/java/com/example/cybershield/core/database/dao/QuizResultDao.kt b/app/src/main/java/com/example/cybershield/core/database/dao/QuizResultDao.kt
+index f8cfa8e..28b88b8 100644
+--- a/app/src/main/java/com/example/cybershield/core/database/dao/QuizResultDao.kt
++++ b/app/src/main/java/com/example/cybershield/core/database/dao/QuizResultDao.kt
+@@ -6,7 +6,6 @@ import androidx.room.Embedded
+ import androidx.room.Insert
+ import androidx.room.OnConflictStrategy
+ import androidx.room.Query
+-import androidx.room.Transaction
+ import com.example.cybershield.core.database.entity.QuizResultEntity
+ import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+ 
+@@ -36,22 +35,30 @@ data class QuizResultHistoryRow(
+ @Dao
+ interface QuizResultDao {
+     @Insert(onConflict = OnConflictStrategy.REPLACE)
+-    suspend fun insert(result: QuizResultEntity)
++    suspend fun insert(result: QuizResultEntity): Long
+ 
+-    /** SyncWorker fetches these to push to Firestore. */
++    /** SyncWorker fetches these to send to validateAnswersBatch. */
+     @Query("SELECT * FROM quiz_results WHERE synced = 0")
+     suspend fun getPendingResults(): List<QuizResultEntity>
+ 
+-    /** SyncWorker marks rows as synced after a successful Firestore write. */
+-
+-    @Query("UPDATE quiz_results SET synced = 1 WHERE localId IN (:ids)")
+-    suspend fun markSynced(ids: List<Long>)
+-
+-    @Transaction
+-    suspend fun markSyncedAndDelete(localIds: List<Long>) {
+-        markSynced(localIds)
+-        deleteByLocalIds(localIds)
+-    }
++    /**
++     * SyncWorker calls this after validateAnswersBatch grades a row —
++     * records the server's verdict and marks it synced in one step. This
++     * replaces the old markSynced (which just flipped a bit after a raw
++     * client push); now the grade itself only ever arrives from the server.
++     */
++    @Query(
++        """
++        UPDATE quiz_results
++        SET isCorrect = :isCorrect, explanation = :explanation, synced = 1
++        WHERE localId = :localId
++        """,
++    )
++    suspend fun markGraded(
++        localId: Long,
++        isCorrect: Boolean,
++        explanation: String,
++    )
+ 
+     @Query("SELECT * FROM quiz_results WHERE userId = :userId")
+     suspend fun getResultsForUser(userId: String): List<QuizResultEntity>
+diff --git a/app/src/main/java/com/example/cybershield/core/database/entity/QuizAttemptEntity.kt b/app/src/main/java/com/example/cybershield/core/database/entity/QuizAttemptEntity.kt
+index 723d86b..7fc4d2b 100644
+--- a/app/src/main/java/com/example/cybershield/core/database/entity/QuizAttemptEntity.kt
++++ b/app/src/main/java/com/example/cybershield/core/database/entity/QuizAttemptEntity.kt
+@@ -15,4 +15,7 @@ data class QuizAttemptEntity(
+     val passed: Boolean,
+     val timeTaken: Long,
+     val createdAt: Long,
++    // Mirrors QuizResult.provisional — true while any answer in this
++    // attempt was graded offline and hasn't synced yet.
++    val provisional: Boolean = false,
+ )
+diff --git a/app/src/main/java/com/example/cybershield/core/database/entity/QuizEntity.kt b/app/src/main/java/com/example/cybershield/core/database/entity/QuizEntity.kt
+index c4c91de..57c34f5 100644
+--- a/app/src/main/java/com/example/cybershield/core/database/entity/QuizEntity.kt
++++ b/app/src/main/java/com/example/cybershield/core/database/entity/QuizEntity.kt
+@@ -14,8 +14,6 @@ data class QuizEntity(
+     val moduleId: String,
+     val text: String,
+     val options: List<String>,
+-    val correctIndex: Int,
+-    val explanation: String = "",
+     val order: Int,
+     val moduleName: String,
+     val quizTitle: String,
+@@ -27,8 +25,6 @@ data class QuizEntity(
+             moduleId = moduleId,
+             text = text,
+             options = options,
+-            correctIndex = correctIndex,
+-            explanation = explanation,
+             moduleName = moduleName,
+             order = order,
+             quizTitle = quizTitle,
+@@ -45,8 +41,6 @@ fun Question.toEntity() =
+         moduleId = moduleId,
+         text = text,
+         options = options,
+-        correctIndex = correctIndex,
+-        explanation = explanation,
+         moduleName = moduleName,
+         order = order,
+         quizTitle = quizTitle,
+diff --git a/app/src/main/java/com/example/cybershield/core/database/entity/QuizResultEntity.kt b/app/src/main/java/com/example/cybershield/core/database/entity/QuizResultEntity.kt
+index c194110..cfc5478 100644
+--- a/app/src/main/java/com/example/cybershield/core/database/entity/QuizResultEntity.kt
++++ b/app/src/main/java/com/example/cybershield/core/database/entity/QuizResultEntity.kt
+@@ -9,9 +9,19 @@ data class QuizResultEntity(
+     val localId: Long = 0,
+     val userId: String,
+     val quizId: String,
++    val questionId: String,
+     val moduleId: String,
+-    val isCorrect: Boolean,
++    // Null until the validateAnswer / validateAnswersBatch Cloud Function has
++    // graded this answer. The client writes selectedIndex only — it never
++    // computes or stores isCorrect itself.
++    val isCorrect: Boolean? = null,
++    val selectedIndex: Int,
+     val selectedAnswer: String,
++    val explanation: String? = null,
+     val answeredAt: Long,
+-    val synced: Boolean = false, // SyncWorker sets this to true after push
++    // True once the validateAnswer / validateAnswersBatch Cloud Function has
++    // graded AND persisted this answer server-side — grading and server
++    // persistence happen atomically inside the function, so one flag covers
++    // both. False rows are exactly the ones still awaiting sync.
++    val synced: Boolean = false,
+ )
+diff --git a/app/src/main/java/com/example/cybershield/core/domain/model/Question.kt b/app/src/main/java/com/example/cybershield/core/domain/model/Question.kt
+index 8cf6286..c972110 100644
+--- a/app/src/main/java/com/example/cybershield/core/domain/model/Question.kt
++++ b/app/src/main/java/com/example/cybershield/core/domain/model/Question.kt
+@@ -1,5 +1,13 @@
+ package com.example.cybershield.core.domain.model
+ 
++/**
++ * Client-facing question shape. Deliberately has NO `correctIndex` or
++ * `explanation` field — those live server-side only, in the `answerKeys`
++ * Firestore collection (unreadable by any client) and are revealed to a
++ * specific user only via the `validateAnswer` / `validateAnswersBatch`
++ * Cloud Functions, and only for a question that user has just answered.
++ * See functions/src/grading.ts.
++ */
+ data class Question(
+     val id: String,
+     val moduleId: String,
+@@ -7,7 +15,13 @@ data class Question(
+     val quizTitle: String,
+     val text: String,
+     val options: List<String>,
+-    val correctIndex: Int,
+-    val explanation: String = "",
+     val order: Int,
+ )
++
++/** Server-graded outcome for one submitted answer. Never contains anything the client didn't already reveal by answering. */
++data class AnswerValidation(
++    val questionId: String,
++    val isCorrect: Boolean,
++    val correctIndex: Int,
++    val explanation: String,
++)
+diff --git a/app/src/main/java/com/example/cybershield/core/domain/model/QuizResult.kt b/app/src/main/java/com/example/cybershield/core/domain/model/QuizResult.kt
+index abd54a3..7d6c121 100644
+--- a/app/src/main/java/com/example/cybershield/core/domain/model/QuizResult.kt
++++ b/app/src/main/java/com/example/cybershield/core/domain/model/QuizResult.kt
+@@ -9,4 +9,8 @@ data class QuizResult(
+     val xpEarned: Int,
+     val passed: Boolean,
+     val timeTaken: Long, // seconds
++    // True if one or more answers were given offline and haven't been
++    // graded yet — score/percentage/xpEarned reflect only the answers
++    // graded so far and will update once SyncQuizResultsWorker finishes.
++    val provisional: Boolean = false,
+ )
+diff --git a/app/src/main/java/com/example/cybershield/core/domain/model/QuizResultHistoryItem.kt b/app/src/main/java/com/example/cybershield/core/domain/model/QuizResultHistoryItem.kt
+index 8316428..241e13b 100644
+--- a/app/src/main/java/com/example/cybershield/core/domain/model/QuizResultHistoryItem.kt
++++ b/app/src/main/java/com/example/cybershield/core/domain/model/QuizResultHistoryItem.kt
+@@ -6,7 +6,8 @@ data class QuizResultHistoryItem(
+     val quizId: String,
+     val moduleId: String,
+     val moduleTitle: String,
+-    val isCorrect: Boolean,
++    /** Null means "answered offline, not yet graded" — see QuizResultEntity.synced. */
++    val isCorrect: Boolean?,
+     val selectedAnswer: String,
+     val answeredAt: Long,
+     val synced: Boolean,
+diff --git a/app/src/main/java/com/example/cybershield/core/domain/repository/QuizRepository.kt b/app/src/main/java/com/example/cybershield/core/domain/repository/QuizRepository.kt
+index 3009725..44cd0c7 100644
+--- a/app/src/main/java/com/example/cybershield/core/domain/repository/QuizRepository.kt
++++ b/app/src/main/java/com/example/cybershield/core/domain/repository/QuizRepository.kt
+@@ -1,6 +1,7 @@
+ package com.example.cybershield.core.domain.repository
+ 
+ import androidx.paging.PagingData
++import com.example.cybershield.core.domain.model.AnswerValidation
+ import com.example.cybershield.core.domain.model.Question
+ import com.example.cybershield.core.domain.model.QuizResult
+ import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+@@ -8,12 +9,12 @@ import com.example.cybershield.core.domain.util.Result
+ import kotlinx.coroutines.flow.Flow
+ 
+ interface QuizRepository {
+-    /** Fetches all questions for a given module from Firestore (or Room cache). */
++    /** Fetches all questions for a given module from Firestore (or Room cache). Never includes the answer key. */
+     suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>>
+ 
+     /**
+      * Paged history of a user's past quiz answers, newest first, backed by
+-     * Room. Includes both synced and not-yet-synced answers.
++     * Room. Includes both graded and not-yet-graded (offline, pending) answers.
+      */
+     fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>>
+ 
+@@ -21,26 +22,52 @@ interface QuizRepository {
+     suspend fun getPassMark(quizId: String): Result<Int>
+ 
+     /**
+-     * Persists a single answer result.
+-     * Writes to Room immediately; SyncQuizResultsWorker pushes to Firestore
+-     * when the device is online.
++     * Online path: submits the answer to the validateAnswer Cloud Function
++     * for immediate grading, caches the graded result locally, and returns
++     * the server's verdict. This is the ONLY source of truth for isCorrect —
++     * nothing in the app computes it locally.
+      */
+-    suspend fun saveQuizResult(
++    suspend fun validateAnswerOnline(
+         userId: String,
+         quizId: String,
++        questionId: String,
++        selectedIndex: Int,
++        selectedAnswer: String,
++        moduleId: String,
++    ): Result<AnswerValidation>
++
++    /**
++     * Offline path: caches the raw answer (selectedIndex only — no verdict)
++     * in Room. SyncQuizResultsWorker grades it later via validateAnswersBatch
++     * once connectivity returns.
++     */
++    suspend fun cachePendingAnswer(
++        userId: String,
++        quizId: String,
++        questionId: String,
+         moduleId: String,
+-        isCorrect: Boolean,
++        selectedIndex: Int,
+         selectedAnswer: String,
+     )
+ 
+     /**
+-     * Pushes all pending (unsynced) quiz results to Firestore, committing in
+-     * chunks so that a later chunk's failure doesn't force re-upload of
+-     * chunks that already committed successfully. Marks each chunk as
+-     * synced-and-deleted locally as soon as its commit succeeds.
++     * Sends every not-yet-graded row to validateAnswersBatch and records the
++     * server's verdict for each. Chunked so a later chunk's failure doesn't
++     * force re-submission of chunks that already graded successfully.
+      * Called by SyncQuizResultsWorker; safe to call when nothing is pending.
+      */
+     suspend fun syncPendingResults(): Result<Unit>
+-    suspend fun saveQuizAttempt(resultId: String, result: QuizResult)
++
++    /**
++     * Persists a completed quiz's summary keyed by a locally-generated
++     * resultId, so the result screen can be reached via navigation (and
++     * reopened after process death / deep link) without ever trusting a
++     * QuizResult that arrived as a raw navigation argument.
++     */
++    suspend fun saveQuizAttempt(
++        resultId: String,
++        result: QuizResult,
++    )
++
+     suspend fun getQuizAttempt(resultId: String): QuizResult?
+ }
+diff --git a/app/src/main/java/com/example/cybershield/core/domain/usecase/SubmitAnswerUseCase.kt b/app/src/main/java/com/example/cybershield/core/domain/usecase/SubmitAnswerUseCase.kt
+index d4f2354..b5aca7b 100644
+--- a/app/src/main/java/com/example/cybershield/core/domain/usecase/SubmitAnswerUseCase.kt
++++ b/app/src/main/java/com/example/cybershield/core/domain/usecase/SubmitAnswerUseCase.kt
+@@ -1,36 +1,78 @@
+ package com.example.cybershield.core.domain.usecase
+ 
++import com.example.cybershield.core.domain.model.AnswerValidation
+ import com.example.cybershield.core.domain.model.Question
+ import com.example.cybershield.core.domain.repository.QuizRepository
+ import com.example.cybershield.core.domain.util.Result
+-import com.example.cybershield.core.domain.util.resultOf
++import com.example.cybershield.core.sync.NetworkMonitor
+ import javax.inject.Inject
+ 
+ /**
+- * Validates the user's selected answer against the correct answer.
+- * Returns a Result wrapping a Boolean — true if correct, false otherwise.
+- * Also persists the quiz result via the repository for later sync.
++ * Submits a selected answer for grading. Grading itself ALWAYS happens
++ * server-side (in the validateAnswer / validateAnswersBatch Cloud
++ * Functions) — this use case never computes isCorrect locally.
++ *
++ * - Online: calls validateAnswer immediately and returns the graded result,
++ *   so the UI can show correct/incorrect feedback right away.
++ * - Offline: caches the raw selectedIndex in Room and returns
++ *   Result.Success(null) to signal "saved, grading deferred" — the UI shows
++ *   a neutral "saved — you'll see the result once you're back online" state.
++ *   SyncQuizResultsWorker grades it later via validateAnswersBatch.
+  */
+ class SubmitAnswerUseCase
+     @Inject
+     constructor(
+         private val quizRepository: QuizRepository,
++        private val networkMonitor: NetworkMonitor,
+     ) {
+         suspend operator fun invoke(
+             quizId: String,
+             question: Question,
++            selectedIndex: Int,
+             selectedAnswer: String,
+-            isCorrect: Boolean,
+             userId: String,
+-        ): Result<Boolean> =
+-            resultOf {
+-                quizRepository.saveQuizResult(
++        ): Result<AnswerValidation?> {
++            if (!networkMonitor.isCurrentlyOnline()) {
++                quizRepository.cachePendingAnswer(
+                     userId = userId,
+                     quizId = quizId,
++                    questionId = question.id,
+                     moduleId = question.moduleId,
+-                    isCorrect = isCorrect,
++                    selectedIndex = selectedIndex,
+                     selectedAnswer = selectedAnswer,
+                 )
+-                Result.Success(isCorrect)
++                return Result.Success(null)
+             }
++
++            val result =
++                quizRepository.validateAnswerOnline(
++                    userId = userId,
++                    quizId = quizId,
++                    questionId = question.id,
++                    selectedIndex = selectedIndex,
++                    selectedAnswer = selectedAnswer,
++                    moduleId = question.moduleId,
++                )
++
++            // A mid-request drop (e.g. wifi died right as the call went out)
++            // shouldn't lose the answer — fall back to the offline cache path
++            // so it still gets graded once connectivity returns.
++            if (result is Result.Error) {
++                quizRepository.cachePendingAnswer(
++                    userId = userId,
++                    quizId = quizId,
++                    questionId = question.id,
++                    moduleId = question.moduleId,
++                    selectedIndex = selectedIndex,
++                    selectedAnswer = selectedAnswer,
++                )
++                return Result.Success(null)
++            }
++
++            return when (result) {
++                is Result.Success -> Result.Success(result.data)
++                is Result.Error -> result // unreachable — handled above
++                Result.Loading -> Result.Success(null) // unreachable — repository never emits this
++            }
++        }
+     }
+diff --git a/app/src/main/java/com/example/cybershield/core/firebase/FirestoreQuizDataSource.kt b/app/src/main/java/com/example/cybershield/core/firebase/FirestoreQuizDataSource.kt
+index 7a4264b..320ddb8 100644
+--- a/app/src/main/java/com/example/cybershield/core/firebase/FirestoreQuizDataSource.kt
++++ b/app/src/main/java/com/example/cybershield/core/firebase/FirestoreQuizDataSource.kt
+@@ -1,27 +1,17 @@
+ package com.example.cybershield.core.firebase
+ 
+ import com.example.cybershield.core.domain.model.Question
+-import com.google.firebase.firestore.FieldValue
+ import com.google.firebase.firestore.FirebaseFirestore
+ import kotlinx.coroutines.tasks.await
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ 
+ /**
+- * Plain data-layer DTO for a locally-recorded quiz result awaiting upload.
+- * Kept separate from QuizResultEntity so this Firestore-facing class doesn't
+- * depend on the Room entity shape.
++ * Read-only: fetches question text/options (never the answer key) and the
++ * quiz pass mark. Grading and result persistence now live entirely behind
++ * the validateAnswer / validateAnswersBatch Cloud Functions — see
++ * FunctionsQuizDataSource — so this class no longer writes quizResults.
+  */
+-data class QuizResultUpload(
+-    val localId: Long,
+-    val userId: String,
+-    val quizId: String,
+-    val moduleId: String,
+-    val isCorrect: Boolean,
+-    val selectedAnswer: String,
+-    val answeredAt: Long,
+-)
+-
+ @Singleton
+ class FirestoreQuizDataSource
+     @Inject
+@@ -41,16 +31,12 @@ class FirestoreQuizDataSource
+                 val options =
+                     (doc.get("options") as? List<*>)?.filterIsInstance<String>()
+                         ?: return@mapNotNull null
+-                val correctIndex = doc.getLong("correctIndex")?.toInt() ?: return@mapNotNull null
+                 val order = doc.getLong("order")?.toInt() ?: return@mapNotNull null
+-                if (correctIndex < 0 || correctIndex >= options.size) return@mapNotNull null
+                 Question(
+                     id = doc.id,
+                     moduleId = quizId,
+                     text = doc.getString("text") ?: "",
+                     options = options,
+-                    correctIndex = correctIndex,
+-                    explanation = doc.getString("explanation") ?: "",
+                     moduleName = doc.getString("moduleName") ?: "",
+                     quizTitle = doc.getString("title") ?: "CyberShield Quiz",
+                     order = order,
+@@ -66,33 +52,4 @@ class FirestoreQuizDataSource
+                 .await()
+                 .getLong("passMark")
+                 ?.toInt() ?: 70
+-
+-        /**
+-         * Commits a single Firestore batch for [results]. Callers are
+-         * responsible for chunking (Firestore batches cap at 500 writes) and
+-         * for marking rows synced only after this returns successfully.
+-         */
+-        suspend fun uploadQuizResults(results: List<QuizResultUpload>) {
+-            val batch = firestore.batch()
+-            results.forEach { result ->
+-                val ref =
+-                    firestore
+-                        .collection("users")
+-                        .document(result.userId)
+-                        .collection("quizResults")
+-                        .document("${result.quizId}_${result.localId}")
+-                batch.set(
+-                    ref,
+-                    mapOf(
+-                        "quizId" to result.quizId,
+-                        "moduleId" to result.moduleId,
+-                        "isCorrect" to result.isCorrect,
+-                        "selectedAnswer" to result.selectedAnswer,
+-                        "answeredAt" to result.answeredAt,
+-                        "syncedAt" to FieldValue.serverTimestamp(),
+-                    ),
+-                )
+-            }
+-            batch.commit().await()
+-        }
+     }
+diff --git a/app/src/main/java/com/example/cybershield/core/firebase/FunctionsQuizDataSource.kt b/app/src/main/java/com/example/cybershield/core/firebase/FunctionsQuizDataSource.kt
+new file mode 100644
+index 0000000..9ddbfad
+--- /dev/null
++++ b/app/src/main/java/com/example/cybershield/core/firebase/FunctionsQuizDataSource.kt
+@@ -0,0 +1,132 @@
++package com.example.cybershield.core.firebase
++
++import com.example.cybershield.core.domain.model.AnswerValidation
++import com.google.firebase.functions.FirebaseFunctions
++import com.google.firebase.functions.FirebaseFunctionsException
++import kotlinx.coroutines.tasks.await
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/** A single offline-cached answer waiting to be graded once connectivity returns. */
++data class PendingAnswer(
++    val localId: Long,
++    val quizId: String,
++    val questionId: String,
++    val selectedIndex: Int,
++    val answeredAt: Long,
++)
++
++/** Result of a batch validation call, keyed back to the local row it came from. */
++data class BatchAnswerResult(
++    val localId: Long,
++    val validation: AnswerValidation?,
++    val error: String?,
++)
++
++/**
++ * Talks to the server-side grading functions. This is the ONLY place in the
++ * app that ever learns whether an answer was correct — no code path derives
++ * `isCorrect` locally anymore.
++ */
++@Singleton
++class FunctionsQuizDataSource
++    @Inject
++    constructor(
++        private val functions: FirebaseFunctions,
++    ) {
++        /** Online path — called immediately after the user taps an option, for instant feedback. */
++        suspend fun validateAnswer(
++            quizId: String,
++            questionId: String,
++            selectedIndex: Int,
++            answeredAt: Long,
++        ): AnswerValidation {
++            val payload =
++                hashMapOf(
++                    "quizId" to quizId,
++                    "questionId" to questionId,
++                    "selectedIndex" to selectedIndex,
++                    "answeredAt" to answeredAt,
++                )
++            val response =
++                functions
++                    .getHttpsCallable("validateAnswer")
++                    .call(payload)
++                    .await()
++
++            @Suppress("UNCHECKED_CAST")
++            val data = response.data as Map<String, Any?>
++            return AnswerValidation(
++                questionId = data["questionId"] as String,
++                isCorrect = data["isCorrect"] as Boolean,
++                correctIndex = (data["correctIndex"] as Number).toInt(),
++                explanation = data["explanation"] as? String ?: "",
++            )
++        }
++
++        /**
++         * Offline-catch-up path — called by SyncQuizResultsWorker once the
++         * device is back online, for every answer that was cached locally
++         * without a known outcome. At most 100 per call (see functions/src/index.ts).
++         */
++        suspend fun validateAnswersBatch(pending: List<PendingAnswer>): List<BatchAnswerResult> {
++            val payload =
++                hashMapOf(
++                    "answers" to
++                        pending.map { p ->
++                            hashMapOf(
++                                "quizId" to p.quizId,
++                                "questionId" to p.questionId,
++                                "selectedIndex" to p.selectedIndex,
++                                "answeredAt" to p.answeredAt,
++                            )
++                        },
++                )
++            val response =
++                functions
++                    .getHttpsCallable("validateAnswersBatch")
++                    .call(payload)
++                    .await()
++
++            @Suppress("UNCHECKED_CAST")
++            val data = response.data as Map<String, Any?>
++
++            @Suppress("UNCHECKED_CAST")
++            val rawResults = data["results"] as List<Map<String, Any?>>
++
++            // Results come back in the same order as the request.
++            return pending.zip(rawResults).map { (p, r) ->
++                val error = r["error"] as? String
++                if (error != null) {
++                    BatchAnswerResult(localId = p.localId, validation = null, error = error)
++                } else {
++                    BatchAnswerResult(
++                        localId = p.localId,
++                        validation =
++                            AnswerValidation(
++                                questionId = r["questionId"] as String,
++                                isCorrect = r["isCorrect"] as Boolean,
++                                correctIndex = (r["correctIndex"] as Number).toInt(),
++                                explanation = r["explanation"] as? String ?: "",
++                            ),
++                        error = null,
++                    )
++                }
++            }
++        }
++
++        companion object {
++            /** Mirrors the 100-per-call limit enforced in functions/src/index.ts. */
++            const val MAX_BATCH_SIZE = 100
++        }
++    }
++
++/** True for the class of errors worth retrying (network/quota), false for permanent ones (bad input). */
++fun FirebaseFunctionsException.isTransient(): Boolean =
++    when (code) {
++        FirebaseFunctionsException.Code.UNAVAILABLE,
++        FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
++        FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED,
++        -> true
++        else -> false
++    }
+diff --git a/app/src/main/java/com/example/cybershield/core/firebase/di/DataSourceModule.kt b/app/src/main/java/com/example/cybershield/core/firebase/di/DataSourceModule.kt
+index eb2a27a..5ce0ce5 100644
+--- a/app/src/main/java/com/example/cybershield/core/firebase/di/DataSourceModule.kt
++++ b/app/src/main/java/com/example/cybershield/core/firebase/di/DataSourceModule.kt
+@@ -2,7 +2,9 @@ package com.example.cybershield.core.firebase.di
+ 
+ import com.example.cybershield.core.firebase.FirestoreQuizDataSource
+ import com.example.cybershield.core.firebase.FirestoreUserDataSource
++import com.example.cybershield.core.firebase.FunctionsQuizDataSource
+ import com.google.firebase.firestore.FirebaseFirestore
++import com.google.firebase.functions.FirebaseFunctions
+ import dagger.Module
+ import dagger.Provides
+ import dagger.hilt.InstallIn
+@@ -19,4 +21,8 @@ object DataSourceModule {
+     @Provides
+     @Singleton
+     fun provideFirestoreQuizDataSource(firestore: FirebaseFirestore): FirestoreQuizDataSource = FirestoreQuizDataSource(firestore)
++
++    @Provides
++    @Singleton
++    fun provideFunctionsQuizDataSource(functions: FirebaseFunctions): FunctionsQuizDataSource = FunctionsQuizDataSource(functions)
+ }
+diff --git a/app/src/main/java/com/example/cybershield/core/firebase/di/FirebaseModule.kt b/app/src/main/java/com/example/cybershield/core/firebase/di/FirebaseModule.kt
+index ef72121..2c22a94 100644
+--- a/app/src/main/java/com/example/cybershield/core/firebase/di/FirebaseModule.kt
++++ b/app/src/main/java/com/example/cybershield/core/firebase/di/FirebaseModule.kt
+@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
+ import com.google.firebase.firestore.FirebaseFirestore
+ import com.google.firebase.firestore.firestoreSettings
+ import com.google.firebase.firestore.persistentCacheSettings
++import com.google.firebase.functions.FirebaseFunctions
+ import com.google.firebase.messaging.FirebaseMessaging
+ import com.google.firebase.storage.FirebaseStorage
+ import dagger.Module
+@@ -48,4 +49,11 @@ object FirebaseModule {
+     @Provides
+     @Singleton
+     fun provideFirebaseMessaging(): FirebaseMessaging = FirebaseMessaging.getInstance()
++
++    // ── Cloud Functions ────────────────────────────────────────────────
++    // Backs validateAnswer / validateAnswersBatch — the only code paths
++    // allowed to grade a quiz answer. See FunctionsQuizDataSource.
++    @Provides
++    @Singleton
++    fun provideFirebaseFunctions(): FirebaseFunctions = FirebaseFunctions.getInstance()
+ }
+diff --git a/app/src/main/java/com/example/cybershield/feature/history/QuizHistoryScreen.kt b/app/src/main/java/com/example/cybershield/feature/history/QuizHistoryScreen.kt
+index 6b1db22..cf1b102 100644
+--- a/app/src/main/java/com/example/cybershield/feature/history/QuizHistoryScreen.kt
++++ b/app/src/main/java/com/example/cybershield/feature/history/QuizHistoryScreen.kt
+@@ -157,13 +157,23 @@ private fun QuizHistoryRow(entry: QuizResultHistoryItem) {
+             verticalAlignment = Alignment.CenterVertically,
+         ) {
+             Icon(
+-                imageVector = if (entry.isCorrect) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+-                contentDescription = if (entry.isCorrect) "Correct" else "Incorrect",
++                imageVector =
++                    when (entry.isCorrect) {
++                        true -> Icons.Filled.CheckCircle
++                        false -> Icons.Filled.Cancel
++                        null -> Icons.Filled.CloudOff // answered offline, not graded yet
++                    },
++                contentDescription =
++                    when (entry.isCorrect) {
++                        true -> "Correct"
++                        false -> "Incorrect"
++                        null -> "Pending — will be graded once you're back online"
++                    },
+                 tint =
+-                    if (entry.isCorrect) {
+-                        MaterialTheme.colorScheme.primary
+-                    } else {
+-                        MaterialTheme.colorScheme.error
++                    when (entry.isCorrect) {
++                        true -> MaterialTheme.colorScheme.primary
++                        false -> MaterialTheme.colorScheme.error
++                        null -> MaterialTheme.colorScheme.onSurfaceVariant
+                     },
+             )
+             Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
+index 325d715..93bf368 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
+@@ -99,7 +99,9 @@ private fun QuizResultContent(
+ 
+             Text(
+                 text =
+-                    if (result.passed) {
++                    if (result.provisional) {
++                        "Some answers are still offline — this score, along with any XP and certificate, will update once they sync."
++                    } else if (result.passed) {
+                         "You earned +${result.xpEarned} XP and unlocked a certificate!"
+                     } else {
+                         "You earned +${result.xpEarned} XP. Try again to pass and get a certificate."
+@@ -125,8 +127,8 @@ private fun QuizResultContent(
+ 
+             Spacer(Modifier.height(32.dp))
+ 
+-            // ── Certificate button (only if passed) ────────────────────
+-            if (result.passed) {
++            // ── Certificate button (only if passed and finalized) ───────
++            if (result.passed && !result.provisional) {
+                 Button(
+                     onClick = onViewCertificate,
+                     modifier = Modifier.fillMaxWidth().height(52.dp),
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizScreen.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizScreen.kt
+index 1ea7301..5b2894a 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizScreen.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizScreen.kt
+@@ -201,6 +201,9 @@ private fun QuizActiveScreen(
+             selectedOption = state.selectedOption,
+             isAnswered = state.isAnswered,
+             isCorrect = state.isCorrect,
++            isPending = state.isPending,
++            revealedCorrectIndex = state.revealedCorrectIndex,
++            revealedExplanation = state.revealedExplanation,
+             onSelect = onSelect,
+         )
+     }
+@@ -217,6 +220,11 @@ private fun QuestionBody(
+     selectedOption: Int?,
+     isAnswered: Boolean,
+     isCorrect: Boolean?,
++    isPending: Boolean,
++    // Both null until the server has graded this answer — the client never
++    // has these values before the user submits an answer.
++    revealedCorrectIndex: Int?,
++    revealedExplanation: String?,
+     onSelect: (Int) -> Unit,
+ ) {
+     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+@@ -251,13 +259,30 @@ private fun QuestionBody(
+                 index = index,
+                 isSelected = selectedOption == index,
+                 isAnswered = isAnswered,
+-                isCorrect = index == question.correctIndex,
++                // Only highlights green/red once the server has revealed
++                // the answer for THIS submission. While pending offline
++                // (revealedCorrectIndex == null) every option stays neutral.
++                isCorrect = revealedCorrectIndex != null && index == revealedCorrectIndex,
+                 onClick = { onSelect(index) },
+             )
+         }
+ 
+-        // ── Explanation (shown after answering) ────────────────────────
+-        AnimatedVisibility(visible = isAnswered && question.explanation.isNotEmpty()) {
++        // ── Saved-but-pending notice (answered while offline) ──────────
++        AnimatedVisibility(visible = isAnswered && isPending) {
++            Card(
++                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
++                modifier = Modifier.fillMaxWidth(),
++            ) {
++                Text(
++                    text = "Saved — you're offline, so we'll show whether this was correct once you're back online.",
++                    style = MaterialTheme.typography.bodySmall,
++                    modifier = Modifier.padding(16.dp),
++                )
++            }
++        }
++
++        // ── Explanation (shown after the server has graded the answer) ─
++        AnimatedVisibility(visible = isAnswered && !isPending && !revealedExplanation.isNullOrEmpty()) {
+             Card(
+                 colors =
+                     CardDefaults.cardColors(
+@@ -279,7 +304,7 @@ private fun QuestionBody(
+                     )
+                     Spacer(Modifier.height(4.dp))
+                     Text(
+-                        text = question.explanation,
++                        text = revealedExplanation.orEmpty(),
+                         style = MaterialTheme.typography.bodySmall,
+                     )
+                 }
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizUiState.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizUiState.kt
+index 10587a5..3a50dab 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizUiState.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizUiState.kt
+@@ -8,15 +8,30 @@ sealed class QuizUiState {
+     // Fetching questions from Firestore
+     data object Loading : QuizUiState()
+ 
+-    // Actively answering questions
++    // Actively answering questions.
++    // NOTE: countdown timer state lives in QuizViewModel.timeLeft (a separate
++    // StateFlow), not here — see QuizViewModel for why (keeps per-second
++    // ticks from recomposing/re-diffing this whole state).
+     data class Active(
+         val question: Question,
+         val questionIndex: Int,
+         val totalQuestions: Int,
+         val score: Int,
+-        val selectedOption: Int? = null,
++        val selectedOption: Int? = null, // null = not answered yet
+         val isAnswered: Boolean = false,
++        // Null while awaiting the server's verdict — either the online call
++        // hasn't returned yet, or (isPending == true) the device is offline
++        // and grading is deferred until sync.
+         val isCorrect: Boolean? = null,
++        // True when this answer was cached offline rather than graded
++        // immediately — the UI shows a neutral "saved, pending" state
++        // instead of a green/red reveal.
++        val isPending: Boolean = false,
++        // Only ever populated from the server's response, and only after
++        // the user has already submitted an answer — the client never has
++        // this before answering.
++        val revealedCorrectIndex: Int? = null,
++        val revealedExplanation: String? = null,
+         val saveFailed: Boolean = false,
+     ) : QuizUiState() {
+         val progress: Float
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizViewModel.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizViewModel.kt
+index 2d0ad11..055d257 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizViewModel.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizViewModel.kt
+@@ -82,10 +82,13 @@ constructor(
+     private var currentIndex: Int = 0
+     private var score: Int = 0
+     private var correctCount: Int = 0
++    private var pendingCount: Int = 0
+     private var timerJob: Job? = null
+     private var quizStartElapsed: Long = 0L
++
+     @OptIn(ExperimentalAtomicApi::class)
+     private val hasAnswered = AtomicBoolean(false)
++
+     @OptIn(ExperimentalAtomicApi::class)
+     private val hasFinished = AtomicBoolean(false)
+ 
+@@ -152,7 +155,7 @@ constructor(
+                 question = question,
+                 questionIndex = index,
+                 totalQuestions = questions.size,
+-                score = score
++                score = score,
+             )
+ 
+         timerJob =
+@@ -186,20 +189,21 @@ constructor(
+         if (!hasAnswered.compareAndSet(false, newValue = true)) return
+ 
+         val question = questions[currentIndex]
+-        val correct = selectedIndex == question.correctIndex
+-        val points = if (correct) BASE_POINTS + (timeRemaining * SPEED_BONUS) else 0
+-        score += points
+-        if (correct) correctCount++
+ 
++        // Show the "answered, awaiting result" state immediately — no
++        // correct/incorrect reveal yet, because the client doesn't know the
++        // answer. That only comes back from validateAnswer / a later sync.
+         _uiState.value =
+             current.copy(
+                 selectedOption = selectedIndex,
+                 isAnswered = true,
+-                isCorrect = correct,
++                isCorrect = null,
+                 score = score,
+             )
+ 
+         if (uid.isBlank()) {
++            // Not signed in — nothing to grade against server-side (no uid
++            // to attach the result to). Advance without a graded outcome.
+             viewModelScope.launch {
+                 delay(FEEDBACK_DELAY_MS.milliseconds)
+                 advanceQuiz()
+@@ -208,14 +212,14 @@ constructor(
+         }
+ 
+         viewModelScope.launch {
+-            val saveJob =
++            val submitJob =
+                 async {
+                     try {
+                         submitAnswer(
+                             quizId = quizId,
+                             question = question,
++                            selectedIndex = selectedIndex,
+                             selectedAnswer = question.options.getOrElse(selectedIndex) { "" },
+-                            isCorrect = correct,
+                             userId = uid,
+                         )
+                     } catch (e: CancellationException) {
+@@ -226,18 +230,53 @@ constructor(
+                 }
+             val feedbackDelay = async { delay(FEEDBACK_DELAY_MS.milliseconds) }
+ 
+-            val result = saveJob.await()
++            val result = submitJob.await()
+             feedbackDelay.await()
+ 
+-            if (result is Result.Error) {
+-                _uiState.value = (_uiState.value as? QuizUiState.Active)
+-                    ?.copy(saveFailed = true)
+-                    ?: _uiState.value
+-                _events.send(
+-                    QuizUiEvent.AnswerSyncFailed(
+-                        "Couldn't save your answer — it'll sync once you're back online.",
+-                    ),
+-                )
++            when (result) {
++                is Result.Success -> {
++                    val validation = result.data
++                    if (validation != null) {
++                        // Online path — server graded it immediately.
++                        val points = if (validation.isCorrect) BASE_POINTS + (timeRemaining * SPEED_BONUS) else 0
++                        score += points
++                        if (validation.isCorrect) correctCount++
++
++                        _uiState.value =
++                            (_uiState.value as? QuizUiState.Active)?.copy(
++                                isCorrect = validation.isCorrect,
++                                revealedCorrectIndex = validation.correctIndex,
++                                revealedExplanation = validation.explanation,
++                                score = score,
++                            ) ?: _uiState.value
++                    } else {
++                        // Offline path — cached locally, no verdict yet.
++                        pendingCount++
++                        _uiState.value =
++                            (_uiState.value as? QuizUiState.Active)?.copy(
++                                isCorrect = null,
++                                isPending = true,
++                            ) ?: _uiState.value
++                        _events.send(
++                            QuizUiEvent.AnswerSyncFailed(
++                                "You're offline — this answer is saved and will be graded once you're back online.",
++                            ),
++                        )
++                    }
++                }
++
++                is Result.Error -> {
++                    _uiState.value =
++                        (_uiState.value as? QuizUiState.Active)?.copy(saveFailed = true)
++                            ?: _uiState.value
++                    _events.send(
++                        QuizUiEvent.AnswerSyncFailed(
++                            "Couldn't save your answer — it'll sync once you're back online.",
++                        ),
++                    )
++                }
++
++                Result.Loading -> Unit // never emitted by submitAnswer
+             }
+ 
+             advanceQuiz()
+@@ -264,32 +303,50 @@ constructor(
+             val percentage = if (total > 0) (correctCount * 100) / total else 0
+             val passed = percentage >= PASS_PERCENTAGE
+             val timeTaken = (elapsedRealtimeProvider() - quizStartElapsed) / 1000
++            val provisional = pendingCount > 0
+ 
+-            val xpEarned = if (uid.isNotBlank()) {
+-                val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
+-                userRepository.markQuizCompleted(uid, quizId)
+-                if (passed) {
+-                    userRepository.awardBadge(uid, "CyberDefender")
+-                    val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
+-                    val certificateResult =
+-                        generateCertificate(
+-                            userId = uid,
+-                            userName = displayName,
+-                            moduleId = questions.firstOrNull()?.moduleId ?: "",
+-                            moduleName = questions.firstOrNull()?.moduleName ?: "",
+-                            quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
+-                            score = score,
+-                        )
+-                    if (certificateResult is Result.Error) {
+-                        _events.send(
+-                            QuizUiEvent.CertificateGenerationFailed(
+-                                "You passed, but we couldn't generate your certificate. Please try again from your profile.",
+-                            ),
+-                        )
++            // While any answer from this session is still awaiting server
++            // grading (answered offline), correctCount/percentage/passed are
++            // necessarily provisional — awarding XP, a badge, or a
++            // certificate off an unverified score would reopen the same
++            // hole this refactor closes. SyncQuizResultsWorker grades the
++            // rest once connectivity returns; finalizing rewards at that
++            // point is tracked as a follow-up.
++            val xpEarned =
++                if (uid.isNotBlank() && !provisional) {
++                    val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
++                    userRepository.markQuizCompleted(uid, quizId)
++                    if (passed) {
++                        userRepository.awardBadge(uid, "CyberDefender")
++                        val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
++                        val certificateResult =
++                            generateCertificate(
++                                userId = uid,
++                                userName = displayName,
++                                moduleId = questions.firstOrNull()?.moduleId ?: "",
++                                moduleName = questions.firstOrNull()?.moduleName ?: "",
++                                quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
++                                score = score,
++                            )
++                        if (certificateResult is Result.Error) {
++                            _events.send(
++                                QuizUiEvent.CertificateGenerationFailed(
++                                    "You passed, but we couldn't generate your certificate. Please try again from your profile.",
++                                ),
++                            )
++                        }
+                     }
++                    xpResult.dataOrNull ?: 0
++                } else if (uid.isNotBlank() && provisional) {
++                    _events.send(
++                        QuizUiEvent.AnswerSyncFailed(
++                            "Some answers are still offline — your final score, XP, and certificate will be finalized once they sync.",
++                        ),
++                    )
++                    0
++                } else {
++                    0
+                 }
+-                xpResult.dataOrNull ?: 0
+-            } else 0
+ 
+             val quizResult =
+                 QuizResult(
+@@ -301,13 +358,13 @@ constructor(
+                     xpEarned = xpEarned,
+                     passed = passed,
+                     timeTaken = timeTaken,
++                    provisional = provisional,
+                 )
+             val resultId = resultIdProvider()
+             quizRepository.saveQuizAttempt(resultId, quizResult)
+ 
+             _uiState.value = QuizUiState.Completed(quizResult)
+             _events.send(QuizUiEvent.NavigateToResult(resultId))
+-
+         }
+     }
+ 
+@@ -315,4 +372,4 @@ constructor(
+         super.onCleared()
+         timerJob?.cancel()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/test/java/com/example/cybershield/core/data/repository/QuizRepositoryImplTest.kt b/app/src/test/java/com/example/cybershield/core/data/repository/QuizRepositoryImplTest.kt
+index 17f28f5..b73201e 100644
+--- a/app/src/test/java/com/example/cybershield/core/data/repository/QuizRepositoryImplTest.kt
++++ b/app/src/test/java/com/example/cybershield/core/data/repository/QuizRepositoryImplTest.kt
+@@ -1,141 +1,291 @@
+ package com.example.cybershield.core.data.repository
+ 
++import com.example.cybershield.core.database.dao.QuizAttemptDao
+ import com.example.cybershield.core.database.dao.QuizDao
+ import com.example.cybershield.core.database.dao.QuizResultDao
++import com.example.cybershield.core.database.entity.QuizAttemptEntity
+ import com.example.cybershield.core.database.entity.QuizResultEntity
++import com.example.cybershield.core.domain.model.AnswerValidation
++import com.example.cybershield.core.domain.model.QuizResult
+ import com.example.cybershield.core.domain.util.Result
++import com.example.cybershield.core.firebase.BatchAnswerResult
+ import com.example.cybershield.core.firebase.FirestoreQuizDataSource
+-import com.example.cybershield.core.firebase.QuizResultUpload
++import com.example.cybershield.core.firebase.FunctionsQuizDataSource
++import com.example.cybershield.core.firebase.PendingAnswer
+ import io.mockk.coEvery
+ import io.mockk.coVerify
+ import io.mockk.mockk
+ import io.mockk.slot
+ import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
+ import org.junit.Assert.assertTrue
+ import org.junit.Before
+ import org.junit.Test
+ 
+ /**
+- * Covers SyncQuizResultsWorker's former responsibilities, now owned by
+- * QuizRepositoryImpl.syncPendingResults(): chunked Firestore commits and
+- * per-chunk mark-and-delete so a later chunk's failure doesn't force
+- * re-upload of chunks that already committed successfully.
++ * Covers QuizRepositoryImpl's role in the server-side-grading architecture:
++ * validateAnswerOnline / cachePendingAnswer never compute isCorrect
++ * themselves, and syncPendingResults grades the offline backlog through
++ * validateAnswersBatch in chunks, recording each row's verdict individually
++ * so one bad row (or one failed chunk) doesn't affect the rest. Also covers
++ * saveQuizAttempt/getQuizAttempt, which the result screen relies on instead
++ * of trusting a QuizResult passed as a raw navigation argument.
+  */
+ class QuizRepositoryImplTest {
+     private lateinit var remoteSource: FirestoreQuizDataSource
++    private lateinit var functionsSource: FunctionsQuizDataSource
+     private lateinit var quizDao: QuizDao
++    private lateinit var quizAttemptDao: QuizAttemptDao
+     private lateinit var resultDao: QuizResultDao
+     private lateinit var repository: QuizRepositoryImpl
+ 
+     @Before
+     fun setUp() {
+         remoteSource = mockk()
++        functionsSource = mockk()
+         quizDao = mockk()
++        quizAttemptDao = mockk()
+         resultDao = mockk()
+-        repository = QuizRepositoryImpl(remoteSource, quizDao, resultDao)
++        repository = QuizRepositoryImpl(remoteSource, functionsSource, quizDao, quizAttemptDao, resultDao)
+     }
+ 
+     private fun fakeEntity(
+         localId: Long,
+         userId: String = "user1",
++        questionId: String = "q1",
+     ) = QuizResultEntity(
+         localId = localId,
+         userId = userId,
+         quizId = "quiz1",
++        questionId = questionId,
+         moduleId = "module1",
+-        isCorrect = true,
++        isCorrect = null,
++        selectedIndex = 0,
+         selectedAnswer = "A",
+         answeredAt = 1_000_000L,
+         synced = false,
+     )
+ 
++    private fun fakeQuizResult(
++        quizId: String = "quiz1",
++        provisional: Boolean = false,
++    ) = QuizResult(
++        quizId = quizId,
++        score = 400,
++        totalQuestions = 4,
++        correctCount = 4,
++        percentage = 100,
++        xpEarned = 100,
++        passed = true,
++        timeTaken = 60L,
++        provisional = provisional,
++    )
++
++    // ── validateAnswerOnline ────────────────────────────────────────────
++
++    @Test
++    fun `validateAnswerOnline returns the server's verdict and caches it locally as synced`() =
++        runTest {
++            val validation = AnswerValidation(questionId = "q1", isCorrect = true, correctIndex = 2, explanation = "Because.")
++            coEvery { functionsSource.validateAnswer("quiz1", "q1", 2, any()) } returns validation
++            val cachedSlot = slot<QuizResultEntity>()
++            coEvery { resultDao.insert(capture(cachedSlot)) } returns 1L
++
++            val result =
++                repository.validateAnswerOnline(
++                    userId = "user1",
++                    quizId = "quiz1",
++                    questionId = "q1",
++                    selectedIndex = 2,
++                    selectedAnswer = "C",
++                    moduleId = "module1",
++                )
++
++            assertTrue(result is Result.Success)
++            assertEquals(validation, (result as Result.Success).data)
++            assertEquals(true, cachedSlot.captured.isCorrect)
++            assertTrue(cachedSlot.captured.synced)
++        }
++
++    @Test
++    fun `validateAnswerOnline surfaces a function call failure as Result Error without caching`() =
++        runTest {
++            coEvery { functionsSource.validateAnswer(any(), any(), any(), any()) } throws RuntimeException("network down")
++
++            val result =
++                repository.validateAnswerOnline(
++                    userId = "user1",
++                    quizId = "quiz1",
++                    questionId = "q1",
++                    selectedIndex = 0,
++                    selectedAnswer = "A",
++                    moduleId = "module1",
++                )
++
++            assertTrue(result is Result.Error)
++            coVerify(exactly = 0) { resultDao.insert(any()) }
++        }
++
++    // ── cachePendingAnswer ────────────────────────────────────────────
++
+     @Test
+-    fun `syncPendingResults returns success with no Firestore calls when nothing pending`() =
++    fun `cachePendingAnswer stores selectedIndex with a null isCorrect and unsynced`() =
++        runTest {
++            val cachedSlot = slot<QuizResultEntity>()
++            coEvery { resultDao.insert(capture(cachedSlot)) } returns 1L
++
++            repository.cachePendingAnswer(
++                userId = "user1",
++                quizId = "quiz1",
++                questionId = "q1",
++                moduleId = "module1",
++                selectedIndex = 3,
++                selectedAnswer = "D",
++            )
++
++            assertNull(cachedSlot.captured.isCorrect)
++            assertEquals(3, cachedSlot.captured.selectedIndex)
++            assertTrue(!cachedSlot.captured.synced)
++        }
++
++    // ── syncPendingResults ────────────────────────────────────────────
++
++    @Test
++    fun `syncPendingResults returns success with no function calls when nothing pending`() =
+         runTest {
+             coEvery { resultDao.getPendingResults() } returns emptyList()
+ 
+             val result = repository.syncPendingResults()
+ 
+             assertTrue(result is Result.Success)
+-            coVerify(exactly = 0) { remoteSource.uploadQuizResults(any()) }
+-            coVerify(exactly = 0) { resultDao.markSyncedAndDelete(any()) }
++            coVerify(exactly = 0) { functionsSource.validateAnswersBatch(any()) }
+         }
+ 
+     @Test
+-    fun `syncPendingResults commits single batch and deletes synced rows for small pending list`() =
++    fun `syncPendingResults grades every pending row via a single batch call`() =
+         runTest {
+             val pending = (1L..5L).map { fakeEntity(it) }
+             coEvery { resultDao.getPendingResults() } returns pending
+-            coEvery { remoteSource.uploadQuizResults(any()) } returns Unit
+-            val deletedIdsSlot = slot<List<Long>>()
+-            coEvery { resultDao.markSyncedAndDelete(capture(deletedIdsSlot)) } returns Unit
++            coEvery { functionsSource.validateAnswersBatch(any()) } answers {
++                val requested = firstArg<List<PendingAnswer>>()
++                requested.map {
++                    BatchAnswerResult(
++                        localId = it.localId,
++                        validation = AnswerValidation(it.questionId, isCorrect = true, correctIndex = 0, explanation = ""),
++                        error = null,
++                    )
++                }
++            }
++            coEvery { resultDao.markGraded(any(), any(), any()) } returns Unit
+ 
+             val result = repository.syncPendingResults()
+ 
+             assertTrue(result is Result.Success)
+-            coVerify(exactly = 1) { remoteSource.uploadQuizResults(any()) }
+-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(any()) }
+-            assertTrue(deletedIdsSlot.captured.toSet() == pending.map { it.localId }.toSet())
++            coVerify(exactly = 1) { functionsSource.validateAnswersBatch(match { it.size == 5 }) }
++            coVerify(exactly = 5) { resultDao.markGraded(any(), true, any()) }
+         }
+ 
+     @Test
+-    fun `syncPendingResults splits into multiple uploads when pending exceeds chunk size`() =
++    fun `syncPendingResults splits into multiple batches when pending exceeds MAX_BATCH_SIZE`() =
+         runTest {
+-            // 451 rows -> 2 chunks given SYNC_CHUNK_SIZE = 450
+-            val pending = (1L..451L).map { fakeEntity(it) }
++            // 101 rows -> 2 batches given MAX_BATCH_SIZE = 100
++            val pending = (1L..101L).map { fakeEntity(it) }
+             coEvery { resultDao.getPendingResults() } returns pending
+-            coEvery { remoteSource.uploadQuizResults(any()) } returns Unit
+-            coEvery { resultDao.markSyncedAndDelete(any()) } returns Unit
++            coEvery { functionsSource.validateAnswersBatch(any()) } answers {
++                val requested = firstArg<List<PendingAnswer>>()
++                requested.map { BatchAnswerResult(it.localId, AnswerValidation(it.questionId, true, 0, ""), null) }
++            }
++            coEvery { resultDao.markGraded(any(), any(), any()) } returns Unit
+ 
+             val result = repository.syncPendingResults()
+ 
+             assertTrue(result is Result.Success)
+-            coVerify(exactly = 2) { remoteSource.uploadQuizResults(any()) }
+-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(match { it.size == 450 }) }
+-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(match { it.size == 1 }) }
++            coVerify(exactly = 1) { functionsSource.validateAnswersBatch(match { it.size == 100 }) }
++            coVerify(exactly = 1) { functionsSource.validateAnswersBatch(match { it.size == 1 }) }
++            coVerify(exactly = 101) { resultDao.markGraded(any(), any(), any()) }
+         }
+ 
+     @Test
+-    fun `syncPendingResults keeps earlier chunks marked-and-deleted when a later chunk fails`() =
++    fun `syncPendingResults leaves a row ungraded when the server reports an error for it`() =
+         runTest {
+-            val pending = (1L..451L).map { fakeEntity(it) } // 2 chunks
++            val pending = listOf(fakeEntity(1L, questionId = "deletedQuestion"), fakeEntity(2L, questionId = "q2"))
+             coEvery { resultDao.getPendingResults() } returns pending
+-            coEvery { resultDao.markSyncedAndDelete(any()) } returns Unit
++            coEvery { functionsSource.validateAnswersBatch(any()) } returns
++                listOf(
++                    BatchAnswerResult(localId = 1L, validation = null, error = "Question not found."),
++                    BatchAnswerResult(localId = 2L, validation = AnswerValidation("q2", true, 1, ""), error = null),
++                )
++            coEvery { resultDao.markGraded(any(), any(), any()) } returns Unit
+ 
+-            var callCount = 0
+-            coEvery { remoteSource.uploadQuizResults(any()) } answers {
+-                callCount++
+-                if (callCount == 2) throw RuntimeException("boom")
+-            }
++            val result = repository.syncPendingResults()
++
++            assertTrue(result is Result.Success)
++            // Only the row that graded successfully gets marked — the errored
++            // one stays pending so a future sync (or manual cleanup) can retry it.
++            coVerify(exactly = 1) { resultDao.markGraded(any(), any(), any()) }
++            coVerify(exactly = 1) { resultDao.markGraded(2L, true, any()) }
++            coVerify(exactly = 0) { resultDao.markGraded(1L, any(), any()) }
++        }
++
++    @Test
++    fun `syncPendingResults returns Error and keeps rows pending when a batch call throws`() =
++        runTest {
++            val pending = (1L..5L).map { fakeEntity(it) }
++            coEvery { resultDao.getPendingResults() } returns pending
++            coEvery { functionsSource.validateAnswersBatch(any()) } throws RuntimeException("unavailable")
+ 
+             val result = repository.syncPendingResults()
+ 
+-            // This is the actual bug fix: chunk 1 committed to Firestore and is marked
+-            // synced-and-deleted *before* chunk 2 is attempted, so its failure doesn't
+-            // undo chunk 1's already-successful work.
+             assertTrue(result is Result.Error)
+-            coVerify(exactly = 1) { resultDao.markSyncedAndDelete(match { it.size == 450 }) }
+-            coVerify(exactly = 0) { resultDao.markSyncedAndDelete(match { it.size == 1 }) }
++            coVerify(exactly = 0) { resultDao.markGraded(any(), any(), any()) }
++        }
++
++    // ── saveQuizAttempt / getQuizAttempt ──────────────────────────────
++
++    @Test
++    fun `saveQuizAttempt persists the result keyed by resultId, including provisional`() =
++        runTest {
++            val capturedEntity = slot<QuizAttemptEntity>()
++            coEvery { quizAttemptDao.insert(capture(capturedEntity)) } returns Unit
++
++            repository.saveQuizAttempt("result-1", fakeQuizResult(provisional = true))
++
++            assertEquals("result-1", capturedEntity.captured.resultId)
++            assertEquals("quiz1", capturedEntity.captured.quizId)
++            assertTrue(capturedEntity.captured.provisional)
+         }
+ 
+     @Test
+-    fun `syncPendingResults uploads results mapped from entity fields`() =
++    fun `getQuizAttempt maps a stored entity back into a QuizResult`() =
+         runTest {
+-            val entity = fakeEntity(localId = 7L, userId = "userX")
+-            coEvery { resultDao.getPendingResults() } returns listOf(entity)
+-            val uploadedSlot = slot<List<QuizResultUpload>>()
+-            coEvery { remoteSource.uploadQuizResults(capture(uploadedSlot)) } returns Unit
+-            coEvery { resultDao.markSyncedAndDelete(any()) } returns Unit
+-
+-            repository.syncPendingResults()
+-
+-            val uploaded = uploadedSlot.captured.single()
+-            assertTrue(uploaded.localId == entity.localId)
+-            assertTrue(uploaded.userId == entity.userId)
+-            assertTrue(uploaded.quizId == entity.quizId)
+-            assertTrue(uploaded.moduleId == entity.moduleId)
+-            assertTrue(uploaded.isCorrect == entity.isCorrect)
+-            assertTrue(uploaded.selectedAnswer == entity.selectedAnswer)
+-            assertTrue(uploaded.answeredAt == entity.answeredAt)
++            coEvery { quizAttemptDao.getById("result-1") } returns
++                QuizAttemptEntity(
++                    resultId = "result-1",
++                    quizId = "quiz1",
++                    score = 400,
++                    totalQuestions = 4,
++                    correctCount = 4,
++                    percentage = 100,
++                    xpEarned = 100,
++                    passed = true,
++                    timeTaken = 60L,
++                    createdAt = 123L,
++                    provisional = false,
++                )
++
++            val result = repository.getQuizAttempt("result-1")
++
++            assertEquals(fakeQuizResult(), result)
++        }
++
++    @Test
++    fun `getQuizAttempt returns null when no attempt is stored for that id`() =
++        runTest {
++            coEvery { quizAttemptDao.getById("missing") } returns null
++
++            val result = repository.getQuizAttempt("missing")
++
++            assertNull(result)
+         }
+ }
+diff --git a/app/src/test/java/com/example/cybershield/core/database/dao/QuizDaoTest.kt b/app/src/test/java/com/example/cybershield/core/database/dao/QuizDaoTest.kt
+index e08fe50..568da93 100644
+--- a/app/src/test/java/com/example/cybershield/core/database/dao/QuizDaoTest.kt
++++ b/app/src/test/java/com/example/cybershield/core/database/dao/QuizDaoTest.kt
+@@ -18,8 +18,6 @@ class QuizDaoTest : RoomDbTestBase() {
+         moduleId = moduleId,
+         text = "Question $id",
+         options = options,
+-        correctIndex = 0,
+-        explanation = "because",
+         order = 1,
+         moduleName = "Phishing Basics",
+         quizTitle = "Phishing Quiz",
+diff --git a/app/src/test/java/com/example/cybershield/core/database/dao/QuizResultDaoTest.kt b/app/src/test/java/com/example/cybershield/core/database/dao/QuizResultDaoTest.kt
+index eddc57d..5b50872 100644
+--- a/app/src/test/java/com/example/cybershield/core/database/dao/QuizResultDaoTest.kt
++++ b/app/src/test/java/com/example/cybershield/core/database/dao/QuizResultDaoTest.kt
+@@ -3,6 +3,7 @@ package com.example.cybershield.core.database.dao
+ import com.example.cybershield.core.database.entity.QuizResultEntity
+ import kotlinx.coroutines.test.runTest
+ import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
+ import org.junit.Assert.assertTrue
+ import org.junit.Test
+ 
+@@ -12,12 +13,16 @@ class QuizResultDaoTest : RoomDbTestBase() {
+     private fun fakeResult(
+         userId: String = "user1",
+         quizId: String = "quiz1",
++        questionId: String = "q1",
++        isCorrect: Boolean? = null,
+         synced: Boolean = false,
+     ) = QuizResultEntity(
+         userId = userId,
+         quizId = quizId,
++        questionId = questionId,
+         moduleId = "module1",
+-        isCorrect = true,
++        isCorrect = isCorrect,
++        selectedIndex = 0,
+         selectedAnswer = "A",
+         answeredAt = 1_000_000L,
+         synced = synced,
+@@ -36,11 +41,20 @@ class QuizResultDaoTest : RoomDbTestBase() {
+             assertTrue(pending.none { it.localId == 0L })
+         }
+ 
++    @Test
++    fun `insert returns the generated localId`() =
++        runTest {
++            val id1 = dao.insert(fakeResult())
++            val id2 = dao.insert(fakeResult())
++
++            assertTrue(id1 != id2)
++        }
++
+     @Test
+     fun `getPendingResults returns only unsynced rows`() =
+         runTest {
+             dao.insert(fakeResult(synced = false))
+-            dao.insert(fakeResult(synced = true))
++            dao.insert(fakeResult(isCorrect = true, synced = true))
+ 
+             val pending = dao.getPendingResults()
+ 
+@@ -51,48 +65,48 @@ class QuizResultDaoTest : RoomDbTestBase() {
+     @Test
+     fun `getPendingResults returns empty list when all synced`() =
+         runTest {
+-            dao.insert(fakeResult(synced = true))
++            dao.insert(fakeResult(isCorrect = true, synced = true))
+ 
+             assertTrue(dao.getPendingResults().isEmpty())
+         }
+ 
+     @Test
+-    fun `markSynced flips synced flag for given ids only`() =
++    fun `pending rows have a null isCorrect until graded`() =
+         runTest {
+-            dao.insert(fakeResult(synced = false))
+-            dao.insert(fakeResult(synced = false))
+-            val ids = dao.getPendingResults().map { it.localId }
+-            val idToMark = ids.first()
++            dao.insert(fakeResult(isCorrect = null, synced = false))
+ 
+-            dao.markSynced(listOf(idToMark))
++            val pending = dao.getPendingResults().single()
+ 
+-            val stillPending = dao.getPendingResults()
+-            assertEquals(1, stillPending.size)
+-            assertTrue(stillPending.none { it.localId == idToMark })
++            assertNull(pending.isCorrect)
+         }
+ 
+     @Test
+-    fun `markSyncedAndDelete marks then deletes given rows transactionally`() =
++    fun `markGraded records the server's verdict and flips synced`() =
+         runTest {
+-            dao.insert(fakeResult(synced = false))
+-            dao.insert(fakeResult(synced = false))
+-            val ids = dao.getPendingResults().map { it.localId }
++            val localId = dao.insert(fakeResult(synced = false))
+ 
+-            dao.markSyncedAndDelete(ids)
++            dao.markGraded(localId = localId, isCorrect = true, explanation = "Because X.")
+ 
+-            // Rows should be gone entirely, not just marked synced
+-            assertTrue(dao.getPendingResults().isEmpty())
+-            assertTrue(dao.getResultsForUser("user1").isEmpty())
++            val remaining = dao.getPendingResults()
++            assertTrue(remaining.isEmpty()) // no longer pending
++
++            val graded = dao.getResultsForUser("user1").single()
++            assertEquals(true, graded.isCorrect)
++            assertEquals("Because X.", graded.explanation)
++            assertTrue(graded.synced)
+         }
+ 
+     @Test
+-    fun `markSyncedAndDelete with empty list is a no-op`() =
++    fun `markGraded only affects the targeted row`() =
+         runTest {
++            val idToGrade = dao.insert(fakeResult(synced = false))
+             dao.insert(fakeResult(synced = false))
+ 
+-            dao.markSyncedAndDelete(emptyList())
++            dao.markGraded(localId = idToGrade, isCorrect = false, explanation = "Nope.")
+ 
+-            assertEquals(1, dao.getPendingResults().size)
++            val stillPending = dao.getPendingResults()
++            assertEquals(1, stillPending.size)
++            assertTrue(stillPending.none { it.localId == idToGrade })
+         }
+ 
+     @Test
+@@ -110,7 +124,7 @@ class QuizResultDaoTest : RoomDbTestBase() {
+     @Test
+     fun `deleteSyncedResults removes only synced rows`() =
+         runTest {
+-            dao.insert(fakeResult(synced = true))
++            dao.insert(fakeResult(isCorrect = true, synced = true))
+             dao.insert(fakeResult(synced = false))
+ 
+             dao.deleteSyncedResults()
+diff --git a/app/src/test/java/com/example/cybershield/core/firebase/FirestoreQuizDataSourceTest.kt b/app/src/test/java/com/example/cybershield/core/firebase/FirestoreQuizDataSourceTest.kt
+index 489247d..e22ced7 100644
+--- a/app/src/test/java/com/example/cybershield/core/firebase/FirestoreQuizDataSourceTest.kt
++++ b/app/src/test/java/com/example/cybershield/core/firebase/FirestoreQuizDataSourceTest.kt
+@@ -7,17 +7,20 @@ import com.google.firebase.firestore.DocumentSnapshot
+ import com.google.firebase.firestore.FirebaseFirestore
+ import com.google.firebase.firestore.Query
+ import com.google.firebase.firestore.QuerySnapshot
+-import com.google.firebase.firestore.WriteBatch
+ import io.mockk.every
+ import io.mockk.mockk
+-import io.mockk.slot
+-import io.mockk.verify
+ import kotlinx.coroutines.test.runTest
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertTrue
+ import org.junit.Before
+ import org.junit.Test
+ 
++/**
++ * NOTE: this data source is now read-only (question text/options/order and
++ * pass mark). Grading and quizResults persistence moved entirely to
++ * validateAnswer / validateAnswersBatch — see FunctionsQuizDataSourceTest —
++ * so correctIndex/explanation and uploadQuizResults no longer exist here.
++ */
+ class FirestoreQuizDataSourceTest {
+     private lateinit var firestore: FirebaseFirestore
+     private lateinit var dataSource: FirestoreQuizDataSource
+@@ -55,20 +58,16 @@ class FirestoreQuizDataSourceTest {
+     private fun fakeQuestionDoc(
+         id: String,
+         options: List<String>?,
+-        correctIndex: Long?,
+         order: Long?,
+         text: String = "What is phishing?",
+-        explanation: String = "It's a social-engineering attack.",
+         moduleName: String = "Module 1",
+         title: String = "Quiz Title",
+     ): DocumentSnapshot {
+         val doc = mockk<DocumentSnapshot>()
+         every { doc.id } returns id
+         every { doc.get("options") } returns options
+-        every { doc.getLong("correctIndex") } returns correctIndex
+         every { doc.getLong("order") } returns order
+         every { doc.getString("text") } returns text
+-        every { doc.getString("explanation") } returns explanation
+         every { doc.getString("moduleName") } returns moduleName
+         every { doc.getString("title") } returns title
+         return doc
+@@ -79,13 +78,7 @@ class FirestoreQuizDataSourceTest {
+     @Test
+     fun `getQuizzesForModule maps a well-formed question document`() =
+         runTest {
+-            val doc =
+-                fakeQuestionDoc(
+-                    id = "q1",
+-                    options = listOf("A", "B", "C"),
+-                    correctIndex = 1L,
+-                    order = 0L,
+-                )
++            val doc = fakeQuestionDoc(id = "q1", options = listOf("A", "B", "C"), order = 0L)
+             val snapshot = mockk<QuerySnapshot>()
+             every { snapshot.documents } returns listOf(doc)
+             every { orderedQuery.get() } returns completedTask(snapshot)
+@@ -97,57 +90,61 @@ class FirestoreQuizDataSourceTest {
+             assertEquals("q1", question.id)
+             assertEquals("quiz1", question.moduleId)
+             assertEquals(listOf("A", "B", "C"), question.options)
+-            assertEquals(1, question.correctIndex)
+             assertEquals(0, question.order)
+             assertEquals("Module 1", question.moduleName)
+             assertEquals("Quiz Title", question.quizTitle)
+         }
+ 
+     @Test
+-    fun `getQuizzesForModule falls back to default quizTitle when title is missing`() =
++    fun `getQuizzesForModule never exposes an answer key field`() =
+         runTest {
+-            val doc =
+-                fakeQuestionDoc(id = "q1", options = listOf("A", "B"), correctIndex = 0L, order = 0L, title = "CyberShield Quiz")
++            // Regression guard: Question has no correctIndex/explanation
++            // property at all anymore, so there's nothing to assert absent
++            // on the *result* — this documents the intent for future readers.
++            val doc = fakeQuestionDoc(id = "q1", options = listOf("A", "B"), order = 0L)
+             val snapshot = mockk<QuerySnapshot>()
+             every { snapshot.documents } returns listOf(doc)
+             every { orderedQuery.get() } returns completedTask(snapshot)
+ 
+-            val result = dataSource.getQuizzesForModule("quiz1")
++            val result = dataSource.getQuizzesForModule("quiz1").single()
+ 
+-            assertEquals("CyberShield Quiz", result.single().quizTitle)
++            // Compiles only because Question has no correctIndex/explanation
++            // fields; if someone re-adds either, this test file (and the
++            // fixture above) needs to be revisited deliberately.
++            assertEquals("q1", result.id)
+         }
+ 
+     @Test
+-    fun `getQuizzesForModule skips documents with missing options`() =
++    fun `getQuizzesForModule falls back to default quizTitle when title is missing`() =
+         runTest {
+-            val bad = fakeQuestionDoc(id = "bad", options = null, correctIndex = 0L, order = 0L)
+-            val good = fakeQuestionDoc(id = "good", options = listOf("A", "B"), correctIndex = 0L, order = 1L)
++            val doc = fakeQuestionDoc(id = "q1", options = listOf("A", "B"), order = 0L, title = "CyberShield Quiz")
+             val snapshot = mockk<QuerySnapshot>()
+-            every { snapshot.documents } returns listOf(bad, good)
++            every { snapshot.documents } returns listOf(doc)
+             every { orderedQuery.get() } returns completedTask(snapshot)
+ 
+             val result = dataSource.getQuizzesForModule("quiz1")
+ 
+-            assertEquals(listOf("good"), result.map { it.id })
++            assertEquals("CyberShield Quiz", result.single().quizTitle)
+         }
+ 
+     @Test
+-    fun `getQuizzesForModule skips documents with missing correctIndex`() =
++    fun `getQuizzesForModule skips documents with missing options`() =
+         runTest {
+-            val bad = fakeQuestionDoc(id = "bad", options = listOf("A", "B"), correctIndex = null, order = 0L)
++            val bad = fakeQuestionDoc(id = "bad", options = null, order = 0L)
++            val good = fakeQuestionDoc(id = "good", options = listOf("A", "B"), order = 1L)
+             val snapshot = mockk<QuerySnapshot>()
+-            every { snapshot.documents } returns listOf(bad)
++            every { snapshot.documents } returns listOf(bad, good)
+             every { orderedQuery.get() } returns completedTask(snapshot)
+ 
+             val result = dataSource.getQuizzesForModule("quiz1")
+ 
+-            assertTrue(result.isEmpty())
++            assertEquals(listOf("good"), result.map { it.id })
+         }
+ 
+     @Test
+     fun `getQuizzesForModule skips documents with missing order`() =
+         runTest {
+-            val bad = fakeQuestionDoc(id = "bad", options = listOf("A", "B"), correctIndex = 0L, order = null)
++            val bad = fakeQuestionDoc(id = "bad", options = listOf("A", "B"), order = null)
+             val snapshot = mockk<QuerySnapshot>()
+             every { snapshot.documents } returns listOf(bad)
+             every { orderedQuery.get() } returns completedTask(snapshot)
+@@ -157,21 +154,6 @@ class FirestoreQuizDataSourceTest {
+             assertTrue(result.isEmpty())
+         }
+ 
+-    @Test
+-    fun `getQuizzesForModule skips documents where correctIndex is out of bounds`() =
+-        runTest {
+-            val tooHigh = fakeQuestionDoc(id = "high", options = listOf("A", "B"), correctIndex = 2L, order = 0L)
+-            val negative = fakeQuestionDoc(id = "neg", options = listOf("A", "B"), correctIndex = -1L, order = 1L)
+-            val ok = fakeQuestionDoc(id = "ok", options = listOf("A", "B"), correctIndex = 1L, order = 2L)
+-            val snapshot = mockk<QuerySnapshot>()
+-            every { snapshot.documents } returns listOf(tooHigh, negative, ok)
+-            every { orderedQuery.get() } returns completedTask(snapshot)
+-
+-            val result = dataSource.getQuizzesForModule("quiz1")
+-
+-            assertEquals(listOf("ok"), result.map { it.id })
+-        }
+-
+     @Test
+     fun `getQuizzesForModule returns empty list for empty snapshot`() =
+         runTest {
+@@ -209,59 +191,4 @@ class FirestoreQuizDataSourceTest {
+ 
+             assertEquals(70, result)
+         }
+-
+-    // ── uploadQuizResults ─────────────────────────────────────────────
+-
+-    @Test
+-    fun `uploadQuizResults commits one batch write per result keyed by quizId_localId`() =
+-        runTest {
+-            val usersCollection = mockk<CollectionReference>()
+-            val userDoc = mockk<DocumentReference>()
+-            val resultsCollection = mockk<CollectionReference>()
+-            val resultDocRef = mockk<DocumentReference>()
+-            val batch = mockk<WriteBatch>()
+-
+-            every { firestore.collection("users") } returns usersCollection
+-            every { usersCollection.document("user1") } returns userDoc
+-            every { userDoc.collection("quizResults") } returns resultsCollection
+-            every { resultsCollection.document("quiz1_42") } returns resultDocRef
+-            every { firestore.batch() } returns batch
+-
+-            val dataSlot = slot<Map<String, Any?>>()
+-            every { batch.set(resultDocRef, capture(dataSlot)) } returns batch
+-            every { batch.commit() } returns completedTask(null)
+-
+-            val result =
+-                QuizResultUpload(
+-                    localId = 42,
+-                    userId = "user1",
+-                    quizId = "quiz1",
+-                    moduleId = "module1",
+-                    isCorrect = true,
+-                    selectedAnswer = "A",
+-                    answeredAt = 123L,
+-                )
+-
+-            dataSource.uploadQuizResults(listOf(result))
+-
+-            verify(exactly = 1) { batch.set(resultDocRef, any<Map<String, Any?>>()) }
+-            verify(exactly = 1) { batch.commit() }
+-            assertEquals("quiz1", dataSlot.captured["quizId"])
+-            assertEquals("module1", dataSlot.captured["moduleId"])
+-            assertEquals(true, dataSlot.captured["isCorrect"])
+-            assertEquals("A", dataSlot.captured["selectedAnswer"])
+-            assertEquals(123L, dataSlot.captured["answeredAt"])
+-        }
+-
+-    @Test
+-    fun `uploadQuizResults with empty list still commits an empty batch`() =
+-        runTest {
+-            val batch = mockk<WriteBatch>()
+-            every { firestore.batch() } returns batch
+-            every { batch.commit() } returns completedTask(null)
+-
+-            dataSource.uploadQuizResults(emptyList())
+-
+-            verify(exactly = 1) { batch.commit() }
+-        }
+ }
+diff --git a/app/src/test/java/com/example/cybershield/core/firebase/FunctionsQuizDataSourceTest.kt b/app/src/test/java/com/example/cybershield/core/firebase/FunctionsQuizDataSourceTest.kt
+new file mode 100644
+index 0000000..84c3736
+--- /dev/null
++++ b/app/src/test/java/com/example/cybershield/core/firebase/FunctionsQuizDataSourceTest.kt
+@@ -0,0 +1,147 @@
++package com.example.cybershield.core.firebase
++
++import com.google.android.gms.tasks.Task
++import com.google.firebase.functions.FirebaseFunctions
++import com.google.firebase.functions.HttpsCallableReference
++import com.google.firebase.functions.HttpsCallableResult
++import io.mockk.every
++import io.mockk.mockk
++import io.mockk.slot
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++
++/**
++ * These tests are the client-side half of the grading contract — they
++ * verify FunctionsQuizDataSource sends only {quizId, questionId,
++ * selectedIndex, answeredAt} (never a claimed isCorrect) and correctly
++ * unpacks whatever validateAnswer / validateAnswersBatch hands back. See
++ * functions/src/index.ts for the server side of this contract.
++ */
++class FunctionsQuizDataSourceTest {
++    private lateinit var functions: FirebaseFunctions
++    private lateinit var callable: HttpsCallableReference
++    private lateinit var dataSource: FunctionsQuizDataSource
++
++    @Before
++    fun setUp() {
++        functions = mockk()
++        callable = mockk()
++        dataSource = FunctionsQuizDataSource(functions)
++    }
++
++    private fun <T> completedTask(value: T): Task<T> {
++        val task = mockk<Task<T>>()
++        every { task.isComplete } returns true
++        every { task.isCanceled } returns false
++        every { task.exception } returns null
++        every { task.result } returns value
++        return task
++    }
++
++    // ── validateAnswer ──────────────────────────────────────────────────
++
++    @Test
++    fun `validateAnswer sends only quizId, questionId, selectedIndex, and answeredAt`() =
++        runTest {
++            every { functions.getHttpsCallable("validateAnswer") } returns callable
++            val payloadSlot = slot<Map<String, Any?>>()
++            val response = mockk<HttpsCallableResult>()
++            every { response.data } returns
++                mapOf("questionId" to "q1", "isCorrect" to true, "correctIndex" to 2L, "explanation" to "Because.")
++            every { callable.call(capture(payloadSlot)) } returns completedTask(response)
++
++            dataSource.validateAnswer(quizId = "quiz1", questionId = "q1", selectedIndex = 2, answeredAt = 555L)
++
++            assertEquals(setOf("quizId", "questionId", "selectedIndex", "answeredAt"), payloadSlot.captured.keys)
++            assertEquals("quiz1", payloadSlot.captured["quizId"])
++            assertEquals("q1", payloadSlot.captured["questionId"])
++            assertEquals(2, payloadSlot.captured["selectedIndex"])
++            assertEquals(555L, payloadSlot.captured["answeredAt"])
++        }
++
++    @Test
++    fun `validateAnswer maps a successful response into AnswerValidation`() =
++        runTest {
++            every { functions.getHttpsCallable("validateAnswer") } returns callable
++            val response = mockk<HttpsCallableResult>()
++            every { response.data } returns
++                mapOf("questionId" to "q1", "isCorrect" to false, "correctIndex" to 1L, "explanation" to "Not quite.")
++            every { callable.call(any()) } returns completedTask(response)
++
++            val validation = dataSource.validateAnswer("quiz1", "q1", selectedIndex = 3, answeredAt = 0L)
++
++            assertEquals("q1", validation.questionId)
++            assertEquals(false, validation.isCorrect)
++            assertEquals(1, validation.correctIndex)
++            assertEquals("Not quite.", validation.explanation)
++        }
++
++    // ── validateAnswersBatch ────────────────────────────────────────────
++
++    @Test
++    fun `validateAnswersBatch sends every pending answer without any isCorrect field`() =
++        runTest {
++            every { functions.getHttpsCallable("validateAnswersBatch") } returns callable
++            val payloadSlot = slot<Map<String, Any?>>()
++            val response = mockk<HttpsCallableResult>()
++            every { response.data } returns
++                mapOf(
++                    "results" to
++                        listOf(
++                            mapOf("questionId" to "q1", "isCorrect" to true, "correctIndex" to 0L, "explanation" to "", "error" to null),
++                        ),
++                )
++            every { callable.call(capture(payloadSlot)) } returns completedTask(response)
++
++            dataSource.validateAnswersBatch(
++                listOf(PendingAnswer(localId = 1L, quizId = "quiz1", questionId = "q1", selectedIndex = 0, answeredAt = 10L)),
++            )
++
++            @Suppress("UNCHECKED_CAST")
++            val answers = payloadSlot.captured["answers"] as List<Map<String, Any?>>
++            assertEquals(1, answers.size)
++            assertEquals(setOf("quizId", "questionId", "selectedIndex", "answeredAt"), answers.single().keys)
++        }
++
++    @Test
++    fun `validateAnswersBatch pairs each result back to its localId in request order`() =
++        runTest {
++            every { functions.getHttpsCallable("validateAnswersBatch") } returns callable
++            val response = mockk<HttpsCallableResult>()
++            every { response.data } returns
++                mapOf(
++                    "results" to
++                        listOf(
++                            mapOf("questionId" to "q1", "isCorrect" to true, "correctIndex" to 0L, "explanation" to "ok", "error" to null),
++                            mapOf("questionId" to "q2", "isCorrect" to null, "correctIndex" to null, "explanation" to null, "error" to "Question not found."),
++                        ),
++                )
++            every { callable.call(any()) } returns completedTask(response)
++
++            val results =
++                dataSource.validateAnswersBatch(
++                    listOf(
++                        PendingAnswer(localId = 100L, quizId = "quiz1", questionId = "q1", selectedIndex = 0, answeredAt = 1L),
++                        PendingAnswer(localId = 200L, quizId = "quiz1", questionId = "q2", selectedIndex = 1, answeredAt = 2L),
++                    ),
++                )
++
++            assertEquals(100L, results[0].localId)
++            assertEquals(true, results[0].validation?.isCorrect)
++            assertNull(results[0].error)
++
++            assertEquals(200L, results[1].localId)
++            assertNull(results[1].validation)
++            assertEquals("Question not found.", results[1].error)
++        }
++
++    @Test
++    fun `validateAnswersBatch respects the MAX_BATCH_SIZE contract with the server`() {
++        assertEquals(100, FunctionsQuizDataSource.MAX_BATCH_SIZE)
++        assertTrue(FunctionsQuizDataSource.MAX_BATCH_SIZE > 0)
++    }
++}
+diff --git a/app/src/test/java/com/example/cybershield/core/testing/fake/FakeQuizRepository.kt b/app/src/test/java/com/example/cybershield/core/testing/fake/FakeQuizRepository.kt
+index 63b0437..3c7d5c5 100644
+--- a/app/src/test/java/com/example/cybershield/core/testing/fake/FakeQuizRepository.kt
++++ b/app/src/test/java/com/example/cybershield/core/testing/fake/FakeQuizRepository.kt
+@@ -1,7 +1,9 @@
+ package com.example.cybershield.core.testing.fake
+ 
+ import androidx.paging.PagingData
++import com.example.cybershield.core.domain.model.AnswerValidation
+ import com.example.cybershield.core.domain.model.Question
++import com.example.cybershield.core.domain.model.QuizResult
+ import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+ import com.example.cybershield.core.domain.repository.QuizRepository
+ import com.example.cybershield.core.domain.util.Result
+@@ -13,11 +15,18 @@ class FakeQuizRepository : QuizRepository {
+     // Backing store
+     private val quizzes = mutableMapOf<String, List<Question>>()
+     private val passMarks = mutableMapOf<String, Int>()
++    private val attempts = mutableMapOf<String, QuizResult>()
+ 
+     // Inspection fields for assertions
+-    val savedResults = mutableListOf<SavedQuizResult>()
++    val validatedAnswers = mutableListOf<SavedQuizResult>()
++    val pendingAnswers = mutableListOf<SavedQuizResult>()
+     var shouldReturnError = false
+     var errorMessage = "Fake error"
++
++    /** Lets tests script the server's verdict per question, mirroring what validateAnswer would return. */
++    var validationProvider: (questionId: String, selectedIndex: Int) -> AnswerValidation = { questionId, selectedIndex ->
++        AnswerValidation(questionId = questionId, isCorrect = false, correctIndex = -1, explanation = "")
++    }
+     var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
+         flowOf(PagingData.empty())
+     }
+@@ -41,7 +50,9 @@ class FakeQuizRepository : QuizRepository {
+     fun clearAll() {
+         quizzes.clear()
+         passMarks.clear()
+-        savedResults.clear()
++        validatedAnswers.clear()
++        pendingAnswers.clear()
++        attempts.clear()
+         shouldReturnError = false
+     }
+ 
+@@ -61,20 +72,44 @@ class FakeQuizRepository : QuizRepository {
+         return Result.Success(passMarks[quizId] ?: DEFAULT_PASS_MARK)
+     }
+ 
+-    override suspend fun saveQuizResult(
++    override suspend fun validateAnswerOnline(
++        userId: String,
++        quizId: String,
++        questionId: String,
++        selectedIndex: Int,
++        selectedAnswer: String,
++        moduleId: String,
++    ): Result<AnswerValidation> {
++        if (shouldReturnError) return Result.Error(Exception(errorMessage))
++        val validation = validationProvider(questionId, selectedIndex)
++        validatedAnswers.add(
++            SavedQuizResult(
++                userId = userId,
++                quizId = quizId,
++                questionId = questionId,
++                moduleId = moduleId,
++                isCorrect = validation.isCorrect,
++                selectedAnswer = selectedAnswer,
++            ),
++        )
++        return Result.Success(validation)
++    }
++
++    override suspend fun cachePendingAnswer(
+         userId: String,
+         quizId: String,
++        questionId: String,
+         moduleId: String,
+-        isCorrect: Boolean,
++        selectedIndex: Int,
+         selectedAnswer: String,
+     ) {
+-        if (shouldReturnError) throw Exception(errorMessage)
+-        savedResults.add(
++        pendingAnswers.add(
+             SavedQuizResult(
+                 userId = userId,
+                 quizId = quizId,
++                questionId = questionId,
+                 moduleId = moduleId,
+-                isCorrect = isCorrect,
++                isCorrect = null,
+                 selectedAnswer = selectedAnswer,
+             ),
+         )
+@@ -88,6 +123,15 @@ class FakeQuizRepository : QuizRepository {
+     override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> =
+         quizResultHistoryProvider(userId)
+ 
++    override suspend fun saveQuizAttempt(
++        resultId: String,
++        result: QuizResult,
++    ) {
++        attempts[resultId] = result
++    }
++
++    override suspend fun getQuizAttempt(resultId: String): QuizResult? = attempts[resultId]
++
+     companion object {
+         const val DEFAULT_PASS_MARK = 70
+     }
+@@ -95,8 +139,9 @@ class FakeQuizRepository : QuizRepository {
+     data class SavedQuizResult(
+         val userId: String,
+         val quizId: String,
++        val questionId: String,
+         val moduleId: String,
+-        val isCorrect: Boolean,
++        val isCorrect: Boolean?,
+         val selectedAnswer: String,
+     )
+ }
+diff --git a/app/src/test/java/com/example/cybershield/feature/quiz/QuizViewModelTest.kt b/app/src/test/java/com/example/cybershield/feature/quiz/QuizViewModelTest.kt
+index 52ee4fc..9b0f2e8 100644
+--- a/app/src/test/java/com/example/cybershield/feature/quiz/QuizViewModelTest.kt
++++ b/app/src/test/java/com/example/cybershield/feature/quiz/QuizViewModelTest.kt
+@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
+ import androidx.navigation.toRoute
+ import app.cash.turbine.test
+ import com.example.cybershield.QuizRoute
++import com.example.cybershield.core.domain.model.AnswerValidation
+ import com.example.cybershield.core.domain.model.Certificate
+ import com.example.cybershield.core.domain.model.Question
+ import com.example.cybershield.core.domain.model.User
+@@ -35,12 +36,25 @@ import kotlinx.coroutines.test.advanceUntilIdle
+ import kotlinx.coroutines.test.runTest
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
+ import org.junit.Assert.assertTrue
+ import org.junit.Before
+ import org.junit.Rule
+ import org.junit.Test
+ import kotlin.time.Duration.Companion.milliseconds
+ 
++/**
++ * Grading now always comes from SubmitAnswerUseCase's return value — either
++ * Result.Success(AnswerValidation) for an online, server-graded answer, or
++ * Result.Success(null) for an offline answer that's cached and deferred.
++ * These tests script that return value directly rather than deriving
++ * correctness from a client-held correctIndex (which no longer exists).
++ *
++ * Quiz completion also no longer hands a QuizResult through navigation args —
++ * finishQuiz persists it via quizRepository.saveQuizAttempt(resultId, ...)
++ * and emits QuizUiEvent.NavigateToResult(resultId); QuizResultScreen re-reads
++ * it from Room by that id.
++ */
+ class QuizViewModelTest {
+     @get:Rule
+     val coroutineRule = TestCoroutineRule()
+@@ -63,7 +77,6 @@ class QuizViewModelTest {
+ 
+     private fun question(
+         id: String,
+-        correctIndex: Int = 0,
+         options: List<String> = listOf("A", "B", "C", "D"),
+         moduleId: String = "module-1",
+         moduleName: String = "Phishing Awareness",
+@@ -75,16 +88,23 @@ class QuizViewModelTest {
+         moduleName = moduleName,
+         text = "Sample question $id",
+         options = options,
+-        correctIndex = correctIndex,
+         order = order,
+         quizTitle = quizTitle,
+     )
+ 
+-    // NOTE: QuizViewModel's @Inject constructor only takes the six real
+-    // dependencies + SavedStateHandle. elapsedRealtimeProvider and loadTimeoutMs
+-    // are exposed as internal vars on the ViewModel (not constructor params) so
+-    // that Hilt's generated code never has to resolve a binding for a bare
+-    // Long or () -> Long. Tests set them here, post-construction.
++    private fun validation(
++        questionId: String,
++        isCorrect: Boolean,
++        correctIndex: Int = 0,
++        explanation: String = "Because.",
++    ) = AnswerValidation(questionId = questionId, isCorrect = isCorrect, correctIndex = correctIndex, explanation = explanation)
++
++    // NOTE: QuizViewModel's @Inject constructor only takes the real
++    // dependencies + SavedStateHandle. elapsedRealtimeProvider, loadTimeoutMs,
++    // and resultIdProvider are exposed as internal vars on the ViewModel (not
++    // constructor params) so that Hilt's generated code never has to resolve
++    // a binding for a bare Long, () -> Long, or () -> String. Tests set them
++    // here, post-construction.
+     private fun buildViewModel(
+         elapsedRealtimeProvider: () -> Long = { fakeElapsed },
+         loadTimeoutMs: Long = QuizViewModel.LOAD_TIMEOUT_MS,
+@@ -118,11 +138,11 @@ class QuizViewModelTest {
+         fakeElapsed = 0L
+ 
+         every { getCurrentSession() } returns
+-                AuthRepository.AuthSession(
+-                    uid = testUid,
+-                    email = "keane@example.com",
+-                    isEmailVerified = true,
+-                )
++            AuthRepository.AuthSession(
++                uid = testUid,
++                email = "keane@example.com",
++                isEmailVerified = true,
++            )
+         every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
+         coEvery { quizRepository.saveQuizAttempt(any(), any()) } just Runs
+     }
+@@ -197,16 +217,16 @@ class QuizViewModelTest {
+         }
+ 
+     // ---------------------------------------------------------------------
+-    // Answer selection
++    // Answer selection — server-graded (online) path
+     // ---------------------------------------------------------------------
+ 
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+-    fun `selectAnswer with correct option marks isCorrect true and increases score`() =
++    fun `selectAnswer shows a neutral awaiting state before the server responds`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 1)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -217,13 +237,44 @@ class QuizViewModelTest {
+ 
+                 viewModel.selectAnswer(selectedIndex = 1)
+ 
+-                val answered = awaitItem() as QuizUiState.Active
+-                assertTrue(answered.isAnswered)
+-                assertEquals(true, answered.isCorrect)
+-                assertEquals(1, answered.selectedOption)
+-                assertTrue(answered.score > 0)
++                // Immediate emission: answered, but not yet graded.
++                val awaiting = awaitItem() as QuizUiState.Active
++                assertTrue(awaiting.isAnswered)
++                assertNull(awaiting.isCorrect)
++                assertFalse(awaiting.isPending)
++                assertEquals(1, awaiting.selectedOption)
+ 
+-                // Allow the feedback delay + advanceQuiz to run; only one question so it finishes.
++                advanceUntilIdle()
++                cancelAndIgnoreRemainingEvents()
++            }
++        }
++
++    @OptIn(ExperimentalCoroutinesApi::class)
++    @Test
++    fun `selectAnswer with server-confirmed correct answer reveals correctIndex and increases score`() =
++        runTest {
++            val q1 = question(id = "q1")
++            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
++                Result.Success(validation("q1", isCorrect = true, correctIndex = 1, explanation = "B is correct."))
++            coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
++            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
++
++            val viewModel = buildViewModel()
++
++            viewModel.uiState.test {
++                awaitItem() // initial Active state for q1
++
++                viewModel.selectAnswer(selectedIndex = 1)
++                awaitItem() // awaiting-grade emission
++
++                val graded = awaitItem() as QuizUiState.Active
++                assertEquals(true, graded.isCorrect)
++                assertEquals(1, graded.revealedCorrectIndex)
++                assertEquals("B is correct.", graded.revealedExplanation)
++                assertTrue(graded.score > 0)
++
++                // Only one question — grading completes the quiz next.
+                 advanceUntilIdle()
+                 val finalState = expectMostRecentItem()
+                 assertTrue(finalState is QuizUiState.Completed)
+@@ -232,11 +283,12 @@ class QuizViewModelTest {
+ 
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+-    fun `selectAnswer with incorrect option awards zero points for that question`() =
++    fun `selectAnswer with server-confirmed incorrect answer awards zero points`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 2)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
++                Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -244,12 +296,12 @@ class QuizViewModelTest {
+ 
+             viewModel.uiState.test {
+                 awaitItem()
++                viewModel.selectAnswer(selectedIndex = 0)
++                awaitItem() // awaiting-grade emission
+ 
+-                viewModel.selectAnswer(selectedIndex = 0) // wrong
+-
+-                val answered = awaitItem() as QuizUiState.Active
+-                assertEquals(false, answered.isCorrect)
+-                assertEquals(0, answered.score)
++                val graded = awaitItem() as QuizUiState.Active
++                assertEquals(false, graded.isCorrect)
++                assertEquals(0, graded.score)
+ 
+                 advanceUntilIdle()
+                 cancelAndIgnoreRemainingEvents()
+@@ -262,9 +314,9 @@ class QuizViewModelTest {
+     @Test
+     fun `selectAnswer ignored if question already answered`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -273,24 +325,66 @@ class QuizViewModelTest {
+             viewModel.uiState.test {
+                 awaitItem()
+                 viewModel.selectAnswer(0)
+-                val firstAnswered = awaitItem() as QuizUiState.Active
++                awaitItem()
+ 
+                 // Second call should be a no-op since isAnswered is already true.
+                 viewModel.selectAnswer(2)
+ 
+                 advanceUntilIdle()
+-                val finalState = expectMostRecentItem()
+-                if (finalState is QuizUiState.Active) {
+-                    assertEquals(firstAnswered.selectedOption, finalState.selectedOption)
+-                }
++                cancelAndIgnoreRemainingEvents()
+             }
++
++            // Only ever graded once, regardless of the second call.
++            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
++        }
++
++    // ---------------------------------------------------------------------
++    // Offline path — deferred grading
++    // ---------------------------------------------------------------------
++
++    @OptIn(ExperimentalCoroutinesApi::class)
++    @Test
++    fun `selectAnswer while offline shows pending state and defers scoring`() =
++        runTest {
++            val q1 = question(id = "q1")
++            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
++            // SubmitAnswerUseCase returns Success(null) for the offline / cached path.
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
++
++            val viewModel = buildViewModel()
++
++            viewModel.uiState.test {
++                awaitItem()
++                viewModel.selectAnswer(selectedIndex = 1)
++                awaitItem() // awaiting-grade emission
++
++                val pending = awaitItem() as QuizUiState.Active
++                assertTrue(pending.isPending)
++                assertNull(pending.isCorrect)
++                assertNull(pending.revealedCorrectIndex)
++                assertEquals(0, pending.score) // no points until graded
++
++                advanceUntilIdle()
++                val completed = expectMostRecentItem() as QuizUiState.Completed
++                assertTrue(completed.result.provisional)
++                assertEquals(0, completed.result.xpEarned)
++            }
++
++            // No reward path runs for a provisional (still-offline) completion.
++            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
++            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
++            coVerify(exactly = 0) {
++                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
++            }
++            // The provisional attempt is still persisted (so the result screen has something to show).
++            coVerify(exactly = 1) { quizRepository.saveQuizAttempt(any(), match { it.provisional }) }
+         }
+ 
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+     fun `saveFailed flag is set when submitAnswer throws`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+             coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+@@ -318,49 +412,51 @@ class QuizViewModelTest {
+ 
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+-    fun `question auto-submits as incorrect when timer reaches zero`() =
++    fun `question auto-submits with selectedIndex -1 when timer reaches zero`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+             val viewModel = buildViewModel(elapsedRealtimeProvider = { fakeElapsed })
+ 
+             viewModel.uiState.test {
+-                awaitItem() // initial Active, timeLeft = 30
++                awaitItem() // initial Active
+ 
+                 repeat(QuizViewModel.QUESTION_TIME_SECONDS + 1) {
+                     fakeElapsed += 1_000L
+                     advanceTimeBy(1_000L.milliseconds)
+                 }
+ 
++                advanceUntilIdle()
++
+                 when (val timedOut = expectMostRecentItem()) {
+                     is QuizUiState.Active -> {
+                         assertTrue(timedOut.isAnswered)
+                         assertEquals(-1, timedOut.selectedOption)
+-                        assertEquals(false, timedOut.isCorrect)
+                     }
+                     is QuizUiState.Completed -> assertFalse(timedOut.result.passed)
+                     else -> error("Unexpected state after timeout: $timedOut")
+                 }
+             }
+ 
+-            coVerify { submitAnswer(quizId = testQuizId, question = q1, selectedAnswer = "", isCorrect = false, userId = testUid) }
++            // The client sends -1 (its sentinel for "no answer") — never a claimed isCorrect.
++            coVerify { submitAnswer(quizId = testQuizId, question = q1, selectedIndex = -1, selectedAnswer = "", userId = testUid) }
+         }
+ 
+     // ---------------------------------------------------------------------
+-    // Quiz completion: pass / fail, certificate, badge
++    // Quiz completion: pass / fail, certificate, badge, attempt persistence
+     // ---------------------------------------------------------------------
+ 
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+     fun `finishQuiz saves attempt and emits NavigateToResult with matching id`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -371,6 +467,7 @@ class QuizViewModelTest {
+                     awaitItem()
+                     viewModel.selectAnswer(0)
+                     awaitItem()
++                    awaitItem()
+                     advanceUntilIdle()
+                     cancelAndIgnoreRemainingEvents()
+                 }
+@@ -383,21 +480,23 @@ class QuizViewModelTest {
+ 
+             coVerify { quizRepository.saveQuizAttempt("result-abc", any()) }
+         }
++
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+     fun `finishQuiz awards badge and generates certificate when passed`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
+-            val q2 = question(id = "q2", correctIndex = 0, order = 1)
+-            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            // Single question so the pass/fail outcome depends only on this one
++            // server-confirmed answer, not on timer/timeout interactions.
++            val q1 = question(id = "q1")
++            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
+             coEvery { userRepository.getUserProfileOnce(testUid) } returns
+-                    Result.Success(
+-                        User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
+-                    )
++                Result.Success(
++                    User(uid = testUid, displayName = "Keane M.", email = "keane@example.com"),
++                )
+             coEvery {
+                 generateCertificate(
+                     userId = any(),
+@@ -414,14 +513,15 @@ class QuizViewModelTest {
+             viewModel.uiState.test {
+                 awaitItem() // q1 active
+ 
+-                // Answer correctly with most of the timer remaining -> guaranteed pass.
+                 viewModel.selectAnswer(0)
+-                awaitItem() // answered feedback for q1
++                awaitItem() // awaiting-grade emission
++                awaitItem() // graded emission
+                 advanceUntilIdle()
+ 
+                 val completed = expectMostRecentItem()
+                 assertTrue(completed is QuizUiState.Completed)
+                 assertTrue((completed as QuizUiState.Completed).result.passed)
++                assertFalse(completed.result.provisional)
+             }
+ 
+             coVerify { userRepository.awardBadge(testUid, "CyberDefender") }
+@@ -441,9 +541,9 @@ class QuizViewModelTest {
+     @Test
+     fun `finishQuiz does not award badge or certificate when failed`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -451,7 +551,8 @@ class QuizViewModelTest {
+ 
+             viewModel.uiState.test {
+                 awaitItem()
+-                viewModel.selectAnswer(selectedIndex = 99) // out of range -> always wrong, 0 points
++                viewModel.selectAnswer(selectedIndex = 3) // server reports it wrong
++                awaitItem()
+                 awaitItem()
+                 advanceUntilIdle()
+ 
+@@ -477,9 +578,9 @@ class QuizViewModelTest {
+     @Test
+     fun `finishQuiz falls back to default display name when profile fetch fails`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
+@@ -501,6 +602,7 @@ class QuizViewModelTest {
+                 awaitItem()
+                 viewModel.selectAnswer(0)
+                 awaitItem()
++                awaitItem()
+                 advanceUntilIdle()
+                 cancelAndIgnoreRemainingEvents()
+             }
+@@ -525,9 +627,9 @@ class QuizViewModelTest {
+     @Test
+     fun `finishQuiz computes timeTaken from elapsedRealtimeProvider not wall clock`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -540,7 +642,8 @@ class QuizViewModelTest {
+                 fakeElapsed = 1_047_000L // 47 simulated seconds later, monotonic source only
+ 
+                 viewModel.selectAnswer(0)
+-                awaitItem() // answered feedback
++                awaitItem()
++                awaitItem()
+                 advanceUntilIdle()
+ 
+                 val completed = expectMostRecentItem() as QuizUiState.Completed
+@@ -557,9 +660,9 @@ class QuizViewModelTest {
+             // elapsedRealtimeProvider (a stand-in for SystemClock.elapsedRealtime(), which IS
+             // monotonic in production), so a wall-clock jump cannot produce a negative or
+             // bogus duration.
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -573,6 +676,7 @@ class QuizViewModelTest {
+ 
+                 viewModel.selectAnswer(0)
+                 awaitItem()
++                awaitItem()
+                 advanceUntilIdle()
+ 
+                 val completed = expectMostRecentItem() as QuizUiState.Completed
+@@ -585,7 +689,7 @@ class QuizViewModelTest {
+     @Test
+     fun `emits AnswerSyncFailed event when submitAnswer throws`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+             coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+@@ -608,13 +712,38 @@ class QuizViewModelTest {
+             }
+         }
+ 
++    @OptIn(ExperimentalCoroutinesApi::class)
++    @Test
++    fun `emits AnswerSyncFailed event when the answer is cached offline`() =
++        runTest {
++            val q1 = question(id = "q1")
++            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
++
++            val viewModel = buildViewModel()
++
++            viewModel.events.test {
++                viewModel.uiState.test {
++                    awaitItem()
++                    viewModel.selectAnswer(0)
++                    awaitItem()
++                    advanceUntilIdle()
++                    cancelAndIgnoreRemainingEvents()
++                }
++
++                val event = awaitItem() as QuizUiEvent.AnswerSyncFailed
++                assertTrue(event.message.contains("offline", ignoreCase = true))
++                cancelAndIgnoreRemainingEvents()
++            }
++        }
++
+     @OptIn(ExperimentalCoroutinesApi::class)
+     @Test
+     fun `concurrent selectAnswer calls from different threads process exactly once`() =
+         runTest {
+-            val q1 = question(id = "q1", correctIndex = 0)
++            val q1 = question(id = "q1")
+             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(true)
++            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
+ 
+@@ -642,4 +771,4 @@ class QuizViewModelTest {
+ 
+             coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
+         }
+-}
+\ No newline at end of file
++}
+diff --git a/firebase.json b/firebase.json
+new file mode 100644
+index 0000000..e602c5e
+--- /dev/null
++++ b/firebase.json
+@@ -0,0 +1,30 @@
++{
++  "firestore": {
++    "rules": "firestore.rules"
++  },
++  "functions": [
++    {
++      "source": "functions",
++      "codebase": "default",
++      "ignore": [
++        "node_modules",
++        ".git",
++        "firebase-debug.log",
++        "firebase-debug.*.log",
++        "*.local"
++      ],
++      "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
++    }
++  ],
++  "emulators": {
++    "functions": {
++      "port": 5001
++    },
++    "firestore": {
++      "port": 8080
++    },
++    "ui": {
++      "enabled": true
++    }
++  }
++}
+diff --git a/firestore.rules b/firestore.rules
+new file mode 100644
+index 0000000..9afa141
+--- /dev/null
++++ b/firestore.rules
+@@ -0,0 +1,69 @@
++rules_version = '2';
++service cloud.firestore {
++  match /databases/{database}/documents {
++
++    // ── modules — readable by any signed-in user, admin-write only ────
++    match /modules/{moduleId} {
++      allow read: if request.auth != null;
++      allow write: if false; // edit only via Firebase Console
++    }
++
++    // ── quizzes + questions — same pattern ─────────────────────────────
++    // NOTE: after running functions/scripts/migrateAnswerKeys.ts, question
++    // docs no longer contain correctIndex/explanation — those live only in
++    // /answerKeys, which is unreadable from the client. Read access here is
++    // still safe because there's nothing left in these docs to leak.
++    match /quizzes/{quizId} {
++      allow read: if request.auth != null;
++      allow write: if false; // edit only via Firebase Console
++
++      match /questions/{questionId} {
++        allow read: if request.auth != null;
++        allow write: if false;
++      }
++    }
++
++    // ── answer keys — Cloud Functions only ─────────────────────────────
++    // Holds correctIndex/explanation per question. The Admin SDK (used by
++    // validateAnswer / validateAnswersBatch) bypasses these rules entirely,
++    // so this collection is functionally invisible to every client build.
++    match /answerKeys/{answerKeyId} {
++      allow read, write: if false;
++    }
++
++    // ── users — only the owner can read/write their own document ──────
++    match /users/{userId} {
++      allow read, write: if request.auth != null && request.auth.uid == userId;
++
++      // Grading is server-side only now: the client calls validateAnswer /
++      // validateAnswersBatch, and those Cloud Functions write here with the
++      // Admin SDK. A direct client write (with a self-reported isCorrect)
++      // is no longer possible — this closes the original vulnerability.
++      match /quizResults/{resultId} {
++        allow read: if request.auth != null && request.auth.uid == userId;
++        allow write: if false;
++      }
++
++      match /progress/{moduleId} {
++        allow read, write: if request.auth != null && request.auth.uid == userId;
++      }
++
++      match /certificates/{certId} {
++        allow read, write: if request.auth != null && request.auth.uid == userId;
++      }
++    }
++
++    // ── leaderboard query — users collection ordered by xp ─────────────
++    // Already covered by the /users/{userId} rule above, BUT the
++    // leaderboard query reads OTHER users' documents, not just your own.
++    // The rule above would BLOCK this — see note below.
++    //
++    // If/when the leaderboard read is reinstated for other users' docs,
++    // do NOT loosen this to `allow read: if request.auth != null` on the
++    // whole /users/{userId} doc — that would also expose email, auth
++    // metadata, etc. Instead, project a public subset (displayName, xp,
++    // badges) into a separate `leaderboardEntries/{userId}` doc, written
++    // only by a Cloud Function trigger on XP changes, and make that
++    // collection readable by any signed-in user.
++  }
++}
+diff --git a/functions/package.json b/functions/package.json
+new file mode 100644
+index 0000000..1c66622
+--- /dev/null
++++ b/functions/package.json
+@@ -0,0 +1,25 @@
++{
++  "name": "cybershield-functions",
++  "version": "1.0.0",
++  "private": true,
++  "description": "Server-side answer validation for CyberShield quizzes.",
++  "engines": {
++    "node": "20"
++  },
++  "main": "lib/index.js",
++  "scripts": {
++    "build": "tsc",
++    "build:watch": "tsc --watch",
++    "serve": "npm run build && firebase emulators:start --only functions,firestore",
++    "shell": "npm run build && firebase functions:shell",
++    "deploy": "npm run build && firebase deploy --only functions",
++    "migrate:answerKeys": "npm run build && node lib/scripts/migrateAnswerKeys.js"
++  },
++  "dependencies": {
++    "firebase-admin": "^12.7.0",
++    "firebase-functions": "^6.3.1"
++  },
++  "devDependencies": {
++    "typescript": "^5.6.3"
++  }
++}
+diff --git a/functions/src/grading.ts b/functions/src/grading.ts
+new file mode 100644
+index 0000000..9177a04
+--- /dev/null
++++ b/functions/src/grading.ts
+@@ -0,0 +1,114 @@
++import { getFirestore, FieldValue } from "firebase-admin/firestore";
++import { HttpsError } from "firebase-functions/v2/https";
++
++/**
++ * The answer key lives in a collection the client can never read
++ * (see firestore.rules: `allow read, write: if false;`). It is only ever
++ * touched by the Admin SDK from these Cloud Functions.
++ *
++ * Document id: `${quizId}_${questionId}`
++ */
++export interface AnswerKeyDoc {
++  correctIndex: number;
++  optionCount: number;
++  explanation?: string;
++  moduleId?: string;
++}
++
++export interface AnswerInput {
++  quizId: string;
++  questionId: string;
++  selectedIndex: number;
++  /** Client-reported answer timestamp, used only for display/history ordering — never trusted for scoring. */
++  answeredAt?: number;
++}
++
++export interface GradedAnswer {
++  quizId: string;
++  questionId: string;
++  isCorrect: boolean;
++  correctIndex: number;
++  explanation: string;
++  moduleId: string;
++}
++
++/** Basic shape validation so a malformed payload fails fast with a clear error. */
++export function assertValidAnswerInput(input: unknown): asserts input is AnswerInput {
++  const a = input as Partial<AnswerInput> | null;
++  if (
++    !a ||
++    typeof a.quizId !== "string" ||
++    !a.quizId ||
++    typeof a.questionId !== "string" ||
++    !a.questionId ||
++    typeof a.selectedIndex !== "number" ||
++    !Number.isInteger(a.selectedIndex)
++  ) {
++    throw new HttpsError("invalid-argument", "quizId, questionId, and an integer selectedIndex are required.");
++  }
++}
++
++/**
++ * Looks up the answer key and grades a single answer. Throws HttpsError if
++ * the question doesn't exist — this deliberately does NOT leak whether the
++ * quizId or questionId was wrong vs. something else, to avoid giving a
++ * scripted client a way to enumerate valid ids.
++ */
++export async function gradeAnswer(input: AnswerInput): Promise<GradedAnswer> {
++  const db = getFirestore();
++  const keyRef = db.collection("answerKeys").doc(`${input.quizId}_${input.questionId}`);
++  const keySnap = await keyRef.get();
++
++  if (!keySnap.exists) {
++    throw new HttpsError("not-found", "Question not found.");
++  }
++
++  const key = keySnap.data() as AnswerKeyDoc;
++
++  if (input.selectedIndex < -1 || input.selectedIndex >= key.optionCount) {
++    // -1 is the sentinel the client sends for "timed out, no answer".
++    throw new HttpsError("invalid-argument", "selectedIndex is out of range for this question.");
++  }
++
++  return {
++    quizId: input.quizId,
++    questionId: input.questionId,
++    isCorrect: input.selectedIndex === key.correctIndex,
++    correctIndex: key.correctIndex,
++    explanation: key.explanation ?? "",
++    moduleId: key.moduleId ?? "",
++  };
++}
++
++/**
++ * Persists a graded answer to `users/{uid}/quizResults/{quizId}_{questionId}`.
++ * This is the ONLY code path allowed to write `isCorrect` — Firestore rules
++ * block client writes to this subcollection entirely (see firestore.rules).
++ */
++export async function writeGradedResult(
++  uid: string,
++  graded: GradedAnswer,
++  selectedIndex: number,
++  clientAnsweredAt: number | undefined,
++): Promise<void> {
++  const db = getFirestore();
++  const ref = db
++    .collection("users")
++    .doc(uid)
++    .collection("quizResults")
++    .doc(`${graded.quizId}_${graded.questionId}`);
++
++  await ref.set(
++    {
++      quizId: graded.quizId,
++      questionId: graded.questionId,
++      moduleId: graded.moduleId,
++      selectedIndex,
++      isCorrect: graded.isCorrect,
++      clientAnsweredAt: clientAnsweredAt ?? null,
++      validatedAt: FieldValue.serverTimestamp(),
++      validatedBy: "cloudFunction",
++    },
++    { merge: true },
++  );
++}
+diff --git a/functions/src/index.ts b/functions/src/index.ts
+new file mode 100644
+index 0000000..490d6d1
+--- /dev/null
++++ b/functions/src/index.ts
+@@ -0,0 +1,95 @@
++import { initializeApp } from "firebase-admin/app";
++import { onCall, HttpsError } from "firebase-functions/v2/https";
++import { setGlobalOptions } from "firebase-functions/v2";
++import { assertValidAnswerInput, gradeAnswer, writeGradedResult, AnswerInput } from "./grading";
++
++initializeApp();
++setGlobalOptions({ region: "us-central1", maxInstances: 20 });
++
++/**
++ * Called immediately when the device is online. Grades one answer against
++ * the server-only answer key and records the validated result. The client
++ * never sends `isCorrect` — it only ever sends `selectedIndex`, and only
++ * ever receives `isCorrect` back, never `correctIndex`.
++ */
++export const validateAnswer = onCall(
++  {
++    // Require App Check so only the real CyberShield app (not a scripted
++    // client hitting the callable URL directly) can call this.
++    enforceAppCheck: true,
++    consumeAppCheckToken: true,
++  },
++  async (request) => {
++    if (!request.auth) {
++      throw new HttpsError("unauthenticated", "Sign in required.");
++    }
++    assertValidAnswerInput(request.data);
++    const input = request.data as AnswerInput;
++
++    const graded = await gradeAnswer(input);
++    await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt);
++
++    // correctIndex is only ever sent back AFTER the client has already
++    // submitted its selectedIndex — never available to fetch beforehand.
++    return {
++      questionId: graded.questionId,
++      isCorrect: graded.isCorrect,
++      correctIndex: graded.correctIndex,
++      explanation: graded.explanation,
++    };
++  },
++);
++
++/**
++ * Called by SyncQuizResultsWorker once connectivity returns, for answers
++ * that were given while offline (cached locally with no isCorrect yet).
++ * Grades and persists each one, then returns per-question results so the
++ * app can update its local Room cache and reveal the deferred feedback.
++ */
++export const validateAnswersBatch = onCall(
++  {
++    enforceAppCheck: true,
++    consumeAppCheckToken: true,
++  },
++  async (request) => {
++    if (!request.auth) {
++      throw new HttpsError("unauthenticated", "Sign in required.");
++    }
++    const answers = (request.data as { answers?: unknown[] } | null)?.answers;
++    if (!Array.isArray(answers) || answers.length === 0) {
++      throw new HttpsError("invalid-argument", "answers must be a non-empty array.");
++    }
++    if (answers.length > 100) {
++      throw new HttpsError("invalid-argument", "Batch too large — send at most 100 answers per call.");
++    }
++
++    const results = [];
++    for (const raw of answers) {
++      assertValidAnswerInput(raw);
++      const input = raw as AnswerInput;
++      try {
++        const graded = await gradeAnswer(input);
++        await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt);
++        results.push({
++          questionId: graded.questionId,
++          isCorrect: graded.isCorrect,
++          correctIndex: graded.correctIndex,
++          explanation: graded.explanation,
++          error: null,
++        });
++      } catch (e) {
++        // One bad row (e.g. a question that was later deleted) shouldn't
++        // fail the whole batch — report it and let the rest sync.
++        results.push({
++          questionId: input.questionId,
++          isCorrect: null,
++          correctIndex: null,
++          explanation: null,
++          error: e instanceof HttpsError ? e.message : "Failed to validate.",
++        });
++      }
++    }
++
++    return { results };
++  },
++);
+diff --git a/functions/src/scripts/migrateAnswerKeys.ts b/functions/src/scripts/migrateAnswerKeys.ts
+new file mode 100644
+index 0000000..5a9622d
+--- /dev/null
++++ b/functions/src/scripts/migrateAnswerKeys.ts
+@@ -0,0 +1,67 @@
++/**
++ * One-off migration. Run once (via `npm run migrate:answerKeys`) against
++ * your project before shipping the new client:
++ *
++ *   1. Reads every quizzes/{quizId}/questions/{questionId} doc.
++ *   2. Writes its correctIndex + explanation into answerKeys/{quizId}_{questionId}.
++ *   3. Removes correctIndex + explanation from the public question doc.
++ *
++ * After this runs, the public question doc only ever contains fields safe
++ * to hand to an unauthenticated-of-answers client: text, options, order,
++ * moduleId, moduleName, quizTitle.
++ *
++ * Safe to re-run — it's idempotent (uses set(), and deletes the fields with
++ * FieldValue.delete() so a second pass on an already-migrated doc is a no-op).
++ */
++import { initializeApp } from "firebase-admin/app";
++import { getFirestore, FieldValue } from "firebase-admin/firestore";
++
++initializeApp();
++const db = getFirestore();
++
++async function migrate() {
++  const quizzes = await db.collection("quizzes").get();
++  let migrated = 0;
++
++  for (const quizDoc of quizzes.docs) {
++    const questions = await quizDoc.ref.collection("questions").get();
++
++    for (const q of questions.docs) {
++      const data = q.data();
++      if (data.correctIndex === undefined) {
++        continue; // already migrated
++      }
++
++      const options: unknown[] = data.options ?? [];
++      const batch = db.batch();
++
++      batch.set(
++        db.collection("answerKeys").doc(`${quizDoc.id}_${q.id}`),
++        {
++          correctIndex: data.correctIndex,
++          optionCount: options.length,
++          explanation: data.explanation ?? "",
++          moduleId: quizDoc.id,
++        },
++        { merge: true },
++      );
++
++      batch.update(q.ref, {
++        correctIndex: FieldValue.delete(),
++        explanation: FieldValue.delete(),
++      });
++
++      await batch.commit();
++      migrated++;
++    }
++  }
++
++  console.log(`Migrated ${migrated} question(s) into answerKeys.`);
++}
++
++migrate()
++  .then(() => process.exit(0))
++  .catch((e) => {
++    console.error("Migration failed:", e);
++    process.exit(1);
++  });
+diff --git a/functions/tsconfig.json b/functions/tsconfig.json
+new file mode 100644
+index 0000000..e50d33b
+--- /dev/null
++++ b/functions/tsconfig.json
+@@ -0,0 +1,17 @@
++{
++  "compilerOptions": {
++    "target": "ES2021",
++    "module": "commonjs",
++    "lib": ["ES2021"],
++    "outDir": "lib",
++    "rootDir": "src",
++    "strict": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "esModuleInterop": true,
++    "skipLibCheck": true,
++    "sourceMap": true
++  },
++  "include": ["src/**/*.ts"],
++  "compileOnSpec": false
++}
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 5bbef20..e5fa900 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -53,6 +53,7 @@ hilt-work               = { module = "androidx.hilt:hilt-work",
+ firebase-bom            = { module = "com.google.firebase:firebase-bom",                  version.ref = "firebase-bom" }
+ firebase-auth           = { module = "com.google.firebase:firebase-auth" }
+ firebase-firestore      = { module = "com.google.firebase:firebase-firestore" }
++firebase-functions      = { module = "com.google.firebase:firebase-functions" }
+ firebase-messaging      = { module = "com.google.firebase:firebase-messaging" }
+ firebase-storage        = { module = "com.google.firebase:firebase-storage" }
+ firebase-coroutines     = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
+-- 
+2.43.0
