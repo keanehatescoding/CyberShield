@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.example.cybershield.core.database.CyberShieldDatabase
 import com.example.cybershield.core.database.dao.ModuleDao
 import com.example.cybershield.core.database.dao.PlaybackPositionDao
+import com.example.cybershield.core.database.dao.QuizAttemptDao
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
 import dagger.Module
@@ -41,4 +42,7 @@ object DatabaseModule {
 
     @Provides
     fun providePlaybackPositionDao(db: CyberShieldDatabase): PlaybackPositionDao = db.playbackPositionDao()
+
+    @Provides
+    fun provideQuizAttemptDao(db: CyberShieldDatabase): QuizAttemptDao = db.quizAttemptDao()
 }

@@ -5,10 +5,12 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.cybershield.core.database.dao.ModuleDao
 import com.example.cybershield.core.database.dao.PlaybackPositionDao
+import com.example.cybershield.core.database.dao.QuizAttemptDao
 import com.example.cybershield.core.database.dao.QuizDao
 import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.ModuleEntity
 import com.example.cybershield.core.database.entity.PlaybackPositionEntity
+import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 
@@ -18,8 +20,9 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
         QuizResultEntity::class,
         ModuleEntity::class,
         PlaybackPositionEntity::class,
+        QuizAttemptEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -31,4 +34,6 @@ abstract class CyberShieldDatabase : RoomDatabase() {
     abstract fun moduleDao(): ModuleDao
 
     abstract fun playbackPositionDao(): PlaybackPositionDao
+
+    abstract fun quizAttemptDao(): QuizAttemptDao
 }
