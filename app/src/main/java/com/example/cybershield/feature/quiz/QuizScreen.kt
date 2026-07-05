@@ -398,7 +398,7 @@ private fun ScoreDisplay(score: Int) {
 }
 
 @Composable
-private fun QuizErrorScreen(
+fun QuizErrorScreen(
     message: String,
     onRetry: () -> Unit,
 ) {

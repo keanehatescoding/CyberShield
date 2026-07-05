@@ -17,21 +17,58 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.cybershield.core.domain.model.QuizResult
+import com.example.cybershield.ui.theme.LoadingScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizResultScreen(
+    onNavigateHome: () -> Unit,
+    onRetakeQuiz: (String) -> Unit,
+    onViewCertificate: () -> Unit,
+    viewModel: QuizResultViewModel = hiltViewModel(),
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    when (val state = uiState) {
+        QuizResultUiState.Loading -> {
+            LoadingScreen()
+        }
+
+        is QuizResultUiState.Loaded -> {
+            QuizResultContent(
+                result = state.result,
+                onNavigateHome = onNavigateHome,
+                onRetakeQuiz = {
+                    onRetakeQuiz(state.result.quizId)
+                },
+                onViewCertificate = onViewCertificate,
+            )
+        }
+
+        QuizResultUiState.NotFound -> {
+            QuizErrorScreen(
+                message = "Quiz result not found.",
+                onRetry = onNavigateHome,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuizResultContent(
     result: QuizResult,
     onNavigateHome: () -> Unit,
     onRetakeQuiz: () -> Unit,
-    onViewCertificate: () -> Unit,
+    onViewCertificate: () -> Unit
 ) {
     Scaffold { padding ->
         Column(

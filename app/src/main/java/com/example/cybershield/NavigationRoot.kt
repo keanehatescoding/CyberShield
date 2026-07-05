@@ -15,7 +15,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
-import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.ui.ConnectivityViewModel
 import com.example.cybershield.feature.auth.AuthState
 import com.example.cybershield.feature.auth.AuthViewModel
@@ -123,47 +122,30 @@ fun NavigationRoot(
                     composable<QuizRoute>(deepLinks = quizDeepLinks) {
                         QuizScreen(
                             onNavigateBack = { navController.popBackStack() },
-                            onNavigateToResult = { result ->
+                            onNavigateToResult = { resultId ->
                                 navController.navigate(
                                     QuizResultRoute(
-                                        quizId = result.quizId,
-                                        score = result.score,
-                                        xpEarned = result.xpEarned,
-                                        passed = result.passed,
-                                        timeTaken = result.timeTaken,
-                                        totalQuestions = result.totalQuestions,
-                                        correctCount = result.correctCount,
-                                        percentage = result.percentage,
+                                        resultId = resultId
                                     ),
                                 ) { popUpTo(QuizRoute::class) { inclusive = true } }
                             },
                         )
                     }
-                    composable<QuizResultRoute> { back ->
-                        val r = back.toRoute<QuizResultRoute>()
+                    composable<QuizResultRoute> { _ ->
                         QuizResultScreen(
-                            result =
-                                QuizResult(
-                                    quizId = r.quizId,
-                                    score = r.score,
-                                    totalQuestions = r.totalQuestions,
-                                    correctCount = r.correctCount,
-                                    percentage = r.percentage,
-                                    xpEarned = r.xpEarned,
-                                    passed = r.passed,
-                                    timeTaken = r.timeTaken,
-                                ),
                             onNavigateHome = {
                                 navController.navigate(HomeRoute) {
                                     popUpTo(HomeRoute) { inclusive = true }
                                 }
                             },
-                            onRetakeQuiz = {
-                                navController.navigate(QuizRoute(r.quizId)) {
-                                    popUpTo(QuizResultRoute::class) { inclusive = true }
+                            onRetakeQuiz = { quizId ->
+                                navController.navigate(QuizRoute(quizId)) {
+                                    popUpTo(QuizRoute::class) { inclusive = true }
                                 }
                             },
-                            onViewCertificate = { navController.navigate(ProfileRoute) },
+                            onViewCertificate = {
+                                navController.navigate(ProfileRoute)
+                                                },
                         )
                     }
                     composable<ProfileRoute> {

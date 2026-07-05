@@ -183,7 +183,7 @@ constructor(
         timeRemaining: Int,
     ) {
         val current = _uiState.value as? QuizUiState.Active ?: return
-        if (!hasAnswered.compareAndSet(false, true)) return
+        if (!hasAnswered.compareAndSet(false, newValue = true)) return
 
         val question = questions[currentIndex]
         val correct = selectedIndex == question.correctIndex
@@ -254,7 +254,7 @@ constructor(
 
     @OptIn(ExperimentalAtomicApi::class)
     private fun finishQuiz() {
-        if (!hasFinished.compareAndSet(false, true)) return
+        if (!hasFinished.compareAndSet(expectedValue = false, newValue = true)) return
 
         viewModelScope.launch {
             val total = questions.size
