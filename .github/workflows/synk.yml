@@ -52,7 +52,7 @@ jobs:
         run: echo "::warning::SNYK_TOKEN secret is not set — add it in repo Settings > Secrets to enable scanning."
 
       - name: Upload result to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: ${{ env.SNYK_TOKEN != '' && always() }}
         with:
           sarif_file: snyk.sarif
