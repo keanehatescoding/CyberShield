@@ -144,7 +144,7 @@ class QuizViewModelTest {
                 isEmailVerified = true,
             )
         every { savedStateHandle.toRoute<QuizRoute>() } returns QuizRoute(quizId = testQuizId)
-        coEvery { quizRepository.saveQuizAttempt(any(), any()) } just Runs
+        coEvery { quizRepository.saveQuizAttempt(any(), any(), any(), any(), any(), any()) } just Runs
     }
 
     // ---------------------------------------------------------------------
@@ -226,7 +226,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -255,7 +255,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
                 Result.Success(validation("q1", isCorrect = true, correctIndex = 1, explanation = "B is correct."))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
@@ -287,7 +287,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
                 Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
@@ -316,7 +316,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -335,7 +335,7 @@ class QuizViewModelTest {
             }
 
             // Only ever graded once, regardless of the second call.
-            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
+            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any(), any(), any()) }
         }
 
     // ---------------------------------------------------------------------
@@ -349,7 +349,7 @@ class QuizViewModelTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             // SubmitAnswerUseCase returns Success(null) for the offline / cached path.
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(null)
 
             val viewModel = buildViewModel()
 
@@ -377,7 +377,16 @@ class QuizViewModelTest {
                 generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
             }
             // The provisional attempt is still persisted (so the result screen has something to show).
-            coVerify(exactly = 1) { quizRepository.saveQuizAttempt(any(), match { it.provisional }) }
+            coVerify(exactly = 1) {
+                quizRepository.saveQuizAttempt(
+                    resultId = any(),
+                    userId = any(),
+                    moduleId = any(),
+                    moduleName = any(),
+                    quizTitle = any(),
+                    result = match { it.provisional },
+                )
+            }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -386,7 +395,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } throws RuntimeException("network down")
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -416,7 +425,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -443,7 +452,17 @@ class QuizViewModelTest {
             }
 
             // The client sends -1 (its sentinel for "no answer") — never a claimed isCorrect.
-            coVerify { submitAnswer(quizId = testQuizId, question = q1, selectedIndex = -1, selectedAnswer = "", userId = testUid) }
+            coVerify {
+                submitAnswer(
+                    quizId = testQuizId,
+                    resultId = any(),
+                    question = q1,
+                    selectedIndex = -1,
+                    selectedAnswer = "",
+                    userId = testUid,
+                    timeRemaining = 0,
+                )
+            }
         }
 
     // ---------------------------------------------------------------------
@@ -456,7 +475,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -478,7 +497,16 @@ class QuizViewModelTest {
                 cancelAndIgnoreRemainingEvents()
             }
 
-            coVerify { quizRepository.saveQuizAttempt("result-abc", any()) }
+            coVerify {
+                quizRepository.saveQuizAttempt(
+                    resultId = "result-abc",
+                    userId = any(),
+                    moduleId = any(),
+                    moduleName = any(),
+                    quizTitle = any(),
+                    result = any(),
+                )
+            }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -489,7 +517,7 @@ class QuizViewModelTest {
             // server-confirmed answer, not on timer/timeout interactions.
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
@@ -543,7 +571,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = false))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -580,7 +608,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             coEvery { userRepository.awardBadge(any(), any()) } returns Result.Success(Unit)
@@ -629,7 +657,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -662,7 +690,7 @@ class QuizViewModelTest {
             // bogus duration.
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -691,7 +719,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } throws RuntimeException("network down")
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } throws RuntimeException("network down")
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -718,7 +746,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(null)
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(null)
 
             val viewModel = buildViewModel()
 
@@ -743,7 +771,7 @@ class QuizViewModelTest {
         runTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
-            coEvery { submitAnswer(any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns Result.Success(validation("q1", isCorrect = true))
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
@@ -769,6 +797,6 @@ class QuizViewModelTest {
 
             advanceUntilIdle()
 
-            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any()) }
+            coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any(), any(), any()) }
         }
 }

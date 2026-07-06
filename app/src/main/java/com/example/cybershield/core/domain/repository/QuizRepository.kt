@@ -5,6 +5,7 @@ import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 
@@ -23,31 +24,36 @@ interface QuizRepository {
 
     /**
      * Online path: submits the answer to the validateAnswer Cloud Function
-     * for immediate grading, caches the graded result locally, and returns
-     * the server's verdict. This is the ONLY source of truth for isCorrect —
-     * nothing in the app computes it locally.
+     * for immediate grading, caches the graded result locally (tagged with
+     * [resultId] so it can be aggregated later), and returns the server's
+     * verdict. This is the ONLY source of truth for isCorrect — nothing in
+     * the app computes it locally.
      */
     suspend fun validateAnswerOnline(
         userId: String,
+        resultId: String,
         quizId: String,
         questionId: String,
         selectedIndex: Int,
         selectedAnswer: String,
         moduleId: String,
+        timeRemaining: Int,
     ): Result<AnswerValidation>
 
     /**
-     * Offline path: caches the raw answer (selectedIndex only — no verdict)
-     * in Room. SyncQuizResultsWorker grades it later via validateAnswersBatch
-     * once connectivity returns.
+     * Offline path: caches the raw answer (selectedIndex only — no verdict),
+     * tagged with [resultId], in Room. SyncQuizResultsWorker grades it later
+     * via validateAnswersBatch once connectivity returns.
      */
     suspend fun cachePendingAnswer(
         userId: String,
+        resultId: String,
         quizId: String,
         questionId: String,
         moduleId: String,
         selectedIndex: Int,
         selectedAnswer: String,
+        timeRemaining: Int,
     )
 
     /**
@@ -66,8 +72,30 @@ interface QuizRepository {
      */
     suspend fun saveQuizAttempt(
         resultId: String,
+        userId: String,
+        moduleId: String,
+        moduleName: String,
+        quizTitle: String,
         result: QuizResult,
     )
 
     suspend fun getQuizAttempt(resultId: String): QuizResult?
+
+    /**
+     * Attempts that were saved as provisional (one or more answers were
+     * graded offline) and now have a server verdict for every answer — i.e.
+     * they're ready for FinalizeQuizAttemptsUseCase to award XP/badge/
+     * certificate and flip them to final.
+     */
+    suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt>
+
+    /** Records the finalized outcome and flips provisional to false so this attempt is never reprocessed. */
+    suspend fun finalizeAttempt(
+        resultId: String,
+        score: Int,
+        correctCount: Int,
+        percentage: Int,
+        xpEarned: Int,
+        passed: Boolean,
+    )
 }

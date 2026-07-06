@@ -22,7 +22,7 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
         PlaybackPositionEntity::class,
         QuizAttemptEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)

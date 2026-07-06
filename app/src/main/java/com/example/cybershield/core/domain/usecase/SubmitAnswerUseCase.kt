@@ -17,7 +17,9 @@ import javax.inject.Inject
  * - Offline: caches the raw selectedIndex in Room and returns
  *   Result.Success(null) to signal "saved, grading deferred" — the UI shows
  *   a neutral "saved — you'll see the result once you're back online" state.
- *   SyncQuizResultsWorker grades it later via validateAnswersBatch.
+ *   SyncQuizResultsWorker grades it later via validateAnswersBatch, and
+ *   FinalizeQuizAttemptsUseCase awards XP/badge/certificate once every
+ *   answer tagged with [resultId] has a verdict.
  */
 class SubmitAnswerUseCase
     @Inject
@@ -27,19 +29,23 @@ class SubmitAnswerUseCase
     ) {
         suspend operator fun invoke(
             quizId: String,
+            resultId: String,
             question: Question,
             selectedIndex: Int,
             selectedAnswer: String,
             userId: String,
+            timeRemaining: Int,
         ): Result<AnswerValidation?> {
             if (!networkMonitor.isCurrentlyOnline()) {
                 quizRepository.cachePendingAnswer(
                     userId = userId,
+                    resultId = resultId,
                     quizId = quizId,
                     questionId = question.id,
                     moduleId = question.moduleId,
                     selectedIndex = selectedIndex,
                     selectedAnswer = selectedAnswer,
+                    timeRemaining = timeRemaining,
                 )
                 return Result.Success(null)
             }
@@ -47,11 +53,13 @@ class SubmitAnswerUseCase
             val result =
                 quizRepository.validateAnswerOnline(
                     userId = userId,
+                    resultId = resultId,
                     quizId = quizId,
                     questionId = question.id,
                     selectedIndex = selectedIndex,
                     selectedAnswer = selectedAnswer,
                     moduleId = question.moduleId,
+                    timeRemaining = timeRemaining,
                 )
 
             // A mid-request drop (e.g. wifi died right as the call went out)
@@ -60,11 +68,13 @@ class SubmitAnswerUseCase
             if (result is Result.Error) {
                 quizRepository.cachePendingAnswer(
                     userId = userId,
+                    resultId = resultId,
                     quizId = quizId,
                     questionId = question.id,
                     moduleId = question.moduleId,
                     selectedIndex = selectedIndex,
                     selectedAnswer = selectedAnswer,
+                    timeRemaining = timeRemaining,
                 )
                 return Result.Success(null)
             }

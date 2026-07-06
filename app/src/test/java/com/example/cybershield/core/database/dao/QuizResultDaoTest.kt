@@ -11,12 +11,15 @@ class QuizResultDaoTest : RoomDbTestBase() {
     private val dao get() = db.quizResultDao()
 
     private fun fakeResult(
+        resultId: String = "result-1",
         userId: String = "user1",
         quizId: String = "quiz1",
         questionId: String = "q1",
         isCorrect: Boolean? = null,
+        timeRemaining: Int = 10,
         synced: Boolean = false,
     ) = QuizResultEntity(
+        resultId = resultId,
         userId = userId,
         quizId = quizId,
         questionId = questionId,
@@ -25,6 +28,7 @@ class QuizResultDaoTest : RoomDbTestBase() {
         selectedIndex = 0,
         selectedAnswer = "A",
         answeredAt = 1_000_000L,
+        timeRemaining = timeRemaining,
         synced = synced,
     )
 
@@ -159,5 +163,37 @@ class QuizResultDaoTest : RoomDbTestBase() {
 
             assertEquals(1, result.size)
             assertEquals("B", result.single().selectedAnswer)
+        }
+
+    @Test
+    fun `getResultsForAttempt returns only rows tagged with that resultId`() =
+        runTest {
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1"))
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q2"))
+            dao.insert(fakeResult(resultId = "attempt-B", questionId = "q1")) // a retake of the same quiz
+
+            val forAttemptA = dao.getResultsForAttempt("attempt-A")
+
+            assertEquals(2, forAttemptA.size)
+            assertTrue(forAttemptA.all { it.resultId == "attempt-A" })
+        }
+
+    @Test
+    fun `countUnsyncedForAttempt is zero once every answer in that attempt is synced`() =
+        runTest {
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1", isCorrect = true, synced = true))
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q2", isCorrect = true, synced = true))
+
+            assertEquals(0, dao.countUnsyncedForAttempt("attempt-A"))
+        }
+
+    @Test
+    fun `countUnsyncedForAttempt reflects only that attempt's unsynced rows, not other attempts'`() =
+        runTest {
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1", synced = false))
+            dao.insert(fakeResult(resultId = "attempt-B", questionId = "q1", isCorrect = true, synced = true))
+
+            assertEquals(1, dao.countUnsyncedForAttempt("attempt-A"))
+            assertEquals(0, dao.countUnsyncedForAttempt("attempt-B"))
         }
 }

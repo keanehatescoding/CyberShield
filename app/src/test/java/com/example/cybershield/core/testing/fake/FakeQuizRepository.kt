@@ -5,6 +5,7 @@ import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ class FakeQuizRepository : QuizRepository {
     // Inspection fields for assertions
     val validatedAnswers = mutableListOf<SavedQuizResult>()
     val pendingAnswers = mutableListOf<SavedQuizResult>()
+    val finalizedAttempts = mutableListOf<FinalizedAttempt>()
     var shouldReturnError = false
     var errorMessage = "Fake error"
 
@@ -30,6 +32,9 @@ class FakeQuizRepository : QuizRepository {
     var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
         flowOf(PagingData.empty())
     }
+
+    /** Lets tests script which provisional attempts are ready to be finalized. */
+    var readyToFinalizeProvider: () -> List<ReadyToFinalizeAttempt> = { emptyList() }
 
     // --- Test helpers ---
 
@@ -52,8 +57,10 @@ class FakeQuizRepository : QuizRepository {
         passMarks.clear()
         validatedAnswers.clear()
         pendingAnswers.clear()
+        finalizedAttempts.clear()
         attempts.clear()
         shouldReturnError = false
+        readyToFinalizeProvider = { emptyList() }
     }
 
     // --- QuizRepository implementation ---
@@ -74,22 +81,26 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun validateAnswerOnline(
         userId: String,
+        resultId: String,
         quizId: String,
         questionId: String,
         selectedIndex: Int,
         selectedAnswer: String,
         moduleId: String,
+        timeRemaining: Int,
     ): Result<AnswerValidation> {
         if (shouldReturnError) return Result.Error(Exception(errorMessage))
         val validation = validationProvider(questionId, selectedIndex)
         validatedAnswers.add(
             SavedQuizResult(
                 userId = userId,
+                resultId = resultId,
                 quizId = quizId,
                 questionId = questionId,
                 moduleId = moduleId,
                 isCorrect = validation.isCorrect,
                 selectedAnswer = selectedAnswer,
+                timeRemaining = timeRemaining,
             ),
         )
         return Result.Success(validation)
@@ -97,20 +108,24 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun cachePendingAnswer(
         userId: String,
+        resultId: String,
         quizId: String,
         questionId: String,
         moduleId: String,
         selectedIndex: Int,
         selectedAnswer: String,
+        timeRemaining: Int,
     ) {
         pendingAnswers.add(
             SavedQuizResult(
                 userId = userId,
+                resultId = resultId,
                 quizId = quizId,
                 questionId = questionId,
                 moduleId = moduleId,
                 isCorrect = null,
                 selectedAnswer = selectedAnswer,
+                timeRemaining = timeRemaining,
             ),
         )
     }
@@ -125,6 +140,10 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun saveQuizAttempt(
         resultId: String,
+        userId: String,
+        moduleId: String,
+        moduleName: String,
+        quizTitle: String,
         result: QuizResult,
     ) {
         attempts[resultId] = result
@@ -132,16 +151,51 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun getQuizAttempt(resultId: String): QuizResult? = attempts[resultId]
 
+    override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> = readyToFinalizeProvider()
+
+    override suspend fun finalizeAttempt(
+        resultId: String,
+        score: Int,
+        correctCount: Int,
+        percentage: Int,
+        xpEarned: Int,
+        passed: Boolean,
+    ) {
+        finalizedAttempts.add(FinalizedAttempt(resultId, score, correctCount, percentage, xpEarned, passed))
+        attempts[resultId]?.let { existing ->
+            attempts[resultId] =
+                existing.copy(
+                    score = score,
+                    correctCount = correctCount,
+                    percentage = percentage,
+                    xpEarned = xpEarned,
+                    passed = passed,
+                    provisional = false,
+                )
+        }
+    }
+
     companion object {
         const val DEFAULT_PASS_MARK = 70
     }
 
     data class SavedQuizResult(
         val userId: String,
+        val resultId: String,
         val quizId: String,
         val questionId: String,
         val moduleId: String,
         val isCorrect: Boolean?,
         val selectedAnswer: String,
+        val timeRemaining: Int,
+    )
+
+    data class FinalizedAttempt(
+        val resultId: String,
+        val score: Int,
+        val correctCount: Int,
+        val percentage: Int,
+        val xpEarned: Int,
+        val passed: Boolean,
     )
 }

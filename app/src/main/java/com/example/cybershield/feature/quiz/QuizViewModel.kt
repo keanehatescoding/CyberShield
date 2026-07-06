@@ -15,6 +15,7 @@ import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.util.QuizScoring
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.dataOrNull
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -51,9 +52,6 @@ constructor(
 ) : ViewModel() {
     companion object {
         const val QUESTION_TIME_SECONDS = 30
-        const val BASE_POINTS = 100
-        const val SPEED_BONUS = 5
-        const val PASS_PERCENTAGE = 70
         const val FEEDBACK_DELAY_MS = 1_500L
         const val LOAD_TIMEOUT_MS = 15_000L
     }
@@ -85,6 +83,13 @@ constructor(
     private var pendingCount: Int = 0
     private var timerJob: Job? = null
     private var quizStartElapsed: Long = 0L
+
+    // Generated once, when the quiz starts loading — not at completion — so
+    // every answer (including the very first one) can be tagged with the
+    // same id. That's what lets FinalizeQuizAttemptsUseCase later recompute
+    // a single attempt's score from Room, and what stops a retake of the
+    // same quizId from blurring into a previous attempt's answers.
+    private var resultId: String = ""
 
     @OptIn(ExperimentalAtomicApi::class)
     private val hasAnswered = AtomicBoolean(false)
@@ -120,6 +125,7 @@ constructor(
                                 if (questions.isEmpty()) {
                                     questions = quizList
                                     quizStartElapsed = elapsedRealtimeProvider()
+                                    resultId = resultIdProvider()
                                     showQuestion(0)
                                 }
                             }
@@ -217,10 +223,12 @@ constructor(
                     try {
                         submitAnswer(
                             quizId = quizId,
+                            resultId = resultId,
                             question = question,
                             selectedIndex = selectedIndex,
                             selectedAnswer = question.options.getOrElse(selectedIndex) { "" },
                             userId = uid,
+                            timeRemaining = timeRemaining,
                         )
                     } catch (e: CancellationException) {
                         throw e
@@ -238,7 +246,7 @@ constructor(
                     val validation = result.data
                     if (validation != null) {
                         // Online path — server graded it immediately.
-                        val points = if (validation.isCorrect) BASE_POINTS + (timeRemaining * SPEED_BONUS) else 0
+                        val points = QuizScoring.pointsFor(isCorrect = validation.isCorrect, timeRemaining = timeRemaining)
                         score += points
                         if (validation.isCorrect) correctCount++
 
@@ -301,17 +309,20 @@ constructor(
             // the speed-weighted score — otherwise a user who answers everything
             // right but slowly can fail, while a fast-but-wrong run can pass.
             val percentage = if (total > 0) (correctCount * 100) / total else 0
-            val passed = percentage >= PASS_PERCENTAGE
+            val passed = percentage >= QuizScoring.PASS_PERCENTAGE
             val timeTaken = (elapsedRealtimeProvider() - quizStartElapsed) / 1000
             val provisional = pendingCount > 0
+            val moduleId = questions.firstOrNull()?.moduleId ?: ""
+            val moduleName = questions.firstOrNull()?.moduleName ?: ""
+            val quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz"
 
             // While any answer from this session is still awaiting server
             // grading (answered offline), correctCount/percentage/passed are
             // necessarily provisional — awarding XP, a badge, or a
             // certificate off an unverified score would reopen the same
-            // hole this refactor closes. SyncQuizResultsWorker grades the
-            // rest once connectivity returns; finalizing rewards at that
-            // point is tracked as a follow-up.
+            // hole this refactor closes. FinalizeQuizAttemptsUseCase awards
+            // these later, off a recomputed score, once
+            // SyncQuizResultsWorker confirms every answer has synced.
             val xpEarned =
                 if (uid.isNotBlank() && !provisional) {
                     val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
@@ -323,9 +334,9 @@ constructor(
                             generateCertificate(
                                 userId = uid,
                                 userName = displayName,
-                                moduleId = questions.firstOrNull()?.moduleId ?: "",
-                                moduleName = questions.firstOrNull()?.moduleName ?: "",
-                                quizTitle = questions.firstOrNull()?.quizTitle ?: "CyberShield Quiz",
+                                moduleId = moduleId,
+                                moduleName = moduleName,
+                                quizTitle = quizTitle,
                                 score = score,
                             )
                         if (certificateResult is Result.Error) {
@@ -360,8 +371,14 @@ constructor(
                     timeTaken = timeTaken,
                     provisional = provisional,
                 )
-            val resultId = resultIdProvider()
-            quizRepository.saveQuizAttempt(resultId, quizResult)
+            quizRepository.saveQuizAttempt(
+                resultId = resultId,
+                userId = uid,
+                moduleId = moduleId,
+                moduleName = moduleName,
+                quizTitle = quizTitle,
+                result = quizResult,
+            )
 
             _uiState.value = QuizUiState.Completed(quizResult)
             _events.send(QuizUiEvent.NavigateToResult(resultId))

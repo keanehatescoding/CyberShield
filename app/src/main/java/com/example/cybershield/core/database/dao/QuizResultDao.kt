@@ -63,6 +63,14 @@ interface QuizResultDao {
     @Query("SELECT * FROM quiz_results WHERE userId = :userId")
     suspend fun getResultsForUser(userId: String): List<QuizResultEntity>
 
+    /** All answers belonging to one quiz session — used to recompute a finalized score. */
+    @Query("SELECT * FROM quiz_results WHERE resultId = :resultId")
+    suspend fun getResultsForAttempt(resultId: String): List<QuizResultEntity>
+
+    /** Zero means every answer in this attempt has a verdict — the attempt is ready to finalize. */
+    @Query("SELECT COUNT(*) FROM quiz_results WHERE resultId = :resultId AND synced = 0")
+    suspend fun countUnsyncedForAttempt(resultId: String): Int
+
     /**
      * Paged answer history for a user, newest first, with the owning
      * module's title joined in for display. Room re-runs this automatically

@@ -14,7 +14,9 @@ import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.util.QuizScoring
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
@@ -82,11 +84,13 @@ class QuizRepositoryImpl
 
         override suspend fun validateAnswerOnline(
             userId: String,
+            resultId: String,
             quizId: String,
             questionId: String,
             selectedIndex: Int,
             selectedAnswer: String,
             moduleId: String,
+            timeRemaining: Int,
         ): Result<AnswerValidation> =
             withContext(Dispatchers.IO) {
                 resultOf {
@@ -97,6 +101,7 @@ class QuizRepositoryImpl
                     // history works offline and doesn't need a second round trip.
                     resultDao.insert(
                         QuizResultEntity(
+                            resultId = resultId,
                             userId = userId,
                             quizId = quizId,
                             questionId = questionId,
@@ -106,6 +111,7 @@ class QuizRepositoryImpl
                             selectedAnswer = selectedAnswer,
                             explanation = validation.explanation,
                             answeredAt = answeredAt,
+                            timeRemaining = timeRemaining,
                             synced = true,
                         ),
                     )
@@ -116,14 +122,17 @@ class QuizRepositoryImpl
 
         override suspend fun cachePendingAnswer(
             userId: String,
+            resultId: String,
             quizId: String,
             questionId: String,
             moduleId: String,
             selectedIndex: Int,
             selectedAnswer: String,
+            timeRemaining: Int,
         ) = withContext(Dispatchers.IO) {
             resultDao.insert(
                 QuizResultEntity(
+                    resultId = resultId,
                     userId = userId,
                     quizId = quizId,
                     questionId = questionId,
@@ -133,6 +142,7 @@ class QuizRepositoryImpl
                     selectedAnswer = selectedAnswer,
                     explanation = null,
                     answeredAt = System.currentTimeMillis(),
+                    timeRemaining = timeRemaining,
                     synced = false,
                 ),
             )
@@ -179,12 +189,20 @@ class QuizRepositoryImpl
 
         override suspend fun saveQuizAttempt(
             resultId: String,
+            userId: String,
+            moduleId: String,
+            moduleName: String,
+            quizTitle: String,
             result: QuizResult,
         ) {
             quizAttemptDao.insert(
                 QuizAttemptEntity(
                     resultId = resultId,
+                    userId = userId,
                     quizId = result.quizId,
+                    moduleId = moduleId,
+                    moduleName = moduleName,
+                    quizTitle = quizTitle,
                     score = result.score,
                     totalQuestions = result.totalQuestions,
                     correctCount = result.correctCount,
@@ -212,6 +230,58 @@ class QuizRepositoryImpl
                     provisional = it.provisional,
                 )
             }
+
+        override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> =
+            withContext(Dispatchers.IO) {
+                quizAttemptDao.getProvisionalAttempts().mapNotNull { attempt ->
+                    // Zero means every answer in this attempt now has a server
+                    // verdict — anything else means it's still waiting on sync.
+                    if (resultDao.countUnsyncedForAttempt(attempt.resultId) > 0) return@mapNotNull null
+
+                    val answers = resultDao.getResultsForAttempt(attempt.resultId)
+                    if (answers.isEmpty()) return@mapNotNull null // shouldn't happen, but don't finalize off nothing
+
+                    // Recompute score/correctCount from the now-fully-graded rows
+                    // rather than trusting QuizViewModel's in-session numbers,
+                    // which never included points for answers that were still
+                    // pending when the quiz screen showed its (provisional) summary.
+                    val correctCount = answers.count { it.isCorrect == true }
+                    val score =
+                        answers.sumOf { answer ->
+                            QuizScoring.pointsFor(isCorrect = answer.isCorrect == true, timeRemaining = answer.timeRemaining)
+                        }
+
+                    ReadyToFinalizeAttempt(
+                        resultId = attempt.resultId,
+                        userId = attempt.userId,
+                        quizId = attempt.quizId,
+                        moduleId = attempt.moduleId,
+                        moduleName = attempt.moduleName,
+                        quizTitle = attempt.quizTitle,
+                        score = score,
+                        totalQuestions = answers.size,
+                        correctCount = correctCount,
+                    )
+                }
+            }
+
+        override suspend fun finalizeAttempt(
+            resultId: String,
+            score: Int,
+            correctCount: Int,
+            percentage: Int,
+            xpEarned: Int,
+            passed: Boolean,
+        ) = withContext(Dispatchers.IO) {
+            quizAttemptDao.finalize(
+                resultId = resultId,
+                score = score,
+                correctCount = correctCount,
+                percentage = percentage,
+                xpEarned = xpEarned,
+                passed = passed,
+            )
+        }
 
         private companion object {
             const val HISTORY_PAGE_SIZE = 20

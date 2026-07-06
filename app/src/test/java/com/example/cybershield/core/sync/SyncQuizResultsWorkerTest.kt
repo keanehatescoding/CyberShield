@@ -3,6 +3,7 @@ package com.example.cybershield.core.sync
 import android.content.Context
 import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.Result as DomainResult
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -16,13 +17,17 @@ import androidx.work.ListenableWorker.Result as WorkResult
 
 /**
  * The Firestore batching, chunking, and per-chunk mark-and-delete behavior
- * now lives in QuizRepositoryImpl (see QuizRepositoryImplTest). This worker
- * test only covers doWork()'s own responsibilities: the offline guard, and
- * mapping QuizRepository.syncPendingResults()'s outcome to a WorkManager
- * Result, including the runAttemptCount retry/failure cutoff.
+ * lives in QuizRepositoryImpl (see QuizRepositoryImplTest). This worker test
+ * covers doWork()'s own responsibilities: the offline guard, mapping
+ * QuizRepository.syncPendingResults()'s outcome to a WorkManager Result
+ * (including the runAttemptCount retry/failure cutoff), and triggering
+ * FinalizeQuizAttemptsUseCase after a successful sync — best-effort, so a
+ * finalization failure doesn't turn an otherwise-successful sync into a
+ * retry (see FinalizeQuizAttemptsUseCaseTest for finalization itself).
  */
 class SyncQuizResultsWorkerTest {
     private lateinit var quizRepository: QuizRepository
+    private lateinit var finalizeQuizAttempts: FinalizeQuizAttemptsUseCase
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var context: Context
 
@@ -30,6 +35,7 @@ class SyncQuizResultsWorkerTest {
     fun setUp() {
         context = mockk(relaxed = true)
         quizRepository = mockk()
+        finalizeQuizAttempts = mockk()
         networkMonitor = mockk()
     }
 
@@ -43,18 +49,50 @@ class SyncQuizResultsWorkerTest {
 
             assertTrue(result is WorkResult.Retry)
             coVerify(exactly = 0) { quizRepository.syncPendingResults() }
+            coVerify(exactly = 0) { finalizeQuizAttempts() }
         }
 
     @Test
-    fun `doWork returns success when repository reports success`() =
+    fun `doWork returns success and runs finalization when repository reports success`() =
         runTest {
             every { networkMonitor.isCurrentlyOnline() } returns true
             coEvery { quizRepository.syncPendingResults() } returns DomainResult.Success(Unit)
+            coEvery { finalizeQuizAttempts() } returns Unit
 
             val worker = directConstruct(runAttemptCount = 0)
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Success)
+            coVerify(exactly = 1) { finalizeQuizAttempts() }
+        }
+
+    @Test
+    fun `doWork still returns success when finalization throws`() =
+        runTest {
+            // Finalization is best-effort: the answers themselves are safely
+            // synced regardless of whether awarding XP/badge/certificate
+            // succeeds. A failure here should not undo a successful sync.
+            every { networkMonitor.isCurrentlyOnline() } returns true
+            coEvery { quizRepository.syncPendingResults() } returns DomainResult.Success(Unit)
+            coEvery { finalizeQuizAttempts() } throws RuntimeException("certificate generation blew up")
+
+            val worker = directConstruct(runAttemptCount = 0)
+            val result = worker.doWork()
+
+            assertTrue(result is WorkResult.Success)
+        }
+
+    @Test
+    fun `doWork does not attempt finalization when sync itself fails`() =
+        runTest {
+            every { networkMonitor.isCurrentlyOnline() } returns true
+            coEvery { quizRepository.syncPendingResults() } returns
+                DomainResult.Error(RuntimeException("quota exceeded"))
+
+            val worker = directConstruct(runAttemptCount = 0)
+            worker.doWork()
+
+            coVerify(exactly = 0) { finalizeQuizAttempts() }
         }
 
     @Test
@@ -90,6 +128,7 @@ class SyncQuizResultsWorkerTest {
             context = context,
             workerParams = workerParams,
             quizRepository = quizRepository,
+            finalizeQuizAttempts = finalizeQuizAttempts,
             networkMonitor = networkMonitor,
         )
     }
