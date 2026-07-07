@@ -18,8 +18,6 @@ class QuizDaoTest : RoomDbTestBase() {
         moduleId = moduleId,
         text = "Question $id",
         options = options,
-        correctIndex = 0,
-        explanation = "because",
         order = 1,
         moduleName = "Phishing Basics",
         quizTitle = "Phishing Quiz",

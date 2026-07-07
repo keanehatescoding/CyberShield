@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.Result as DomainResult
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -26,6 +27,7 @@ constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val quizRepository: QuizRepository,
+    private val finalizeQuizAttempts: FinalizeQuizAttemptsUseCase,
     private val networkMonitor: NetworkMonitor,
 ) : CoroutineWorker(context, workerParams) {
     override suspend fun doWork(): Result {
@@ -35,7 +37,22 @@ constructor(
         // all live in QuizRepository now — the worker just triggers it and
         // maps the outcome to a WorkManager Result.
         return when (quizRepository.syncPendingResults()) {
-            is DomainResult.Success -> Result.success()
+            is DomainResult.Success -> {
+                // Now that some (maybe all) pending answers have a verdict,
+                // check whether any provisional attempt is fully graded and
+                // ready to have its XP/badge/certificate awarded. This is
+                // deliberately best-effort: a failure here shouldn't turn a
+                // successful sync into a retry — the next sync pass (or the
+                // periodic safety-net worker) will pick up any attempt that
+                // isn't finalized yet.
+                try {
+                    finalizeQuizAttempts()
+                } catch (e: Exception) {
+                    // Swallow — see comment above. The answers themselves are
+                    // safely synced regardless of whether finalization ran.
+                }
+                Result.success()
+            }
             is DomainResult.Error -> {
                 // Retry on transient errors (network blip, Firestore quota, etc.)
                 // NOTE: runAttemptCount only tracks attempts within *this* enqueued

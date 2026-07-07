@@ -10,14 +10,18 @@ import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.database.entity.toEntity
+import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
+import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.util.QuizScoring
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
-import com.example.cybershield.core.firebase.QuizResultUpload
+import com.example.cybershield.core.firebase.FunctionsQuizDataSource
+import com.example.cybershield.core.firebase.PendingAnswer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +36,7 @@ class QuizRepositoryImpl
     @Inject
     constructor(
         private val remoteSource: FirestoreQuizDataSource,
+        private val functionsSource: FunctionsQuizDataSource,
         private val quizDao: QuizDao,
         private val quizAttemptDao: QuizAttemptDao,
         private val resultDao: QuizResultDao,
@@ -77,24 +82,71 @@ class QuizRepositoryImpl
                 }
             }
 
-        override suspend fun saveQuizResult(
+        override suspend fun validateAnswerOnline(
             userId: String,
+            resultId: String,
             quizId: String,
-            moduleId: String,
-            isCorrect: Boolean,
+            questionId: String,
+            selectedIndex: Int,
             selectedAnswer: String,
+            moduleId: String,
+            timeRemaining: Int,
+        ): Result<AnswerValidation> =
+            withContext(Dispatchers.IO) {
+                resultOf {
+                    val answeredAt = System.currentTimeMillis()
+                    val validation = functionsSource.validateAnswer(quizId, questionId, selectedIndex, answeredAt)
+
+                    // Cache the already-graded result locally too, so quiz
+                    // history works offline and doesn't need a second round trip.
+                    resultDao.insert(
+                        QuizResultEntity(
+                            resultId = resultId,
+                            userId = userId,
+                            quizId = quizId,
+                            questionId = questionId,
+                            moduleId = moduleId,
+                            isCorrect = validation.isCorrect,
+                            selectedIndex = selectedIndex,
+                            selectedAnswer = selectedAnswer,
+                            explanation = validation.explanation,
+                            answeredAt = answeredAt,
+                            timeRemaining = timeRemaining,
+                            synced = true,
+                        ),
+                    )
+
+                    Result.Success(validation)
+                }
+            }
+
+        override suspend fun cachePendingAnswer(
+            userId: String,
+            resultId: String,
+            quizId: String,
+            questionId: String,
+            moduleId: String,
+            selectedIndex: Int,
+            selectedAnswer: String,
+            timeRemaining: Int,
         ) = withContext(Dispatchers.IO) {
             resultDao.insert(
                 QuizResultEntity(
+                    resultId = resultId,
                     userId = userId,
                     quizId = quizId,
+                    questionId = questionId,
                     moduleId = moduleId,
-                    isCorrect = isCorrect,
+                    isCorrect = null, // unknown until validateAnswersBatch grades it
+                    selectedIndex = selectedIndex,
                     selectedAnswer = selectedAnswer,
+                    explanation = null,
                     answeredAt = System.currentTimeMillis(),
+                    timeRemaining = timeRemaining,
                     synced = false,
                 ),
             )
+            Unit
         }
 
         override suspend fun syncPendingResults(): Result<Unit> =
@@ -103,62 +155,135 @@ class QuizRepositoryImpl
                     val pending = resultDao.getPendingResults()
                     if (pending.isEmpty()) return@resultOf Result.Success(Unit)
 
-                    pending.chunked(SYNC_CHUNK_SIZE).forEach { chunk ->
-                        remoteSource.uploadQuizResults(
-                            chunk.map { entity ->
-                                QuizResultUpload(
-                                    localId = entity.localId,
-                                    userId = entity.userId,
-                                    quizId = entity.quizId,
-                                    moduleId = entity.moduleId,
-                                    isCorrect = entity.isCorrect,
-                                    selectedAnswer = entity.selectedAnswer,
-                                    answeredAt = entity.answeredAt,
+                    pending.chunked(FunctionsQuizDataSource.MAX_BATCH_SIZE).forEach { chunk ->
+                        val batchResults =
+                            functionsSource.validateAnswersBatch(
+                                chunk.map { entity ->
+                                    PendingAnswer(
+                                        localId = entity.localId,
+                                        quizId = entity.quizId,
+                                        questionId = entity.questionId,
+                                        selectedIndex = entity.selectedIndex,
+                                        answeredAt = entity.answeredAt,
+                                    )
+                                },
+                            )
+                        // Grade and mark-synced per row, so a row the server
+                        // rejected (e.g. its question was deleted) is simply
+                        // left pending rather than silently dropped or
+                        // incorrectly marked as graded.
+                        batchResults.forEach { result ->
+                            val validation = result.validation
+                            if (validation != null) {
+                                resultDao.markGraded(
+                                    localId = result.localId,
+                                    isCorrect = validation.isCorrect,
+                                    explanation = validation.explanation,
                                 )
-                            },
-                        )
-                        // Mark and delete per-chunk so a later chunk's failure
-                        // doesn't force re-upload of chunks that already
-                        // committed successfully.
-                        resultDao.markSyncedAndDelete(chunk.map { it.localId })
+                            }
+                        }
                     }
                     Result.Success(Unit)
                 }
             }
 
-        private companion object {
-            /** Firestore batch writes cap at 500; stay comfortably under it. */
-            const val SYNC_CHUNK_SIZE = 450
-            const val HISTORY_PAGE_SIZE = 20
-        }
-    override suspend fun saveQuizAttempt(resultId: String, result: QuizResult) {
-        quizAttemptDao.insert(
-            QuizAttemptEntity(
-                resultId = resultId,
-                quizId = result.quizId,
-                score = result.score,
-                totalQuestions = result.totalQuestions,
-                correctCount = result.correctCount,
-                percentage = result.percentage,
-                xpEarned = result.xpEarned,
-                passed = result.passed,
-                timeTaken = result.timeTaken,
-                createdAt = System.currentTimeMillis(),
-            ),
-        )
-    }
-
-    override suspend fun getQuizAttempt(resultId: String): QuizResult? =
-        quizAttemptDao.getById(resultId)?.let {
-            QuizResult(
-                quizId = it.quizId,
-                score = it.score,
-                totalQuestions = it.totalQuestions,
-                correctCount = it.correctCount,
-                percentage = it.percentage,
-                xpEarned = it.xpEarned,
-                passed = it.passed,
-                timeTaken = it.timeTaken,
+        override suspend fun saveQuizAttempt(
+            resultId: String,
+            userId: String,
+            moduleId: String,
+            moduleName: String,
+            quizTitle: String,
+            result: QuizResult,
+        ) {
+            quizAttemptDao.insert(
+                QuizAttemptEntity(
+                    resultId = resultId,
+                    userId = userId,
+                    quizId = result.quizId,
+                    moduleId = moduleId,
+                    moduleName = moduleName,
+                    quizTitle = quizTitle,
+                    score = result.score,
+                    totalQuestions = result.totalQuestions,
+                    correctCount = result.correctCount,
+                    percentage = result.percentage,
+                    xpEarned = result.xpEarned,
+                    passed = result.passed,
+                    timeTaken = result.timeTaken,
+                    createdAt = System.currentTimeMillis(),
+                    provisional = result.provisional,
+                ),
             )
+        }
+
+        override suspend fun getQuizAttempt(resultId: String): QuizResult? =
+            quizAttemptDao.getById(resultId)?.let {
+                QuizResult(
+                    quizId = it.quizId,
+                    score = it.score,
+                    totalQuestions = it.totalQuestions,
+                    correctCount = it.correctCount,
+                    percentage = it.percentage,
+                    xpEarned = it.xpEarned,
+                    passed = it.passed,
+                    timeTaken = it.timeTaken,
+                    provisional = it.provisional,
+                )
+            }
+
+        override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> =
+            withContext(Dispatchers.IO) {
+                quizAttemptDao.getProvisionalAttempts().mapNotNull { attempt ->
+                    // Zero means every answer in this attempt now has a server
+                    // verdict — anything else means it's still waiting on sync.
+                    if (resultDao.countUnsyncedForAttempt(attempt.resultId) > 0) return@mapNotNull null
+
+                    val answers = resultDao.getResultsForAttempt(attempt.resultId)
+                    if (answers.isEmpty()) return@mapNotNull null // shouldn't happen, but don't finalize off nothing
+
+                    // Recompute score/correctCount from the now-fully-graded rows
+                    // rather than trusting QuizViewModel's in-session numbers,
+                    // which never included points for answers that were still
+                    // pending when the quiz screen showed its (provisional) summary.
+                    val correctCount = answers.count { it.isCorrect == true }
+                    val score =
+                        answers.sumOf { answer ->
+                            QuizScoring.pointsFor(isCorrect = answer.isCorrect == true, timeRemaining = answer.timeRemaining)
+                        }
+
+                    ReadyToFinalizeAttempt(
+                        resultId = attempt.resultId,
+                        userId = attempt.userId,
+                        quizId = attempt.quizId,
+                        moduleId = attempt.moduleId,
+                        moduleName = attempt.moduleName,
+                        quizTitle = attempt.quizTitle,
+                        score = score,
+                        totalQuestions = answers.size,
+                        correctCount = correctCount,
+                    )
+                }
+            }
+
+        override suspend fun finalizeAttempt(
+            resultId: String,
+            score: Int,
+            correctCount: Int,
+            percentage: Int,
+            xpEarned: Int,
+            passed: Boolean,
+        ) = withContext(Dispatchers.IO) {
+            quizAttemptDao.finalize(
+                resultId = resultId,
+                score = score,
+                correctCount = correctCount,
+                percentage = percentage,
+                xpEarned = xpEarned,
+                passed = passed,
+            )
+        }
+
+        private companion object {
+            const val HISTORY_PAGE_SIZE = 20
         }
     }

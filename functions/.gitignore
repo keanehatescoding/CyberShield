@@ -1,0 +1,9 @@
+node_modules/
+lib/
+*.log
+
+# Never commit service account keys or other local credentials
+*serviceAccount*.json
+*-adminsdk-*.json
+.env
+.env.local

@@ -99,7 +99,9 @@ private fun QuizResultContent(
 
             Text(
                 text =
-                    if (result.passed) {
+                    if (result.provisional) {
+                        "Some answers are still offline — this score, along with any XP and certificate, will update once they sync."
+                    } else if (result.passed) {
                         "You earned +${result.xpEarned} XP and unlocked a certificate!"
                     } else {
                         "You earned +${result.xpEarned} XP. Try again to pass and get a certificate."
@@ -125,8 +127,8 @@ private fun QuizResultContent(
 
             Spacer(Modifier.height(32.dp))
 
-            // ── Certificate button (only if passed) ────────────────────
-            if (result.passed) {
+            // ── Certificate button (only if passed and finalized) ───────
+            if (result.passed && !result.provisional) {
                 Button(
                     onClick = onViewCertificate,
                     modifier = Modifier.fillMaxWidth().height(52.dp),

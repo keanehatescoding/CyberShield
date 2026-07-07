@@ -1,0 +1,93 @@
+name: Deploy Cloud Functions & Firestore Rules
+
+# Triggers:
+#   - push to master touching functions/, firestore.rules, or firebase.json
+#     -> builds and deploys automatically
+#   - manual dispatch -> same, with the option to also run the one-off
+#     answerKeys migration first (only needed once per environment, before
+#     the server-side-grading client build ships — see
+#     functions/src/scripts/migrateAnswerKeys.ts)
+on:
+  push:
+    branches: [master]
+    paths:
+      - "functions/**"
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/deploy-functions.yml"
+  workflow_dispatch:
+    inputs:
+      run_migration:
+        description: "Also run the answerKeys migration before deploying (one-off, idempotent, only needed once per environment)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: deploy-functions-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, (optionally) migrate, and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Build
+        working-directory: functions
+        run: npm run build
+
+      # Reuses the same service account already set up for Firebase App
+      # Distribution in release.yml. It needs the Firebase Admin (or at
+      # minimum Cloud Functions Developer + Service Account User + Cloud
+      # Datastore User) IAM roles for this job to succeed — App
+      # Distribution alone doesn't imply deploy/Firestore-write permission.
+      - name: Write service account credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > "${{ runner.temp }}/service-account.json"
+
+      # One-off: splits correctIndex/explanation out of existing question
+      # docs into the answerKeys collection. Safe to re-run (it's a no-op
+      # for already-migrated docs), but only ever needs to run once per
+      # environment, and only ever via manual dispatch — never on a plain
+      # push, so an ordinary functions/ code change can't accidentally
+      # trigger a Firestore migration.
+      - name: Run answerKeys migration
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_migration == 'true' }}
+        working-directory: functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+          GCLOUD_PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: node lib/scripts/migrateAnswerKeys.js
+
+      - name: Deploy functions + Firestore rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+        run: |
+          npx firebase-tools deploy \
+            --only functions,firestore:rules \
+            --project "${{ vars.FIREBASE_PROJECT_ID }}" \
+            --non-interactive
+
+      - name: Shred credentials
+        if: always()
+        run: shred -u "${{ runner.temp }}/service-account.json" 2>/dev/null || true
