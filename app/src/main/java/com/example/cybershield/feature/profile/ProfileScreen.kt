@@ -190,7 +190,7 @@ fun ProfileScreen(
                 }
                 item(key = "badges-row") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(uiState.user!!.badges, key = { it }) { badge ->
+                        items(user.badges, key = { it }) { badge ->
                             ElevatedCard(modifier = Modifier.size(72.dp)) {
                                 Box(
                                     Modifier.fillMaxSize(),
