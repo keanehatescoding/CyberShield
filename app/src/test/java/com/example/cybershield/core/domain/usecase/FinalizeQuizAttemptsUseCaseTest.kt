@@ -143,7 +143,7 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
-    fun `finalizes with zero xp when awardXp fails`() =
+    fun `leaves attempt provisional for retry when awardXp fails, instead of finalizing with zero xp`() =
         runTest {
             val attempt = readyAttempt(correctCount = 1, totalQuestions = 4, score = 100)
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
@@ -151,15 +151,32 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             useCase()
 
-            coVerify {
-                quizRepository.finalizeAttempt(
-                    resultId = "result-1",
-                    score = 100,
-                    correctCount = 1,
-                    percentage = 25,
-                    xpEarned = 0,
-                    passed = false,
-                )
+            // A failed awardXp must NOT finalize the attempt — finalizeAttempt flips
+            // provisional to false and this attempt is never revisited. Finalizing here
+            // with a fabricated xpEarned = 0 would permanently and silently under-reward
+            // the user. It should simply stay provisional for the next sync pass.
+            coVerify(exactly = 0) { quizRepository.finalizeAttempt(any(), any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
+        }
+
+    @Test
+    fun `one attempt failing does not prevent the rest of the batch from finalizing`() =
+        runTest {
+            val broken = readyAttempt(resultId = "result-broken", userId = "user1", correctCount = 1, totalQuestions = 4, score = 100)
+            val healthy = readyAttempt(resultId = "result-healthy", userId = "user2", correctCount = 4, totalQuestions = 4)
+            coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(broken, healthy)
+            coEvery { awardXp("user1", 1, 4) } returns Result.Error(RuntimeException("write failed"))
+            coEvery { awardXp("user2", 4, 4) } returns Result.Success(40)
+            coEvery { userRepository.getUserProfileOnce("user2") } returns Result.Error(RuntimeException("n/a"))
+            coEvery {
+                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
+            } returns Result.Success(mockk<Certificate>(relaxed = true))
+
+            useCase()
+
+            coVerify(exactly = 0) { quizRepository.finalizeAttempt(resultId = "result-broken", any(), any(), any(), any(), any()) }
+            coVerify(exactly = 1) {
+                quizRepository.finalizeAttempt(resultId = "result-healthy", any(), any(), any(), xpEarned = 40, passed = true)
             }
         }
 
