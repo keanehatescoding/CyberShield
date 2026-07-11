@@ -53,17 +53,21 @@ service cloud.firestore {
       }
     }
 
-    // ── leaderboard query — users collection ordered by xp ─────────────
-    // Already covered by the /users/{userId} rule above, BUT the
-    // leaderboard query reads OTHER users' documents, not just your own.
-    // The rule above would BLOCK this — see note below.
+    // ── leaderboard — public-safe mirror, top-level collection ─────────
+    // Mirrors ONLY displayName/xp/badges out of users/{uid}, written
+    // directly by UserRepositoryImpl (updateDisplayName, addXp,
+    // awardBadge, profile creation — see leaderboardDoc(uid)). This is a
+    // sibling of /users/{userId}, NOT nested under it: the app queries
+    // firestore.collection("leaderboard") at the top level, so the rule
+    // has to live at the top level too, or the query is denied.
     //
-    // If/when the leaderboard read is reinstated for other users' docs,
-    // do NOT loosen this to `allow read: if request.auth != null` on the
-    // whole /users/{userId} doc — that would also expose email, auth
-    // metadata, etc. Instead, project a public subset (displayName, xp,
-    // badges) into a separate `leaderboardEntries/{userId}` doc, written
-    // only by a Cloud Function trigger on XP changes, and make that
-    // collection readable by any signed-in user.
+    // Owners can write their own leaderboard doc (same uid-match pattern
+    // as /users/{userId}) since there's no Cloud Function trigger doing
+    // this server-side. Any signed-in user can read the whole collection,
+    // since it deliberately contains nothing sensitive.
+    match /leaderboard/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
