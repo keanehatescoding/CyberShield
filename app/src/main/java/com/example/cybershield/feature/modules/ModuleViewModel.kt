@@ -3,8 +3,6 @@ package com.example.cybershield.feature.modules
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
-import com.example.cybershield.ModuleRoute
 import com.example.cybershield.core.domain.repository.ModuleRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
@@ -31,7 +29,9 @@ class ModuleViewModel
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val moduleId: String =
-            savedStateHandle.toRoute<ModuleRoute>().moduleId
+            requireNotNull(savedStateHandle["moduleId"]) {
+                "ModuleViewModel requires a moduleId in the SavedStateHandle (ModuleRoute)"
+            }
 
         private val uid: String
             get() = getCurrentSession()?.uid ?: ""

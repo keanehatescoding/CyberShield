@@ -94,12 +94,16 @@ class FakeUserRepository : UserRepository {
     }
 
     override fun getUserProfile(uid: String): Flow<Result<User>> {
-        // Default (null) preserves the original behavior: emit a successful
-        // profile so the happy path works without extra wiring. Tests can set
-        // userProfileResult to drive Loading/Error states.
-        val result = userProfileResult ?: Result.Success(fakeUser)
-        flowFor(uid).tryEmit(result)
-        return flowFor(uid)
+        val flow = flowFor(uid)
+        // Only seed a default emission if this uid's flow is still empty —
+        // i.e. the test never called setUserProfile()/setUserProfileError()
+        // for it. Otherwise this would clobber whatever the test set up
+        // (replay = 1 means the newest tryEmit always wins).
+        if (flow.replayCache.isEmpty()) {
+            val result = userProfileResult ?: Result.Success(fakeUser)
+            flow.tryEmit(result)
+        }
+        return flow
     }
 
     /**
