@@ -19,6 +19,10 @@ export interface AnswerInput {
   quizId: string;
   questionId: string;
   selectedIndex: number;
+  /** Groups every answer from a single quiz attempt so the server can recompute and issue the certificate. */
+  resultId: string;
+  /** Client's leftover time (seconds) when the answer was submitted; feeds the speed-weighted certificate score. */
+  timeRemaining?: number;
   /** Client-reported answer timestamp, used only for display/history ordering — never trusted for scoring. */
   answeredAt?: number;
 }
@@ -42,9 +46,11 @@ export function assertValidAnswerInput(input: unknown): asserts input is AnswerI
     typeof a.questionId !== "string" ||
     !a.questionId ||
     typeof a.selectedIndex !== "number" ||
-    !Number.isInteger(a.selectedIndex)
+    !Number.isInteger(a.selectedIndex) ||
+    typeof a.resultId !== "string" ||
+    !a.resultId
   ) {
-    throw new HttpsError("invalid-argument", "quizId, questionId, and an integer selectedIndex are required.");
+    throw new HttpsError("invalid-argument", "quizId, questionId, an integer selectedIndex, and resultId are required.");
   }
 }
 
@@ -90,6 +96,8 @@ export async function writeGradedResult(
   graded: GradedAnswer,
   selectedIndex: number,
   clientAnsweredAt: number | undefined,
+  resultId: string,
+  timeRemaining?: number,
 ): Promise<void> {
   const db = getFirestore();
   const ref = db
@@ -103,12 +111,110 @@ export async function writeGradedResult(
       quizId: graded.quizId,
       questionId: graded.questionId,
       moduleId: graded.moduleId,
+      resultId: resultId ?? "",
       selectedIndex,
       isCorrect: graded.isCorrect,
+      timeRemaining: typeof timeRemaining === "number" ? timeRemaining : null,
       clientAnsweredAt: clientAnsweredAt ?? null,
       validatedAt: FieldValue.serverTimestamp(),
       validatedBy: "cloudFunction",
     },
     { merge: true },
   );
+}
+
+export const PASS_PERCENTAGE = 70;
+
+/**
+ * Recomputes a quiz attempt's score entirely from the server-graded
+ * `quizResults` (isCorrect is written by writeGradedResult, never by the
+ * client) and, if the attempt passed, issues the certificate and the
+ * CyberDefender badge. This is the ONLY path allowed to create a certificate,
+ * so a client can never forge a passing certificate.
+ *
+ * Idempotent: the certificate document id equals `resultId` and the badge is
+ * added via arrayUnion, so retrying never double-issues or double-counts.
+ */
+export async function finalizeQuizAttempt(
+  uid: string,
+  resultId: string,
+): Promise<{ passed: boolean; score: number; correctCount: number; percentage: number; alreadyFinalized?: boolean }> {
+  const db = getFirestore();
+  if (!resultId || typeof resultId !== "string") {
+    throw new HttpsError("invalid-argument", "resultId is required.");
+  }
+
+  const resultsSnap = await db
+    .collection("users")
+    .doc(uid)
+    .collection("quizResults")
+    .where("resultId", "==", resultId)
+    .get();
+
+  if (resultsSnap.empty) {
+    throw new HttpsError("not-found", "No graded answers found for this attempt.");
+  }
+
+  const results = resultsSnap.docs.map((d) => d.data() as Record<string, unknown>);
+  const total = results.length;
+  const correctResults = results.filter((r) => r.isCorrect === true);
+  const correctCount = correctResults.length;
+  const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
+  const passed = percentage >= PASS_PERCENTAGE;
+
+  // speed-weighted score — mirrors the client's GenerateCertificateUseCase.
+  const score = correctResults.reduce(
+    (sum, r) => sum + (100 + (typeof r.timeRemaining === "number" ? (r.timeRemaining as number) : 0) * 5),
+    0,
+  );
+
+  if (!passed) {
+    return { passed: false, score: 0, correctCount, percentage };
+  }
+
+  const certRef = db.collection("users").doc(uid).collection("certificates").doc(resultId);
+  const existing = await certRef.get();
+  if (existing.exists) {
+    const data = existing.data() as { score?: number } | undefined;
+    return {
+      passed: true,
+      score: data?.score ?? score,
+      correctCount,
+      percentage,
+      alreadyFinalized: true,
+    };
+  }
+
+  const first = results[0] as { moduleId?: string; quizId?: string };
+  const moduleId = first.moduleId ?? "";
+  const quizId = first.quizId ?? "";
+
+  const [userSnap, moduleSnap, quizSnap] = await Promise.all([
+    db.collection("users").doc(uid).get(),
+    moduleId ? db.collection("modules").doc(moduleId).get() : Promise.resolve(null),
+    quizId ? db.collection("quizzes").doc(quizId).get() : Promise.resolve(null),
+  ]);
+
+  const userData = (userSnap.data() ?? {}) as { displayName?: string };
+  const displayName = userData.displayName ?? "CyberShield User";
+  const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
+  const quizTitle = quizSnap && quizSnap.exists ? ((quizSnap.data() as { title?: string }).title ?? "CyberShield Quiz") : "CyberShield Quiz";
+
+  await certRef.set({
+    id: resultId,
+    userId: uid,
+    userName: displayName,
+    moduleId,
+    moduleName,
+    quizTitle,
+    score,
+    issuedAt: FieldValue.serverTimestamp(),
+  });
+
+  await db
+    .collection("users")
+    .doc(uid)
+    .update({ badges: FieldValue.arrayUnion("CyberDefender") });
+
+  return { passed: true, score, correctCount, percentage };
 }

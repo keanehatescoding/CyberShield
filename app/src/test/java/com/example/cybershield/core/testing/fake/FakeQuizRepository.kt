@@ -6,6 +6,7 @@ import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
+import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -26,9 +27,15 @@ class FakeQuizRepository : QuizRepository {
     var errorMessage = "Fake error"
 
     /** Lets tests script the server's verdict per question, mirroring what validateAnswer would return. */
-    var validationProvider: (questionId: String, selectedIndex: Int) -> AnswerValidation = { questionId, selectedIndex ->
-        AnswerValidation(questionId = questionId, isCorrect = false, correctIndex = -1, explanation = "")
-    }
+    var validationProvider: (questionId: String, selectedIndex: Int) -> AnswerValidation =
+        { questionId, selectedIndex ->
+            AnswerValidation(
+                questionId = questionId,
+                isCorrect = false,
+                correctIndex = -1,
+                explanation = ""
+            )
+        }
     var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
         flowOf(PagingData.empty())
     }
@@ -151,7 +158,8 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun getQuizAttempt(resultId: String): QuizResult? = attempts[resultId]
 
-    override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> = readyToFinalizeProvider()
+    override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> =
+        readyToFinalizeProvider()
 
     override suspend fun finalizeAttempt(
         resultId: String,
@@ -161,7 +169,16 @@ class FakeQuizRepository : QuizRepository {
         xpEarned: Int,
         passed: Boolean,
     ) {
-        finalizedAttempts.add(FinalizedAttempt(resultId, score, correctCount, percentage, xpEarned, passed))
+        finalizedAttempts.add(
+            FinalizedAttempt(
+                resultId,
+                score,
+                correctCount,
+                percentage,
+                xpEarned,
+                passed
+            )
+        )
         attempts[resultId]?.let { existing ->
             attempts[resultId] =
                 existing.copy(
@@ -174,6 +191,16 @@ class FakeQuizRepository : QuizRepository {
                 )
         }
     }
+
+    override suspend fun finalizeQuizAttemptServer(resultId: String): Result<QuizFinalizeResult> =
+        Result.Success(
+            QuizFinalizeResult(
+                passed = true,
+                score = 100,
+                correctCount = 1,
+                percentage = 100
+            )
+        )
 
     companion object {
         const val DEFAULT_PASS_MARK = 70

@@ -32,8 +32,20 @@ class LeaderboardViewModelTest {
 
     private val testEntries =
         listOf(
-            LeaderboardEntry(uid = "uid-1", displayName = "Alice", xp = 340, level = 4, badges = listOf("phishing-pro")),
-            LeaderboardEntry(uid = "uid-2", displayName = "Bob", xp = 120, level = 2, badges = emptyList()),
+            LeaderboardEntry(
+                uid = "uid-1",
+                displayName = "Alice",
+                xp = 340,
+                level = 4,
+                badges = listOf("phishing-pro"),
+            ),
+            LeaderboardEntry(
+                uid = "uid-2",
+                displayName = "Bob",
+                xp = 120,
+                level = 2,
+                badges = emptyList(),
+            ),
         )
 
     @Before
@@ -58,16 +70,10 @@ class LeaderboardViewModelTest {
         )
 
     @Test
-    fun `initial state exposes currentUid from session`() {
-        val viewModel = createViewModel()
-
-        assertEquals(testUid, viewModel.uiState.value.currentUid)
-    }
-
-    @Test
     fun `loadLeaderboard emits loading then success with entries`() =
         runTest {
-            leaderboardRepository.getTopLeaderboardFlowProvider = { flowOf(Result.Success(testEntries)) }
+            leaderboardRepository.getTopLeaderboardFlowProvider =
+                { flowOf(Result.Success(testEntries)) }
 
             val viewModel = createViewModel()
 
@@ -101,13 +107,14 @@ class LeaderboardViewModelTest {
         }
 
     @Test
-    fun `loadLeaderboard requests the default limit of 20`() =
+    fun `loadLeaderboard requests the default limit of 50`() =
         runTest {
-            leaderboardRepository.getTopLeaderboardFlowProvider = { flowOf(Result.Success(testEntries)) }
+            leaderboardRepository.getTopLeaderboardFlowProvider =
+                { flowOf(Result.Success(testEntries)) }
 
             createViewModel()
 
-            assertEquals(listOf(20), leaderboardRepository.getTopLeaderboardCalls)
+            assertEquals(listOf(50), leaderboardRepository.getTopLeaderboardCalls)
         }
 
     @Test

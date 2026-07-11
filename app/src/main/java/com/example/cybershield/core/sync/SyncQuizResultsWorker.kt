@@ -5,20 +5,18 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
-import com.example.cybershield.core.domain.util.Result as DomainResult
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
+import com.example.cybershield.core.domain.util.Result as DomainResult
 
 @HiltWorker
 class SyncQuizResultsWorker
@@ -53,6 +51,7 @@ constructor(
                 }
                 Result.success()
             }
+
             is DomainResult.Error -> {
                 // Retry on transient errors (network blip, Firestore quota, etc.)
                 // NOTE: runAttemptCount only tracks attempts within *this* enqueued
@@ -63,6 +62,7 @@ constructor(
                 // schedulePeriodicSync() below guarantees.
                 if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
             }
+
             DomainResult.Loading -> Result.retry() // syncPendingResults never emits this
         }
     }
@@ -99,33 +99,10 @@ constructor(
         /**
          * Safety net: rows that hit MAX_RETRIES and returned Result.failure()
          * in some past chain are still sitting in the DB with synced=false.
-         * This is the only thing that ever gives them another chance — call
-         * it once from Application.onCreate() (or your DI entry point) with
-         * ExistingPeriodicWorkPolicy.KEEP so re-registering on every app
-         * launch doesn't reset the schedule.
+         * This is the only thing that ever gives them another chance — the
+         * periodic worker registered by SyncModule.schedulePeriodic() (15 min,
+         * ExistingPeriodicWorkPolicy.KEEP) guarantees these rows get another
+         * pass on every app launch without resetting the schedule.
          */
-        fun schedulePeriodicSync(context: Context) {
-            val constraints =
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-
-            val request =
-                PeriodicWorkRequestBuilder<SyncQuizResultsWorker>(6, TimeUnit.HOURS)
-                    .setConstraints(constraints)
-                    .setBackoffCriteria(
-                        BackoffPolicy.EXPONENTIAL,
-                        WorkRequest.MIN_BACKOFF_MILLIS,
-                        TimeUnit.MILLISECONDS,
-                    )
-                    .build()
-
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(
-                    PERIODIC_WORK_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
-                    request,
-                )
-        }
     }
 }

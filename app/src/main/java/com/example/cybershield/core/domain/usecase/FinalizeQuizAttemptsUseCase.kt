@@ -3,8 +3,6 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
-import com.example.cybershield.core.domain.util.QuizScoring
-import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.dataOrNull
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
@@ -13,9 +11,15 @@ import javax.inject.Inject
  * Runs after SyncQuizResultsWorker successfully grades a batch of offline
  * answers. For every attempt that was left provisional (see QuizViewModel /
  * QuizResult.provisional), checks whether every answer in it now has a
- * server verdict; if so, awards XP/badge/certificate off the *recomputed,
- * fully-verified* score — never the optimistic in-session numbers — and
- * flips the attempt to final.
+ * server verdict; if so, asks the server to finalize the attempt — which
+ * recomputes the score from the verified quizResults and issues the
+ * certificate + CyberDefender badge — then awards XP and marks the quiz
+ * completed locally and flips the attempt to final.
+ *
+ * The certificate and badge are issued *only* by the server (the
+ * finalizeQuizAttempt callable); this use case never writes them, so they
+ * cannot be forged by a malicious client. The callable is idempotent, so a
+ * retried pass never double-issues them.
  *
  * This deliberately mirrors QuizViewModel.finishQuiz's reward logic rather
  * than sharing code with it: that method runs at quiz-completion time with
@@ -29,7 +33,6 @@ class FinalizeQuizAttemptsUseCase
     constructor(
         private val quizRepository: QuizRepository,
         private val awardXp: AwardXpUseCase,
-        private val generateCertificate: GenerateCertificateUseCase,
         private val userRepository: UserRepository,
     ) {
         suspend operator fun invoke() {
@@ -48,24 +51,21 @@ class FinalizeQuizAttemptsUseCase
         }
 
         private suspend fun processAttempt(attempt: ReadyToFinalizeAttempt) {
-            val percentage =
-                if (attempt.totalQuestions > 0) (attempt.correctCount * 100) / attempt.totalQuestions else 0
-            val passed = percentage >= QuizScoring.PASS_PERCENTAGE
+            // Server recomputes the score from the verified quizResults and
+            // issues the certificate + CyberDefender badge. Idempotent, so a
+            // retried pass never double-issues. If it fails, leave the attempt
+            // provisional and retry later — do NOT award XP yet, because addXp
+            // is an increment that is not itself idempotent.
+            val finalize = quizRepository.finalizeQuizAttemptServer(attempt.resultId)
+            val fr = finalize.dataOrNull ?: return
 
-            val xpResult = awardXp(userId = attempt.userId, correctCount = attempt.correctCount, totalCount = attempt.totalQuestions)
-            val xpEarned = xpResult.dataOrNull
-
-            if (xpEarned == null) {
-                // awardXp failed outright — nothing was written (addXp uses
-                // FieldValue.increment, so a failed call never partially lands),
-                // so it's safe to leave this attempt provisional and let the
-                // next sync pass (or the periodic safety-net worker) retry it
-                // from scratch. Finalizing here with a fabricated xpEarned = 0
-                // would silently and *permanently* under-reward the user, since
-                // finalizeAttempt() flips provisional to false and this attempt
-                // is never looked at again.
-                return
-            }
+            val xpResult =
+                awardXp(
+                    userId = attempt.userId,
+                    correctCount = fr.correctCount,
+                    totalCount = attempt.totalQuestions,
+                )
+            val xpEarned = xpResult.dataOrNull ?: return
 
             // XP has now landed remotely. Retrying awardXp on a future pass would
             // double-increment it, so from this point on we must finalize this
@@ -73,34 +73,16 @@ class FinalizeQuizAttemptsUseCase
             // provisional forever and get double-awarded XP next sync.
             userRepository.markQuizCompleted(attempt.userId, attempt.quizId)
 
-            if (passed) {
-                userRepository.awardBadge(attempt.userId, "CyberDefender")
-                val displayName =
-                    (userRepository.getUserProfileOnce(attempt.userId) as? Result.Success)?.data?.displayName
-                        ?: "CyberShield User"
-                generateCertificate(
-                    userId = attempt.userId,
-                    userName = displayName,
-                    moduleId = attempt.moduleId,
-                    moduleName = attempt.moduleName,
-                    quizTitle = attempt.quizTitle,
-                    score = attempt.score,
-                )
-                // markQuizCompleted/awardBadge/certificate failures here have no
-                // UI to report to — there's no active screen watching this
-                // attempt anymore. They're simply left off if they fail; the
-                // person can notice and regenerate/retry from their profile.
-                // Only the XP number above is guaranteed reliable, since it's
-                // the one thing that can't be safely retried after this point.
-            }
-
+            // The certificate/badge were already issued by the server above; we
+            // only record the (server-derived) outcome locally for display and
+            // to stop this attempt from being reprocessed.
             quizRepository.finalizeAttempt(
                 resultId = attempt.resultId,
-                score = attempt.score,
-                correctCount = attempt.correctCount,
-                percentage = percentage,
+                score = fr.score,
+                correctCount = fr.correctCount,
+                percentage = fr.percentage,
                 xpEarned = xpEarned,
-                passed = passed,
+                passed = fr.passed,
             )
         }
     }

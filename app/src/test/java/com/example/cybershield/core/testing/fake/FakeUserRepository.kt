@@ -57,7 +57,8 @@ class FakeUserRepository : UserRepository {
 
     private val profileFlows = mutableMapOf<String, MutableSharedFlow<Result<User>>>()
 
-    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> = profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
+    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> =
+        profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
 
     /**
      * @param emitImmediately when false, the flow is created but nothing is
@@ -92,7 +93,14 @@ class FakeUserRepository : UserRepository {
         flowFor(uid).tryEmit(Result.Success(user))
     }
 
-    override fun getUserProfile(uid: String): Flow<Result<User>> = flowFor(uid)
+    override fun getUserProfile(uid: String): Flow<Result<User>> {
+        // Default (null) preserves the original behavior: emit a successful
+        // profile so the happy path works without extra wiring. Tests can set
+        // userProfileResult to drive Loading/Error states.
+        val result = userProfileResult ?: Result.Success(fakeUser)
+        flowFor(uid).tryEmit(result)
+        return flowFor(uid)
+    }
 
     /**
      * Test helper — pushes an additional emission onto the live getUserProfile()
