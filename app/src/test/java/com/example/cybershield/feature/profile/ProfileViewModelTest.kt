@@ -92,6 +92,7 @@ class ProfileViewModelTest {
             getCurrentSession = getCurrentSession,
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `init loads profile and certificates successfully`() =
         runTest {
@@ -99,6 +100,7 @@ class ProfileViewModelTest {
             certificateRepository.setCertificates(testUid, testCertificates)
 
             val viewModel = createViewModel()
+            advanceUntilIdle()
 
             viewModel.uiState.test {
                 val state = expectMostRecentItem()

@@ -6,5 +6,5 @@ import kotlinx.coroutines.flow.Flow
 
 interface LeaderboardRepository {
     /** Real-time top-20 leaderboard, ordered by XP descending. */
-    fun getTopLeaderboard(limit: Int = 20): Flow<Result<List<LeaderboardEntry>>>
+    fun getTopLeaderboard(limit: Int = 50): Flow<Result<List<LeaderboardEntry>>>
 }
