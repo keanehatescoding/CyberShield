@@ -98,4 +98,21 @@ interface QuizRepository {
         xpEarned: Int,
         passed: Boolean,
     )
+
+    /**
+     * Server-authoritative finalization: recomputes the score from the
+     * server-graded quizResults and issues the certificate + CyberDefender
+     * badge. The client never writes those itself, so they cannot be forged.
+     * Returns the server's verdict (or Result.Error to retry later).
+     */
+    suspend fun finalizeQuizAttemptServer(resultId: String): Result<QuizFinalizeResult>
 }
+
+/** Server-computed outcome of [finalizeQuizAttemptServer]. */
+data class QuizFinalizeResult(
+    val passed: Boolean,
+    val score: Int,
+    val correctCount: Int,
+    val percentage: Int,
+    val alreadyFinalized: Boolean = false,
+)

@@ -4,14 +4,11 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
-import com.example.cybershield.QuizRoute
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.AwardXpUseCase
-import com.example.cybershield.core.domain.usecase.GenerateCertificateUseCase
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
@@ -44,7 +41,6 @@ constructor(
     private val getQuiz: GetQuizUseCase,
     private val submitAnswer: SubmitAnswerUseCase,
     private val awardXp: AwardXpUseCase,
-    private val generateCertificate: GenerateCertificateUseCase,
     private val userRepository: UserRepository,
     private val quizRepository: QuizRepository,
     private val getCurrentSession: GetCurrentSessionUseCase,
@@ -65,7 +61,9 @@ constructor(
     internal var loadTimeoutMs: Long = LOAD_TIMEOUT_MS
     internal var resultIdProvider: () -> String = { UUID.randomUUID().toString() }
 
-    private val quizId: String = savedStateHandle.toRoute<QuizRoute>().quizId
+    private val quizId: String = requireNotNull(savedStateHandle["quizId"]) {
+        "QuizViewModel requires a quizId in the SavedStateHandle (QuizRoute)"
+    }
     private val uid: String get() = getCurrentSession()?.uid ?: ""
 
     private val _uiState = MutableStateFlow<QuizUiState>(QuizUiState.Loading)
@@ -328,23 +326,20 @@ constructor(
                     val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
                     userRepository.markQuizCompleted(uid, quizId)
                     if (passed) {
-                        userRepository.awardBadge(uid, "CyberDefender")
-                        val displayName = (userRepository.getUserProfileOnce(uid) as? Result.Success)?.data?.displayName ?: "CyberShield User"
-                        val certificateResult =
-                            generateCertificate(
-                                userId = uid,
-                                userName = displayName,
-                                moduleId = moduleId,
-                                moduleName = moduleName,
-                                quizTitle = quizTitle,
-                                score = score,
-                            )
-                        if (certificateResult is Result.Error) {
-                            _events.send(
-                                QuizUiEvent.CertificateGenerationFailed(
-                                    "You passed, but we couldn't generate your certificate. Please try again from your profile.",
-                                ),
-                            )
+                        // The certificate + CyberDefender badge are issued by the
+                        // server (finalizeQuizAttempt callable), never locally, so
+                        // they can't be forged. If that call fails we surface a
+                        // recoverable error — the user can regenerate from profile.
+                        when (quizRepository.finalizeQuizAttemptServer(resultId)) {
+                            is Result.Error ->
+                                _events.send(
+                                    QuizUiEvent.CertificateGenerationFailed(
+                                        "You passed, but we couldn't issue your certificate. Please try again from your profile.",
+                                    ),
+                                )
+                            else -> {
+                                // certificate + badge issued server-side
+                            }
                         }
                     }
                     xpResult.dataOrNull ?: 0

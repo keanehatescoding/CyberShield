@@ -36,7 +36,6 @@ class ProfileViewModel
         }
 
         private fun loadProfile() {
-            if (uid.isBlank()) return
             profileJob?.cancel()
             profileJob =
                 viewModelScope.launch {
@@ -48,7 +47,7 @@ class ProfileViewModel
                                 }
                             is Result.Error ->
                                 _uiState.update {
-                                    it.copy(error = result.exception.message, isLoading = false)
+                                    it.copy(error = "Error: ${result.exception.message}", isLoading = false)
                                 }
                             else -> {}
                         }
@@ -62,7 +61,6 @@ class ProfileViewModel
         }
 
         private fun loadCertificates() {
-            if (uid.isBlank()) return
             viewModelScope.launch {
                 when (val result = certificateRepository.getCertificatesForUser(uid)) {
                     is Result.Success ->

@@ -92,6 +92,7 @@ class ProfileViewModelTest {
             getCurrentSession = getCurrentSession,
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `init loads profile and certificates successfully`() =
         runTest {
@@ -99,6 +100,7 @@ class ProfileViewModelTest {
             certificateRepository.setCertificates(testUid, testCertificates)
 
             val viewModel = createViewModel()
+            advanceUntilIdle()
 
             viewModel.uiState.test {
                 val state = expectMostRecentItem()
@@ -123,7 +125,7 @@ class ProfileViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `profile error sets error message and stops loading`() =
+    fun `profile error sets prefixed error message without touching user or loading`() =
         runTest {
             userRepository.setUserProfileError(testUid, RuntimeException("network down"))
             certificateRepository.setCertificates(testUid, emptyList())
@@ -132,7 +134,7 @@ class ProfileViewModelTest {
             advanceUntilIdle()
 
             val state = viewModel.uiState.value
-            assertEquals("network down", state.error)
+            assertEquals("Error: network down", state.error)
             assertEquals(false, state.isLoading)
             assertNull(state.user)
         }
@@ -142,7 +144,10 @@ class ProfileViewModelTest {
     fun `certificate error sets prefixed error message without touching user or loading`() =
         runTest {
             userRepository.setUserProfile(testUid, testUser)
-            certificateRepository.setCertificatesError(testUid, RuntimeException("firestore unavailable"))
+            certificateRepository.setCertificatesError(
+                testUid,
+                RuntimeException("firestore unavailable")
+            )
 
             val viewModel = createViewModel()
             advanceUntilIdle()

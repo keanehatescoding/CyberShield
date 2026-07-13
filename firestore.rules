@@ -1,11 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
     // ── modules — readable by any signed-in user, admin-write only ────
     match /modules/{moduleId} {
       allow read: if request.auth != null;
-      allow write: if false; // edit only via Firebase Console
+      allow write: if false;
+      // edit only via Firebase Console
     }
 
     // ── quizzes + questions — same pattern ─────────────────────────────
@@ -15,7 +15,9 @@ service cloud.firestore {
     // still safe because there's nothing left in these docs to leak.
     match /quizzes/{quizId} {
       allow read: if request.auth != null;
-      allow write: if false; // edit only via Firebase Console
+      allow write: if false;
+
+      // edit only via Firebase Console
 
       match /questions/{questionId} {
         allow read: if request.auth != null;
@@ -33,7 +35,12 @@ service cloud.firestore {
 
     // ── users — only the owner can read/write their own document ──────
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // badges (e.g. "CyberDefender") are issued server-side by the
+      // finalizeQuizAttempt callable — the client must not write them.
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && !('badges' in request.resource.data);
 
       // Grading is server-side only now: the client calls validateAnswer /
       // validateAnswersBatch, and those Cloud Functions write here with the

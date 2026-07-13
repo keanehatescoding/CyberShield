@@ -45,7 +45,8 @@ class ModuleViewModelTest {
             xpReward = 50,
         )
 
-    private fun savedStateHandleFor(moduleId: String): SavedStateHandle = SavedStateHandle(mapOf("moduleId" to moduleId))
+    private fun savedStateHandleFor(moduleId: String): SavedStateHandle =
+        SavedStateHandle(mapOf("moduleId" to moduleId))
 
     @Before
     fun setup() {
@@ -100,14 +101,20 @@ class ModuleViewModelTest {
     fun `loadModule marks isAlreadyCompleted true when module id is in user's completedModules`() =
         runTest {
             moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
+            userRepository.fakeUser =
+                userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
 
             val viewModel = createViewModel()
 
             viewModel.uiState.test {
-                awaitItem() // loading
+                val loading = awaitItem()
+                assertTrue(loading.isLoading)
+
                 val success = awaitItem()
+                assertFalse(success.isLoading)
+                assertEquals(testModule, success.module)
                 assertTrue(success.isAlreadyCompleted)
+                assertFalse(success.isStale)
             }
         }
 
@@ -121,7 +128,9 @@ class ModuleViewModelTest {
             val viewModel = createViewModel()
 
             viewModel.uiState.test {
-                awaitItem() // loading
+                val loading = awaitItem()
+                assertTrue(loading.isLoading)
+
                 val staleState = awaitItem()
                 assertFalse(staleState.isLoading)
                 assertTrue(staleState.isStale)
@@ -139,7 +148,9 @@ class ModuleViewModelTest {
             val viewModel = createViewModel()
 
             viewModel.uiState.test {
-                awaitItem() // loading
+                val loading = awaitItem()
+                assertTrue(loading.isLoading)
+
                 val errorState = awaitItem()
                 assertFalse(errorState.isLoading)
                 assertFalse(errorState.isStale)
@@ -241,7 +252,8 @@ class ModuleViewModelTest {
     fun `onVideoCompleted is a no-op when module is already completed`() =
         runTest {
             moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
-            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
+            userRepository.fakeUser =
+                userRepository.fakeUser.copy(completedModules = listOf(testModule.id))
 
             val viewModel = createViewModel()
             advanceUntilIdle()

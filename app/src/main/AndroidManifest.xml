@@ -11,7 +11,7 @@
 
     <application
         android:name=".CyberShieldApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -34,8 +34,10 @@
             <!-- Deep links: cybershield://quiz/{quizId}, cybershield://module/{moduleId} -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
+
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+
                 <data android:scheme="cybershield" />
             </intent-filter>
         </activity>

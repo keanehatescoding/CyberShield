@@ -5,6 +5,6 @@ import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
 
 interface LeaderboardRepository {
-    /** Real-time top-20 leaderboard, ordered by XP descending. */
-    fun getTopLeaderboard(limit: Int = 20): Flow<Result<List<LeaderboardEntry>>>
+    /** Real-time top-50 leaderboard, ordered by XP descending. */
+    fun getTopLeaderboard(limit: Int = 50): Flow<Result<List<LeaderboardEntry>>>
 }

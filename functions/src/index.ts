@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
-import { assertValidAnswerInput, gradeAnswer, writeGradedResult, AnswerInput } from "./grading";
+import { assertValidAnswerInput, gradeAnswer, writeGradedResult, finalizeQuizAttempt, AnswerInput } from "./grading";
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 20 });
@@ -27,7 +27,7 @@ export const validateAnswer = onCall(
     const input = request.data as AnswerInput;
 
     const graded = await gradeAnswer(input);
-    await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt);
+    await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt, input.resultId, input.timeRemaining);
 
     // correctIndex is only ever sent back AFTER the client has already
     // submitted its selectedIndex — never available to fetch beforehand.
@@ -69,7 +69,7 @@ export const validateAnswersBatch = onCall(
       const input = raw as AnswerInput;
       try {
         const graded = await gradeAnswer(input);
-        await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt);
+        await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt, input.resultId, input.timeRemaining);
         results.push({
           questionId: graded.questionId,
           isCorrect: graded.isCorrect,
@@ -91,5 +91,28 @@ export const validateAnswersBatch = onCall(
     }
 
     return { results };
+  },
+);
+
+/**
+ * Issues the certificate + CyberDefender badge for a quiz attempt, computed
+ * entirely from the server-graded `quizResults`. The client never writes
+ * certificates or the badge — this is the only writer, so certificates
+ * cannot be forged. Idempotent (see finalizeQuizAttempt).
+ */
+export const finalizeQuizAttemptFn = onCall(
+  {
+    enforceAppCheck: true,
+    consumeAppCheckToken: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required.");
+    }
+    const resultId = (request.data as { resultId?: unknown } | null)?.resultId;
+    if (typeof resultId !== "string" || !resultId) {
+      throw new HttpsError("invalid-argument", "resultId is required.");
+    }
+    return finalizeQuizAttempt(request.auth.uid, resultId);
   },
 );

@@ -6,6 +6,7 @@ import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
 import com.example.cybershield.core.domain.usecase.FakeEnsureUserProfileUseCase
 import com.example.cybershield.core.domain.usecase.ProfileRepairOutcome
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.usecase.auth.ObserveAuthStateUseCase
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.testing.fake.FakeAuthRepository
 import com.example.cybershield.core.testing.fake.FakeModuleRepository
@@ -48,6 +49,7 @@ class HomeViewModelTest {
     private lateinit var fakeModuleRepository: FakeModuleRepository
     private lateinit var fakeEnsureUserProfile: FakeEnsureUserProfileUseCase
     private lateinit var getCurrentSession: GetCurrentSessionUseCase
+    private lateinit var observeAuthState: ObserveAuthStateUseCase
 
     private val signedInSession =
         AuthSession(
@@ -78,6 +80,7 @@ class HomeViewModelTest {
         // getModulesFlowProvider default — no extra wiring needed for the happy path.
         fakeEnsureUserProfile = FakeEnsureUserProfileUseCase()
         getCurrentSession = GetCurrentSessionUseCase(fakeAuthRepository)
+        observeAuthState = ObserveAuthStateUseCase(fakeAuthRepository)
     }
 
     private fun buildViewModel(clock: Clock = defaultClock) =
@@ -86,6 +89,7 @@ class HomeViewModelTest {
             moduleRepository = fakeModuleRepository,
             getCurrentSession = getCurrentSession,
             ensureUserProfile = fakeEnsureUserProfile,
+            observeAuthState = observeAuthState,
             clock = clock,
         )
 
@@ -123,6 +127,7 @@ class HomeViewModelTest {
     @Test
     fun `successful profile load notifies the use case so repair can be attempted again later`() =
         runTest {
+            buildViewModel()
             advanceUntilIdle()
 
             assertEquals(1, fakeEnsureUserProfile.onProfileLoadedSuccessfullyCallCount)
@@ -135,7 +140,8 @@ class HomeViewModelTest {
     fun `NotApplicable outcome surfaces its message as userError`() =
         runTest {
             fakeUserRepository.userProfileResult = Result.Error(Exception("network unreachable"))
-            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.NotApplicable("network unreachable")
+            fakeEnsureUserProfile.outcomeToReturn =
+                ProfileRepairOutcome.NotApplicable("network unreachable")
 
             val viewModel = buildViewModel()
 
@@ -149,7 +155,7 @@ class HomeViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `RepairSucceeded outcome does not surface an error and stays in loading state`() =
+    fun `RepairSucceeded outcome does not surface an error and stops the loading state`() =
         runTest {
             fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
             fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
@@ -159,9 +165,10 @@ class HomeViewModelTest {
             viewModel.uiState.test {
                 advanceUntilIdle()
                 val state = expectMostRecentItem()
-                // isUserLoading was set true by the preceding Result.Loading emission and
-                // RepairSucceeded intentionally does not update _uiState — the real profile
-                // flow is expected to re-emit Success once Firestore reflects the repair.
+                // RepairSucceeded must immediately clear the loading flag (and not surface an
+                // error) — the live getUserProfile listener will re-emit Success once the
+                // repaired profile doc is reflected and populate the user.
+                assertFalse(state.isUserLoading)
                 assertNull(state.userError)
             }
         }
@@ -191,7 +198,8 @@ class HomeViewModelTest {
     fun `AlreadyAttempted outcome surfaces its carried message as userError`() =
         runTest {
             fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
-            fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.AlreadyAttempted("Profile not found")
+            fakeEnsureUserProfile.outcomeToReturn =
+                ProfileRepairOutcome.AlreadyAttempted("Profile not found")
 
             val viewModel = buildViewModel()
 
@@ -210,6 +218,7 @@ class HomeViewModelTest {
             fakeUserRepository.userProfileResult = Result.Error(Exception("Profile not found"))
             fakeEnsureUserProfile.outcomeToReturn = ProfileRepairOutcome.RepairSucceeded
 
+            buildViewModel()
             advanceUntilIdle()
 
             assertEquals(signedInSession, fakeEnsureUserProfile.lastSessionPassed)
@@ -312,55 +321,55 @@ class HomeViewModelTest {
             assertEquals(1, fakeModuleRepository.refreshModulesCallCount)
         }
 
-        @OptIn(ExperimentalCoroutinesApi::class)
-        @Test
-        fun `isRefreshing stays true until the refreshed modules are actually collected`() =
-                runTest {
-                        // Second call to getModules() (triggered by refresh()) is backed by a
-                        // Channel we control by hand, so nothing is emitted until we say so —
-                        // this lets us catch the bug where isRefreshing flips to false the
-                        // instant refreshModules() succeeds, before loadModules()'s new
-                        // collector has actually received anything.
-                        var callCount = 0
-                        val secondCallChannel = Channel<Result<List<Module>>>(Channel.UNLIMITED)
-                        fakeModuleRepository.getModulesFlowProvider = {
-                                callCount++
-                                if (callCount == 1) {
-                                        flow {
-                                                emit(Result.Loading)
-                                                emit(Result.Success(emptyList()))
-                                            }
-                                    } else {
-                                        secondCallChannel.receiveAsFlow()
-                                    }
-                            }
-                        val viewModel = buildViewModel()
-                        advanceUntilIdle() // finish the init-time load (callCount == 1)
-
-                        fakeModuleRepository.refreshModulesResult = Result.Success(Unit)
-
-                        // Run refresh() concurrently so we can inspect mid-flight state —
-                        // it will suspend inside modulesJob?.join() until the channel emits.
-                        launch { viewModel.refresh() }
-                        advanceUntilIdle()
-
-                        // refreshModules() has succeeded and loadModules() has started collecting
-                        // the second flow, but secondCallChannel hasn't emitted anything yet.
-                        assertTrue(
-                                "isRefreshing should still be true while awaiting fresh module data",
-                                viewModel.uiState.value.isRefreshing,
-                            )
-
-                        val refreshedModules = listOf(sampleModule("fresh-1"))
-                        secondCallChannel.send(Result.Loading)
-                        secondCallChannel.send(Result.Success(refreshedModules))
-                        secondCallChannel.close()
-                        advanceUntilIdle()
-
-                        val state = viewModel.uiState.value
-                        assertFalse(state.isRefreshing)
-                        assertEquals(refreshedModules, state.modules)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `isRefreshing stays true until the refreshed modules are actually collected`() =
+        runTest {
+            // Second call to getModules() (triggered by refresh()) is backed by a
+            // Channel we control by hand, so nothing is emitted until we say so —
+            // this lets us catch the bug where isRefreshing flips to false the
+            // instant refreshModules() succeeds, before loadModules()'s new
+            // collector has actually received anything.
+            var callCount = 0
+            val secondCallChannel = Channel<Result<List<Module>>>(Channel.UNLIMITED)
+            fakeModuleRepository.getModulesFlowProvider = {
+                callCount++
+                if (callCount == 1) {
+                    flow {
+                        emit(Result.Loading)
+                        emit(Result.Success(emptyList()))
                     }
+                } else {
+                    secondCallChannel.receiveAsFlow()
+                }
+            }
+            val viewModel = buildViewModel()
+            advanceUntilIdle() // finish the init-time load (callCount == 1)
+
+            fakeModuleRepository.refreshModulesResult = Result.Success(Unit)
+
+            // Run refresh() concurrently so we can inspect mid-flight state —
+            // it will suspend inside modulesJob?.join() until the channel emits.
+            launch { viewModel.refresh() }
+            advanceUntilIdle()
+
+            // refreshModules() has succeeded and loadModules() has started collecting
+            // the second flow, but secondCallChannel hasn't emitted anything yet.
+            assertTrue(
+                "isRefreshing should still be true while awaiting fresh module data",
+                viewModel.uiState.value.isRefreshing,
+            )
+
+            val refreshedModules = listOf(sampleModule("fresh-1"))
+            secondCallChannel.send(Result.Loading)
+            secondCallChannel.send(Result.Success(refreshedModules))
+            secondCallChannel.close()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isRefreshing)
+            assertEquals(refreshedModules, state.modules)
+        }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
@@ -411,7 +420,8 @@ class HomeViewModelTest {
     @Test
     fun `greeting boundary at hour 5 is morning, hour 4 is evening`() =
         runTest {
-            val justBeforeMorning = Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)
+            val justBeforeMorning =
+                Clock.fixed(Instant.parse("2026-01-01T04:00:00Z"), ZoneOffset.UTC)
             val exactlyMorning = Clock.fixed(Instant.parse("2026-01-01T05:00:00Z"), ZoneOffset.UTC)
 
             assertEquals("Good evening", buildViewModel(clock = justBeforeMorning).greeting())

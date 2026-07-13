@@ -1,8 +1,7 @@
 package com.example.cybershield.core.domain.usecase
 
-import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
-import com.example.cybershield.core.domain.model.User
+import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
@@ -16,7 +15,6 @@ import org.junit.Test
 class FinalizeQuizAttemptsUseCaseTest {
     private lateinit var quizRepository: QuizRepository
     private lateinit var awardXp: AwardXpUseCase
-    private lateinit var generateCertificate: GenerateCertificateUseCase
     private lateinit var userRepository: UserRepository
     private lateinit var useCase: FinalizeQuizAttemptsUseCase
 
@@ -39,13 +37,30 @@ class FinalizeQuizAttemptsUseCaseTest {
         correctCount = correctCount,
     )
 
+    private fun stubFinalize(
+        resultId: String,
+        passed: Boolean,
+        score: Int,
+        correctCount: Int,
+        percentage: Int,
+    ) {
+        coEvery { quizRepository.finalizeQuizAttemptServer(resultId) } returns
+                Result.Success(
+                    QuizFinalizeResult(
+                        passed = passed,
+                        score = score,
+                        correctCount = correctCount,
+                        percentage = percentage
+                    )
+                )
+    }
+
     @Before
     fun setUp() {
         quizRepository = mockk(relaxed = true)
         awardXp = mockk()
-        generateCertificate = mockk()
         userRepository = mockk(relaxed = true)
-        useCase = FinalizeQuizAttemptsUseCase(quizRepository, awardXp, generateCertificate, userRepository)
+        useCase = FinalizeQuizAttemptsUseCase(quizRepository, awardXp, userRepository)
     }
 
     @Test
@@ -55,32 +70,34 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             useCase()
 
+            coVerify(exactly = 0) { quizRepository.finalizeQuizAttemptServer(any()) }
             coVerify(exactly = 0) { awardXp(any(), any(), any()) }
-            coVerify(exactly = 0) { quizRepository.finalizeAttempt(any(), any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) {
+                quizRepository.finalizeAttempt(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            }
         }
 
     @Test
-    fun `awards XP, badge, and certificate for a passing attempt, then finalizes it`() =
+    fun `asks server to issue cert+badge for a passing attempt, then awards XP and finalizes`() =
         runTest {
             val attempt = readyAttempt(correctCount = 4, totalQuestions = 4) // 100%
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
+            stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100)
             coEvery { awardXp("user1", 4, 4) } returns Result.Success(40)
-            coEvery { userRepository.getUserProfileOnce("user1") } returns
-                Result.Success(User(uid = "user1", displayName = "Keane M.", email = "keane@example.com"))
-            coEvery {
-                generateCertificate(
-                    userId = "user1",
-                    userName = "Keane M.",
-                    moduleId = "module1",
-                    moduleName = "Phishing Awareness",
-                    quizTitle = "Phishing Quiz",
-                    score = 400,
-                )
-            } returns Result.Success(mockk<Certificate>(relaxed = true))
 
             useCase()
 
-            coVerify { userRepository.awardBadge("user1", "CyberDefender") }
+            // The certificate + CyberDefender badge are now issued by the server,
+            // never locally — verify nothing on the client writes them.
+            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+            coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
             coVerify { userRepository.markQuizCompleted("user1", "quiz1") }
             coVerify {
                 quizRepository.finalizeAttempt(
@@ -95,18 +112,16 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
-    fun `does not award badge or certificate for a failing attempt, but still finalizes it`() =
+    fun `does not award XP or finalize for a failing attempt, but still asks server to finalize`() =
         runTest {
             val attempt = readyAttempt(correctCount = 1, totalQuestions = 4, score = 100) // 25%
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
+            stubFinalize("result-1", passed = false, score = 100, correctCount = 1, percentage = 25)
             coEvery { awardXp("user1", 1, 4) } returns Result.Success(10)
 
             useCase()
 
             coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
-            coVerify(exactly = 0) {
-                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
-            }
             coVerify {
                 quizRepository.finalizeAttempt(
                     resultId = "result-1",
@@ -120,26 +135,30 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
-    fun `falls back to default display name when profile fetch fails`() =
+    fun `leaves attempt provisional when server finalize fails, instead of awarding XP`() =
         runTest {
-            val attempt = readyAttempt(correctCount = 4, totalQuestions = 4)
+            val attempt = readyAttempt(correctCount = 4, totalQuestions = 4, score = 400)
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(40)
-            coEvery { userRepository.getUserProfileOnce("user1") } returns Result.Error(RuntimeException("not found"))
-            coEvery {
-                generateCertificate(
-                    userId = any(),
-                    userName = any(),
-                    moduleId = any(),
-                    moduleName = any(),
-                    quizTitle = any(),
-                    score = any(),
-                )
-            } returns Result.Success(mockk<Certificate>(relaxed = true))
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns Result.Error(
+                RuntimeException("finalize failed")
+            )
 
             useCase()
 
-            coVerify { generateCertificate(userId = "user1", userName = "CyberShield User", moduleId = any(), moduleName = any(), quizTitle = any(), score = any()) }
+            // A failed server finalize must NOT award XP or finalize — leave the
+            // attempt provisional so it is retried next pass.
+            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
+            coVerify(exactly = 0) {
+                quizRepository.finalizeAttempt(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            }
+            coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
         }
 
     @Test
@@ -147,7 +166,14 @@ class FinalizeQuizAttemptsUseCaseTest {
         runTest {
             val attempt = readyAttempt(correctCount = 1, totalQuestions = 4, score = 100)
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            coEvery { awardXp(any(), any(), any()) } returns Result.Error(RuntimeException("write failed"))
+            stubFinalize("result-1", passed = false, score = 100, correctCount = 1, percentage = 25)
+            coEvery {
+                awardXp(
+                    any(),
+                    any(),
+                    any()
+                )
+            } returns Result.Error(RuntimeException("write failed"))
 
             useCase()
 
@@ -155,49 +181,119 @@ class FinalizeQuizAttemptsUseCaseTest {
             // provisional to false and this attempt is never revisited. Finalizing here
             // with a fabricated xpEarned = 0 would permanently and silently under-reward
             // the user. It should simply stay provisional for the next sync pass.
-            coVerify(exactly = 0) { quizRepository.finalizeAttempt(any(), any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) {
+                quizRepository.finalizeAttempt(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            }
             coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
         }
 
     @Test
     fun `one attempt failing does not prevent the rest of the batch from finalizing`() =
         runTest {
-            val broken = readyAttempt(resultId = "result-broken", userId = "user1", correctCount = 1, totalQuestions = 4, score = 100)
-            val healthy = readyAttempt(resultId = "result-healthy", userId = "user2", correctCount = 4, totalQuestions = 4)
+            val broken = readyAttempt(
+                resultId = "result-broken",
+                userId = "user1",
+                correctCount = 1,
+                totalQuestions = 4,
+                score = 100
+            )
+            val healthy = readyAttempt(
+                resultId = "result-healthy",
+                userId = "user2",
+                correctCount = 4,
+                totalQuestions = 4
+            )
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(broken, healthy)
-            coEvery { awardXp("user1", 1, 4) } returns Result.Error(RuntimeException("write failed"))
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-broken") } returns Result.Error(
+                RuntimeException("finalize failed")
+            )
+            stubFinalize(
+                "result-healthy",
+                passed = true,
+                score = 400,
+                correctCount = 4,
+                percentage = 100
+            )
             coEvery { awardXp("user2", 4, 4) } returns Result.Success(40)
-            coEvery { userRepository.getUserProfileOnce("user2") } returns Result.Error(RuntimeException("n/a"))
-            coEvery {
-                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
-            } returns Result.Success(mockk<Certificate>(relaxed = true))
 
             useCase()
 
-            coVerify(exactly = 0) { quizRepository.finalizeAttempt(resultId = "result-broken", any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) {
+                quizRepository.finalizeAttempt(
+                    resultId = "result-broken",
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            }
             coVerify(exactly = 1) {
-                quizRepository.finalizeAttempt(resultId = "result-healthy", any(), any(), any(), xpEarned = 40, passed = true)
+                quizRepository.finalizeAttempt(
+                    resultId = "result-healthy",
+                    any(),
+                    any(),
+                    any(),
+                    xpEarned = 40,
+                    passed = true
+                )
             }
         }
 
     @Test
     fun `processes multiple ready attempts independently`() =
         runTest {
-            val passing = readyAttempt(resultId = "result-pass", correctCount = 4, totalQuestions = 4)
-            val failing = readyAttempt(resultId = "result-fail", userId = "user2", correctCount = 0, totalQuestions = 4, score = 0)
+            val passing =
+                readyAttempt(resultId = "result-pass", correctCount = 4, totalQuestions = 4)
+            val failing = readyAttempt(
+                resultId = "result-fail",
+                userId = "user2",
+                correctCount = 0,
+                totalQuestions = 4,
+                score = 0
+            )
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(passing, failing)
+            stubFinalize(
+                "result-pass",
+                passed = true,
+                score = 400,
+                correctCount = 4,
+                percentage = 100
+            )
+            stubFinalize("result-fail", passed = false, score = 0, correctCount = 0, percentage = 0)
             coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
-            coEvery { userRepository.getUserProfileOnce(any()) } returns Result.Error(RuntimeException("n/a"))
-            coEvery {
-                generateCertificate(userId = any(), userName = any(), moduleId = any(), moduleName = any(), quizTitle = any(), score = any())
-            } returns Result.Success(mockk<Certificate>(relaxed = true))
 
             useCase()
 
-            coVerify(exactly = 1) { quizRepository.finalizeAttempt(resultId = "result-pass", any(), any(), any(), any(), passed = true) }
-            coVerify(exactly = 1) { quizRepository.finalizeAttempt(resultId = "result-fail", any(), any(), any(), any(), passed = false) }
-            // Only the passing attempt gets a badge/certificate.
-            coVerify(exactly = 1) { userRepository.awardBadge("user1", "CyberDefender") }
-            coVerify(exactly = 0) { userRepository.awardBadge("user2", any()) }
+            coVerify(exactly = 1) {
+                quizRepository.finalizeAttempt(
+                    resultId = "result-pass",
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    passed = true
+                )
+            }
+            coVerify(exactly = 1) {
+                quizRepository.finalizeAttempt(
+                    resultId = "result-fail",
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    passed = false
+                )
+            }
+            // Neither attempt's badge/certificate is written by the client.
+            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+            coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
         }
 }

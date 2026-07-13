@@ -49,7 +49,8 @@ class QuizRepositoryImplTest {
         quizDao = mockk()
         quizAttemptDao = mockk()
         resultDao = mockk()
-        repository = QuizRepositoryImpl(remoteSource, functionsSource, quizDao, quizAttemptDao, resultDao)
+        repository =
+            QuizRepositoryImpl(remoteSource, functionsSource, quizDao, quizAttemptDao, resultDao)
     }
 
     private fun fakeEntity(
@@ -118,8 +119,22 @@ class QuizRepositoryImplTest {
     @Test
     fun `validateAnswerOnline returns the server's verdict and caches it locally as synced, tagged with resultId`() =
         runTest {
-            val validation = AnswerValidation(questionId = "q1", isCorrect = true, correctIndex = 2, explanation = "Because.")
-            coEvery { functionsSource.validateAnswer("quiz1", "q1", 2, any()) } returns validation
+            val validation = AnswerValidation(
+                questionId = "q1",
+                isCorrect = true,
+                correctIndex = 2,
+                explanation = "Because."
+            )
+            coEvery {
+                functionsSource.validateAnswer(
+                    "quiz1",
+                    "q1",
+                    2,
+                    any(),
+                    any(),
+                    any()
+                )
+            } returns validation
             val cachedSlot = slot<QuizResultEntity>()
             coEvery { resultDao.insert(capture(cachedSlot)) } returns 1L
 
@@ -146,7 +161,16 @@ class QuizRepositoryImplTest {
     @Test
     fun `validateAnswerOnline surfaces a function call failure as Result Error without caching`() =
         runTest {
-            coEvery { functionsSource.validateAnswer(any(), any(), any(), any()) } throws RuntimeException("network down")
+            coEvery {
+                functionsSource.validateAnswer(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            } throws RuntimeException("network down")
 
             val result =
                 repository.validateAnswerOnline(
@@ -213,7 +237,12 @@ class QuizRepositoryImplTest {
                 requested.map {
                     BatchAnswerResult(
                         localId = it.localId,
-                        validation = AnswerValidation(it.questionId, isCorrect = true, correctIndex = 0, explanation = ""),
+                        validation = AnswerValidation(
+                            it.questionId,
+                            isCorrect = true,
+                            correctIndex = 0,
+                            explanation = ""
+                        ),
                         error = null,
                     )
                 }
@@ -235,7 +264,13 @@ class QuizRepositoryImplTest {
             coEvery { resultDao.getPendingResults() } returns pending
             coEvery { functionsSource.validateAnswersBatch(any()) } answers {
                 val requested = firstArg<List<PendingAnswer>>()
-                requested.map { BatchAnswerResult(it.localId, AnswerValidation(it.questionId, true, 0, ""), null) }
+                requested.map {
+                    BatchAnswerResult(
+                        it.localId,
+                        AnswerValidation(it.questionId, true, 0, ""),
+                        null
+                    )
+                }
             }
             coEvery { resultDao.markGraded(any(), any(), any()) } returns Unit
 
@@ -250,22 +285,36 @@ class QuizRepositoryImplTest {
     @Test
     fun `syncPendingResults leaves a row ungraded when the server reports an error for it`() =
         runTest {
-            val pending = listOf(fakeEntity(1L, questionId = "deletedQuestion"), fakeEntity(2L, questionId = "q2"))
+            val pending = listOf(
+                fakeEntity(1L, questionId = "deletedQuestion"),
+                fakeEntity(2L, questionId = "q2")
+            )
             coEvery { resultDao.getPendingResults() } returns pending
             coEvery { functionsSource.validateAnswersBatch(any()) } returns
-                listOf(
-                    BatchAnswerResult(localId = 1L, validation = null, error = "Question not found."),
-                    BatchAnswerResult(localId = 2L, validation = AnswerValidation("q2", true, 1, ""), error = null),
-                )
+                    listOf(
+                        BatchAnswerResult(
+                            localId = 1L,
+                            validation = null,
+                            error = "Question not found."
+                        ),
+                        BatchAnswerResult(
+                            localId = 2L,
+                            validation = AnswerValidation("q2", true, 1, ""),
+                            error = null
+                        ),
+                    )
             coEvery { resultDao.markGraded(any(), any(), any()) } returns Unit
+            coEvery { resultDao.markSyncFailed(any()) } returns Unit
 
             val result = repository.syncPendingResults()
 
             assertTrue(result is Result.Success)
-            // Only the row that graded successfully gets marked — the errored
-            // one stays pending so a future sync (or manual cleanup) can retry it.
+            // The row that graded successfully is marked with its verdict, and
+            // the errored row is marked synced (without a verdict) so it no
+            // longer blocks the parent attempt from finalizing.
             coVerify(exactly = 1) { resultDao.markGraded(any(), any(), any()) }
             coVerify(exactly = 1) { resultDao.markGraded(2L, true, any()) }
+            coVerify(exactly = 1) { resultDao.markSyncFailed(1L) }
             coVerify(exactly = 0) { resultDao.markGraded(1L, any(), any()) }
         }
 
@@ -312,23 +361,23 @@ class QuizRepositoryImplTest {
     fun `getQuizAttempt maps a stored entity back into a QuizResult`() =
         runTest {
             coEvery { quizAttemptDao.getById("result-1") } returns
-                QuizAttemptEntity(
-                    resultId = "result-1",
-                    userId = "user1",
-                    quizId = "quiz1",
-                    moduleId = "module1",
-                    moduleName = "Phishing Awareness",
-                    quizTitle = "Phishing Quiz",
-                    score = 400,
-                    totalQuestions = 4,
-                    correctCount = 4,
-                    percentage = 100,
-                    xpEarned = 100,
-                    passed = true,
-                    timeTaken = 60L,
-                    createdAt = 123L,
-                    provisional = false,
-                )
+                    QuizAttemptEntity(
+                        resultId = "result-1",
+                        userId = "user1",
+                        quizId = "quiz1",
+                        moduleId = "module1",
+                        moduleName = "Phishing Awareness",
+                        quizTitle = "Phishing Quiz",
+                        score = 400,
+                        totalQuestions = 4,
+                        correctCount = 4,
+                        percentage = 100,
+                        xpEarned = 100,
+                        passed = true,
+                        timeTaken = 60L,
+                        createdAt = 123L,
+                        provisional = false,
+                    )
 
             val result = repository.getQuizAttempt("result-1")
 
@@ -377,11 +426,11 @@ class QuizRepositoryImplTest {
             coEvery { quizAttemptDao.getProvisionalAttempts() } returns listOf(fakeAttempt())
             coEvery { resultDao.countUnsyncedForAttempt("result-1") } returns 0
             coEvery { resultDao.getResultsForAttempt("result-1") } returns
-                listOf(
-                    fakeEntity(1L, isCorrect = true, timeRemaining = 10, synced = true),
-                    fakeEntity(2L, isCorrect = false, timeRemaining = 5, synced = true),
-                    fakeEntity(3L, isCorrect = true, timeRemaining = 0, synced = true),
-                )
+                    listOf(
+                        fakeEntity(1L, isCorrect = true, timeRemaining = 10, synced = true),
+                        fakeEntity(2L, isCorrect = false, timeRemaining = 5, synced = true),
+                        fakeEntity(3L, isCorrect = true, timeRemaining = 0, synced = true),
+                    )
 
             val ready = repository.getAttemptsReadyToFinalize()
 
@@ -393,7 +442,10 @@ class QuizRepositoryImplTest {
             assertEquals(2, attempt.correctCount)
             // (100 + 10*5) + 0 (wrong) + (100 + 0*5) = 150 + 0 + 100 = 250
             val expectedScore =
-                QuizScoring.pointsFor(true, 10) + QuizScoring.pointsFor(false, 5) + QuizScoring.pointsFor(true, 0)
+                QuizScoring.pointsFor(true, 10) + QuizScoring.pointsFor(
+                    false,
+                    5
+                ) + QuizScoring.pointsFor(true, 0)
             assertEquals(expectedScore, attempt.score)
         }
 
@@ -402,7 +454,13 @@ class QuizRepositoryImplTest {
         runTest {
             coEvery { quizAttemptDao.getProvisionalAttempts() } returns listOf(fakeAttempt())
             coEvery { resultDao.countUnsyncedForAttempt("result-1") } returns 0
-            coEvery { resultDao.getResultsForAttempt("result-1") } returns listOf(fakeEntity(1L, isCorrect = true, synced = true))
+            coEvery { resultDao.getResultsForAttempt("result-1") } returns listOf(
+                fakeEntity(
+                    1L,
+                    isCorrect = true,
+                    synced = true
+                )
+            )
 
             val attempt = repository.getAttemptsReadyToFinalize().single()
 
@@ -416,7 +474,16 @@ class QuizRepositoryImplTest {
     @Test
     fun `finalizeAttempt delegates to QuizAttemptDao finalize`() =
         runTest {
-            coEvery { quizAttemptDao.finalize(any(), any(), any(), any(), any(), any()) } returns Unit
+            coEvery {
+                quizAttemptDao.finalize(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            } returns Unit
 
             repository.finalizeAttempt(
                 resultId = "result-1",

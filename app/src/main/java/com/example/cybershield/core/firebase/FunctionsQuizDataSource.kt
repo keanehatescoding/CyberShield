@@ -1,8 +1,11 @@
 package com.example.cybershield.core.firebase
 
 import com.example.cybershield.core.domain.model.AnswerValidation
+import com.example.cybershield.core.domain.repository.QuizFinalizeResult
+import com.example.cybershield.core.domain.util.Result
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
+import com.google.firebase.functions.HttpsCallableResult
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -10,10 +13,12 @@ import javax.inject.Singleton
 /** A single offline-cached answer waiting to be graded once connectivity returns. */
 data class PendingAnswer(
     val localId: Long,
+    val resultId: String,
     val quizId: String,
     val questionId: String,
     val selectedIndex: Int,
     val answeredAt: Long,
+    val timeRemaining: Int,
 )
 
 /** Result of a batch validation call, keyed back to the local row it came from. */
@@ -34,12 +39,24 @@ class FunctionsQuizDataSource
     constructor(
         private val functions: FirebaseFunctions,
     ) {
+        /**
+         * Test seam: the actual Firebase HTTPS-callable invocation. Kept as an
+         * overridable `var` (not a constructor param) so tests can replace it
+         * without mocking `HttpsCallableReference` - a final Firebase type whose
+         * `call` is an inline extension that MockK can't stub directly.
+         * Defaults to the real `functions.getHttpsCallable(name).call(payload).await()`.
+         */
+        internal var httpsCallable: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult =
+            { name, payload -> functions.getHttpsCallable(name).call(payload).await() }
+
         /** Online path — called immediately after the user taps an option, for instant feedback. */
         suspend fun validateAnswer(
             quizId: String,
             questionId: String,
             selectedIndex: Int,
             answeredAt: Long,
+            resultId: String,
+            timeRemaining: Int,
         ): AnswerValidation {
             val payload =
                 hashMapOf(
@@ -47,12 +64,11 @@ class FunctionsQuizDataSource
                     "questionId" to questionId,
                     "selectedIndex" to selectedIndex,
                     "answeredAt" to answeredAt,
+                    "resultId" to resultId,
+                    "timeRemaining" to timeRemaining,
                 )
             val response =
-                functions
-                    .getHttpsCallable("validateAnswer")
-                    .call(payload)
-                    .await()
+                httpsCallable("validateAnswer", payload)
 
             @Suppress("UNCHECKED_CAST")
             val data = response.data as Map<String, Any?>
@@ -79,14 +95,13 @@ class FunctionsQuizDataSource
                                 "questionId" to p.questionId,
                                 "selectedIndex" to p.selectedIndex,
                                 "answeredAt" to p.answeredAt,
+                                "resultId" to p.resultId,
+                                "timeRemaining" to p.timeRemaining,
                             )
                         },
                 )
             val response =
-                functions
-                    .getHttpsCallable("validateAnswersBatch")
-                    .call(payload)
-                    .await()
+                httpsCallable("validateAnswersBatch", payload)
 
             @Suppress("UNCHECKED_CAST")
             val data = response.data as Map<String, Any?>
@@ -114,6 +129,34 @@ class FunctionsQuizDataSource
                 }
             }
         }
+
+        /**
+         * Server-authoritative finalization: recomputes the attempt's score
+         * from the server-graded quizResults and issues the certificate +
+         * CyberDefender badge. The client never writes those, so they cannot
+         * be forged. Returns the server's verdict.
+         */
+        suspend fun finalizeQuizAttempt(resultId: String): Result<QuizFinalizeResult> =
+            try {
+                val response =
+                    httpsCallable("finalizeQuizAttemptFn", hashMapOf("resultId" to resultId))
+
+                @Suppress("UNCHECKED_CAST")
+                val data = response.data as Map<String, Any?>
+                Result.Success(
+                    QuizFinalizeResult(
+                        passed = data["passed"] as Boolean,
+                        score = (data["score"] as Number).toInt(),
+                        correctCount = (data["correctCount"] as Number).toInt(),
+                        percentage = (data["percentage"] as Number).toInt(),
+                        alreadyFinalized = data["alreadyFinalized"] as? Boolean ?: false,
+                    ),
+                )
+            } catch (e: FirebaseFunctionsException) {
+                Result.Error(Exception(e.message ?: "finalize failed", e))
+            } catch (e: Exception) {
+                Result.Error(e)
+            }
 
         companion object {
             /** Mirrors the 100-per-call limit enforced in functions/src/index.ts. */

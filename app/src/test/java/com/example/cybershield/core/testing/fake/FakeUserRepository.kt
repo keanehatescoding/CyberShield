@@ -57,7 +57,8 @@ class FakeUserRepository : UserRepository {
 
     private val profileFlows = mutableMapOf<String, MutableSharedFlow<Result<User>>>()
 
-    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> = profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
+    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> =
+        profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
 
     /**
      * @param emitImmediately when false, the flow is created but nothing is
@@ -92,7 +93,18 @@ class FakeUserRepository : UserRepository {
         flowFor(uid).tryEmit(Result.Success(user))
     }
 
-    override fun getUserProfile(uid: String): Flow<Result<User>> = flowFor(uid)
+    override fun getUserProfile(uid: String): Flow<Result<User>> {
+        val flow = flowFor(uid)
+        // Only seed a default emission if this uid's flow is still empty —
+        // i.e. the test never called setUserProfile()/setUserProfileError()
+        // for it. Otherwise this would clobber whatever the test set up
+        // (replay = 1 means the newest tryEmit always wins).
+        if (flow.replayCache.isEmpty()) {
+            val result = userProfileResult ?: Result.Success(fakeUser)
+            flow.tryEmit(result)
+        }
+        return flow
+    }
 
     /**
      * Test helper — pushes an additional emission onto the live getUserProfile()

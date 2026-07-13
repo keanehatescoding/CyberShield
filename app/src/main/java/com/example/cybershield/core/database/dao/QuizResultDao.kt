@@ -60,6 +60,22 @@ interface QuizResultDao {
         explanation: String,
     )
 
+    /**
+     * Marks a row synced after the server rejected it (e.g. its question was
+     * deleted server-side). We leave `isCorrect` NULL so the answer counts as
+     * neither correct nor graded-wrong, but the row no longer blocks the
+     * parent attempt from finalizing — otherwise the whole quiz session would
+     * never be scored and the user would lose all XP/certificate for it.
+     */
+    @Query(
+        """
+        UPDATE quiz_results
+        SET synced = 1
+        WHERE localId = :localId
+        """,
+    )
+    suspend fun markSyncFailed(localId: Long)
+
     @Query("SELECT * FROM quiz_results WHERE userId = :userId")
     suspend fun getResultsForUser(userId: String): List<QuizResultEntity>
 
