@@ -10,7 +10,9 @@ import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,7 +73,7 @@ class LeaderboardViewModelTest {
 
     @Test
     fun `loadLeaderboard emits loading then success with entries`() =
-        runTest {
+        runTest(testCoroutineRule.testDispatcher) {
             leaderboardRepository.getTopLeaderboardFlowProvider =
                 { flowOf(Result.Success(testEntries)) }
 
@@ -90,7 +92,7 @@ class LeaderboardViewModelTest {
 
     @Test
     fun `loadLeaderboard surfaces error message and keeps previous entries out of state`() =
-        runTest {
+        runTest(testCoroutineRule.testDispatcher) {
             leaderboardRepository.getTopLeaderboardFlowProvider = {
                 flowOf(Result.Error(Exception("permission denied")))
             }
@@ -106,20 +108,22 @@ class LeaderboardViewModelTest {
             }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `loadLeaderboard requests the default limit of 50`() =
-        runTest {
+        runTest(testCoroutineRule.testDispatcher) {
             leaderboardRepository.getTopLeaderboardFlowProvider =
                 { flowOf(Result.Success(testEntries)) }
 
             createViewModel()
+            advanceUntilIdle()
 
             assertEquals(listOf(50), leaderboardRepository.getTopLeaderboardCalls)
         }
 
     @Test
     fun `successive emissions from a real-time flow update state without re-triggering loading`() =
-        runTest {
+        runTest(testCoroutineRule.testDispatcher) {
             leaderboardRepository.getTopLeaderboardFlowProvider = {
                 flow {
                     emit(Result.Success(testEntries))

@@ -23,6 +23,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.joinAll
@@ -174,10 +175,26 @@ class QuizViewModelTest {
         runTest(coroutineRule.testDispatcher) {
             val questions = listOf(question(id = "q1"), question(id = "q2", order = 1))
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(questions))
+            // The per-question countdown timer keeps running in viewModelScope after this
+            // test's assertions finish; runTest's implicit end-of-test scheduler flush lets
+            // it tick down and auto-submit via processAnswer(-1, ...). Stub defensively so
+            // that doesn't blow up as an unstubbed strict-mock call.
+            coEvery {
+                submitAnswer(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            } returns Result.Success(null)
 
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 val state = awaitItem()
                 assertTrue(state is QuizUiState.Active)
                 val active = state as QuizUiState.Active
@@ -197,6 +214,7 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 val state = awaitItem()
                 assertTrue(state is QuizUiState.Error)
                 assertEquals("No questions found.", (state as QuizUiState.Error).message)
@@ -211,6 +229,7 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 val state = awaitItem()
                 assertTrue(state is QuizUiState.Error)
                 assertEquals("offline", (state as QuizUiState.Error).message)
@@ -221,13 +240,18 @@ class QuizViewModelTest {
     @Test
     fun `loadQuiz emits timeout Error state when flow never completes`() =
         runTest(coroutineRule.testDispatcher) {
-            // A flow that never emits simulates a hung/slow source.
-            coEvery { getQuiz(testQuizId) } returns flow { /* never emits */ }
+            // A flow that never emits simulates a hung/slow source. An empty flow{} body
+            // would complete immediately (nothing to suspend on) rather than hang, so
+            // withTimeoutOrNull would never actually time out; awaitCancellation() genuinely
+            // suspends until cancelled.
+            coEvery { getQuiz(testQuizId) } returns flow { awaitCancellation() }
 
             val viewModel = buildViewModel(loadTimeoutMs = QuizViewModel.LOAD_TIMEOUT_MS)
 
             viewModel.uiState.test {
                 advanceTimeBy((QuizViewModel.LOAD_TIMEOUT_MS + 100).milliseconds)
+                advanceUntilIdle()
+                awaitItem() // initial Loading placeholder, buffered before the timeout fires
                 val state = awaitItem()
                 assertTrue(state is QuizUiState.Error)
                 assertTrue((state as QuizUiState.Error).message.contains("longer than expected"))
@@ -261,6 +285,7 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 awaitItem() // initial Active state for q1
 
                 viewModel.selectAnswer(selectedIndex = 1)
@@ -298,6 +323,7 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 awaitItem() // initial Active state for q1
 
                 viewModel.selectAnswer(selectedIndex = 1)
@@ -330,7 +356,8 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
-                awaitItem()
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
+                awaitItem() // initial Active state for q1
                 viewModel.selectAnswer(selectedIndex = 0)
                 awaitItem() // awaiting-grade emission
 
@@ -409,7 +436,8 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
-                awaitItem()
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
+                awaitItem() // initial Active state for q1
                 viewModel.selectAnswer(selectedIndex = 1)
                 awaitItem() // awaiting-grade emission
 
@@ -465,7 +493,8 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
-                awaitItem()
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
+                awaitItem() // initial Active state for q1
                 viewModel.selectAnswer(0)
 
                 awaitItem() // immediate "answered" emission, saveFailed not yet known
@@ -738,9 +767,10 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 awaitItem() // q1 active, quizStartElapsed captured = 1_000L
 
-                fakeElapsed = 1_047_000L // 47 simulated seconds later, monotonic source only
+                fakeElapsed = 48_000L // 47 simulated seconds later, monotonic source only
 
                 viewModel.selectAnswer(0)
                 awaitItem()
@@ -781,9 +811,10 @@ class QuizViewModelTest {
             val viewModel = buildViewModel()
 
             viewModel.uiState.test {
+                awaitItem() // initial Loading placeholder, buffered before loadQuiz() runs
                 awaitItem() // quizStartElapsed = 500_000L
 
-                fakeElapsed = 500_010L // 10s later on the monotonic clock
+                fakeElapsed = 510_000L // 10s later on the monotonic clock
 
                 viewModel.selectAnswer(0)
                 awaitItem()

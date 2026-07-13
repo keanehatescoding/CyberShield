@@ -53,11 +53,9 @@ class QuizDaoTest : RoomDbTestBase() {
 
             val result = dao.getQuizzesForModule("module1").single()
 
-            // Note: "||" is the delimiter Converters uses internally, so an option containing
-            // "||" literally will NOT round-trip correctly — this assertion documents that gap
-            // rather than hiding it. If real quiz content might contain "||", Converters needs
-            // a safer delimiter or JSON serialization instead of joinToString.
-            assertEquals(listOf("Option A", "Option B", "with weird text", "Option C"), result.options)
+            // Converters now serializes/deserializes via kotlinx.serialization JSON rather than
+            // a "||"-joined string, so options containing "||" round-trip exactly as stored.
+            assertEquals(options, result.options)
         }
 
     @Test
