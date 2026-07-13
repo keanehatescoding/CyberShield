@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 15
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -39,6 +38,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Snyk to check for vulnerabilities
+        id: snyk
         if: ${{ env.SNYK_TOKEN != '' }}
         uses: snyk/actions/gradle-9-jdk21@master
         continue-on-error: true
@@ -51,8 +51,19 @@ jobs:
         if: ${{ env.SNYK_TOKEN == '' }}
         run: echo "::warning::SNYK_TOKEN secret is not set — add it in repo Settings > Secrets to enable scanning."
 
+      - name: Check sarif output exists
+        id: sarif_check
+        if: ${{ env.SNYK_TOKEN != '' && steps.snyk.outcome != 'skipped' }}
+        run: |
+          if [ -f snyk.sarif ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::snyk.sarif was not produced by the Snyk step (scan likely errored before writing output) — skipping upload."
+          fi
+
       - name: Upload result to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v4
-        if: ${{ env.SNYK_TOKEN != '' && always() }}
+        if: ${{ env.SNYK_TOKEN != '' && steps.sarif_check.outputs.found == 'true' }}
         with:
           sarif_file: snyk.sarif
