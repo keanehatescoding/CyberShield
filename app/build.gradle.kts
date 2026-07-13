@@ -24,12 +24,6 @@ android {
         testInstrumentationRunner =
             "com.example.cybershield.HiltTestRunner"
     }
-    testOptions {
-        unitTests.all {
-            it.failOnNoDiscoveredTests.set(false)
-        }
-    }
-
     signingConfigs {
         create("release") {
             val localPropsFile = rootProject.file("local.properties")
@@ -127,6 +121,49 @@ tasks.register<JacocoReport>("jacocoTestReport") {
             include("**/*.exec", "**/*.ec")
         }
     )
+}
+
+// Coverage floor for CI. Starts conservative (raise as suites grow) —
+// the point is to catch *regressions*, not to certify a target number.
+// Override locally with -PminCoverage=0.55 if you want to check a higher bar.
+val minCoverage: String by lazy {
+    (project.findProperty("minCoverage") as String?) ?: "0.40"
+}
+
+tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    description = "Fails the build if instruction coverage from unit tests drops below the floor."
+    dependsOn("jacocoTestReport")
+
+    val fileFilter = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
+        "**/*Test*.*", "android/**/*.*",
+        "**/*_Factory.*", "**/*_MembersInjector.*", "**/Hilt_*.*", "**/*_HiltModules*.*",
+        "**/di/**"
+    )
+    val mainSrcDir = layout.projectDirectory.dir("src/main/java")
+
+    sourceDirectories.setFrom(files(mainSrcDir))
+    classDirectories.setFrom(
+        layout.buildDirectory.asFileTree.matching {
+            include("tmp/kotlin-classes/debug/**")
+            exclude(fileFilter)
+        }
+    )
+    executionData.setFrom(
+        layout.buildDirectory.asFileTree.matching {
+            include("**/*.exec", "**/*.ec")
+        }
+    )
+
+    violationRules {
+        rule {
+            limit {
+                counter = "INSTRUCTION"
+                value = "COVEREDRATIO"
+                minimum = minCoverage.toBigDecimal()
+            }
+        }
+    }
 }
 
 dependencies {

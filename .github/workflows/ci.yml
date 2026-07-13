@@ -56,6 +56,9 @@ jobs:
       - name: Generate JaCoCo coverage report
         run: ./gradlew jacocoTestReport --stacktrace
 
+      - name: Enforce coverage floor
+        run: ./gradlew jacocoTestCoverageVerification --stacktrace
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7

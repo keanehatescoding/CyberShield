@@ -33,3 +33,23 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+
+  # npm dependencies for the Cloud Functions (functions/package.json)
+  - package-ecosystem: "npm"
+    directory: "/functions"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "functions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"

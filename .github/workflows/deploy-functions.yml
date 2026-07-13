@@ -51,6 +51,17 @@ jobs:
         working-directory: functions
         run: npm ci
 
+      # Defense in depth: functions-ci.yml already gates PRs, but this
+      # trigger also fires on a direct push to master, so lint/test run
+      # here too rather than trusting that a PR check happened first.
+      - name: ESLint
+        working-directory: functions
+        run: npm run lint
+
+      - name: Unit tests
+        working-directory: functions
+        run: npm run test
+
       - name: Build
         working-directory: functions
         run: npm run build
@@ -83,7 +94,7 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
         run: |
-          npx firebase-tools deploy \
+          npx --yes firebase-tools@15.23.0 deploy \
             --only functions,firestore:rules \
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
             --non-interactive

@@ -31,17 +31,26 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Required: the google-services Gradle plugin fails project
+      # evaluation without this file, which meant Snyk's dependency graph
+      # resolution errored out before it ever wrote a scan result.
+      - name: Write google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+
       - name: Write local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Pinned to the v1.0.0 tag's commit SHA (not @master) so a change
+      # upstream can't silently alter what runs in this job.
       - name: Run Snyk to check for vulnerabilities
         id: snyk
         if: ${{ env.SNYK_TOKEN != '' }}
-        uses: snyk/actions/gradle-9-jdk21@master
-        continue-on-error: true
+        uses: snyk/actions/gradle-9-jdk21@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           args: >
             --severity-threshold=high
@@ -51,9 +60,11 @@ jobs:
         if: ${{ env.SNYK_TOKEN == '' }}
         run: echo "::warning::SNYK_TOKEN secret is not set — add it in repo Settings > Secrets to enable scanning."
 
+      # always() so the SARIF still gets uploaded for visibility even
+      # though the scan step above is now allowed to fail the job.
       - name: Check sarif output exists
         id: sarif_check
-        if: ${{ env.SNYK_TOKEN != '' && steps.snyk.outcome != 'skipped' }}
+        if: ${{ always() && env.SNYK_TOKEN != '' && steps.snyk.outcome != 'skipped' }}
         run: |
           if [ -f snyk.sarif ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -64,6 +75,6 @@ jobs:
 
       - name: Upload result to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v4
-        if: ${{ env.SNYK_TOKEN != '' && steps.sarif_check.outputs.found == 'true' }}
+        if: ${{ always() && env.SNYK_TOKEN != '' && steps.sarif_check.outputs.found == 'true' }}
         with:
           sarif_file: snyk.sarif

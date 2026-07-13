@@ -7,7 +7,6 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -230,6 +229,5 @@ class FunctionsQuizDataSourceTest {
     @Test
     fun `validateAnswersBatch respects the MAX_BATCH_SIZE contract with the server`() {
         assertEquals(100, FunctionsQuizDataSource.MAX_BATCH_SIZE)
-        assertTrue(true)
     }
 }
