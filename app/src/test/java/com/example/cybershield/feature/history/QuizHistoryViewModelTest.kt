@@ -1,6 +1,8 @@
 package com.example.cybershield.feature.history
 
 import androidx.lifecycle.ViewModelStore
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.testing.asSnapshot
 import com.example.cybershield.core.domain.model.QuizResultHistoryItem
@@ -10,6 +12,7 @@ import com.example.cybershield.core.testing.fake.FakeQuizRepository
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -80,13 +83,27 @@ class QuizHistoryViewModelTest {
             getCurrentSession = getCurrentSession,
         )
 
+    // cachedIn(viewModelScope) wraps the flow in a perpetual, non-completing shared flow, so
+    // asSnapshot() can't rely on the flow itself completing to know loading is done — it needs
+    // explicit terminal LoadStates. Without this, PagingData.from(list) alone (no LoadStates)
+    // leaves asSnapshot() waiting forever on a flow that never completes.
+    // See: https://developer.android.com/jetpack/androidx/releases/paging (asSnapshot +
+    // PagingData.from(List) hang, non-completable-flow workaround).
+    private val fullyLoadedStates =
+        LoadStates(
+            refresh = LoadState.NotLoading(endOfPaginationReached = true),
+            prepend = LoadState.NotLoading(endOfPaginationReached = true),
+            append = LoadState.NotLoading(endOfPaginationReached = true),
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `historyPaged emits repository data for the signed-in user`() =
         runTest(testCoroutineRule.testDispatcher) {
             signedInSession()
             quizRepository.quizResultHistoryProvider = { uid ->
                 assertEquals(testUid, uid)
-                flowOf(PagingData.from(testHistory))
+                flowOf(PagingData.from(testHistory, sourceLoadStates = fullyLoadedStates))
             }
 
             val viewModel = createViewModel()
