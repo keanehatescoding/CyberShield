@@ -7,6 +7,7 @@ import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.QuizResult
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.QuizScoring
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.firebase.BatchAnswerResult
@@ -17,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -40,6 +42,7 @@ class QuizRepositoryImplTest {
     private lateinit var quizDao: QuizDao
     private lateinit var quizAttemptDao: QuizAttemptDao
     private lateinit var resultDao: QuizResultDao
+    private lateinit var crashReporter: CrashReporter
     private lateinit var repository: QuizRepositoryImpl
 
     @Before
@@ -49,8 +52,9 @@ class QuizRepositoryImplTest {
         quizDao = mockk()
         quizAttemptDao = mockk()
         resultDao = mockk()
+        crashReporter = mockk(relaxed = true)
         repository =
-            QuizRepositoryImpl(remoteSource, functionsSource, quizDao, quizAttemptDao, resultDao)
+            QuizRepositoryImpl(remoteSource, functionsSource, quizDao, quizAttemptDao, resultDao, crashReporter)
     }
 
     private fun fakeEntity(
@@ -504,5 +508,27 @@ class QuizRepositoryImplTest {
                     passed = false,
                 )
             }
+        }
+
+    @Test
+    fun `getPassMark returns the remote value on success`() =
+        runTest {
+            coEvery { remoteSource.getPassMark("quiz1") } returns 80
+
+            val result = repository.getPassMark("quiz1")
+
+            assertEquals(Result.Success(80), result)
+        }
+
+    @Test
+    fun `getPassMark falls back to QuizScoring PASS_PERCENTAGE and records the exception on failure`() =
+        runTest {
+            val boom = RuntimeException("firestore unavailable")
+            coEvery { remoteSource.getPassMark("quiz1") } throws boom
+
+            val result = repository.getPassMark("quiz1")
+
+            assertEquals(Result.Success(QuizScoring.PASS_PERCENTAGE), result)
+            verify { crashReporter.recordException(boom, mapOf("quizId" to "quiz1")) }
         }
 }

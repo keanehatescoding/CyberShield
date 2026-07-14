@@ -1,6 +1,5 @@
 package com.example.cybershield.core.data.repository
 
-import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.ModuleCompleteResult
 import com.example.cybershield.core.domain.repository.UserRepository
@@ -76,11 +75,8 @@ constructor(
                     "email" to email,
                     "photoUrl" to photoUrl,
                     "lastSignedInAt" to FieldValue.serverTimestamp(),
-                    //"xp" to 0,
                     "level" to 1,
-                    //"badges" to emptyList<String>(),
                     "completedQuizzes" to emptyList<String>(),
-                    //"completedModules" to emptyList<String>(),
                     "createdAt" to FieldValue.serverTimestamp(),
                 )
             remoteSource.userDoc(uid).set(profile).await()
@@ -170,25 +166,4 @@ constructor(
             Result.Success(Unit)
         }
 
-    override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
-        resultOf {
-            val data =
-                mapOf(
-                    "id" to certificate.id,
-                    "userId" to certificate.userId,
-                    "userName" to certificate.userName,
-                    "moduleId" to certificate.moduleId,
-                    "moduleName" to certificate.moduleName,
-                    "quizTitle" to certificate.quizTitle,
-                    "score" to certificate.score,
-                    "issuedAt" to certificate.issuedAt,
-                )
-            remoteSource
-                .userDoc(certificate.userId)
-                .collection("certificates")
-                .document(certificate.id)
-                .set(data)
-                .await()
-            Result.Success(Unit)
-        }
 }

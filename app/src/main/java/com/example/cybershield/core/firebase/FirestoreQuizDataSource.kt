@@ -1,6 +1,7 @@
 package com.example.cybershield.core.firebase
 
 import com.example.cybershield.core.domain.model.Question
+import com.example.cybershield.core.domain.util.QuizScoring
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -51,5 +52,5 @@ class FirestoreQuizDataSource
                 .get()
                 .await()
                 .getLong("passMark")
-                ?.toInt() ?: 70
+                ?.toInt() ?: QuizScoring.PASS_PERCENTAGE
     }

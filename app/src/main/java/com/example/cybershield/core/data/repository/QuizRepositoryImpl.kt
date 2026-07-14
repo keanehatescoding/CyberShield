@@ -17,6 +17,7 @@ import com.example.cybershield.core.domain.model.QuizResultHistoryItem
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.QuizScoring
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
@@ -41,6 +42,7 @@ constructor(
     private val quizDao: QuizDao,
     private val quizAttemptDao: QuizAttemptDao,
     private val resultDao: QuizResultDao,
+    private val crashReporter: CrashReporter,
 ) : QuizRepository {
     override suspend fun getQuizzesForModule(quizId: String): Flow<Result<List<Question>>> =
         flow {
@@ -78,8 +80,12 @@ constructor(
                 Result.Success(remoteSource.getPassMark(quizId))
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                Result.Success(70) // safe default — not an error worth surfacing
+            } catch (e: Exception) {
+                // Falling back rather than surfacing an error keeps the quiz
+                // usable offline/on a flaky connection, but a fetch failure
+                // still deserves a signal — record it instead of dropping it.
+                crashReporter.recordException(e, mapOf("quizId" to quizId))
+                Result.Success(QuizScoring.PASS_PERCENTAGE) // safe default, kept in sync with the server's PASS_PERCENTAGE
             }
         }
 

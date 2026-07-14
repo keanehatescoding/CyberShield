@@ -72,8 +72,12 @@ android {
         buildConfig = true
     }
 }
+// Mapping files only carry value for minified (release) builds — debug is
+// never obfuscated, so uploading its "mapping" is pure waste: an extra
+// network call to Firebase on every debug build for a file with nothing to
+// deobfuscate, which is also mildly annoying for offline/local development.
 tasks.configureEach {
-    if (name.contains("uploadCrashlyticsMappingFile")) {
+    if (name == "uploadCrashlyticsMappingFileRelease") {
         enabled = true
     }
 }
@@ -209,6 +213,7 @@ dependencies {
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.coroutines)
+    implementation(libs.firebase.crashlytics)
 
     // ── Google Sign-In (Credential Manager) ───────────────────────────
     implementation(libs.credentials)

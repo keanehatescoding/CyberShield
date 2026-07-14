@@ -1,6 +1,7 @@
 package com.example.cybershield.core.firebase.di
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestoreSettings
 import com.google.firebase.firestore.persistentCacheSettings
@@ -56,4 +57,9 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseFunctions(): FirebaseFunctions = FirebaseFunctions.getInstance()
+
+    // ── Crashlytics ────────────────────────────────────────────────────
+    @Provides
+    @Singleton
+    fun provideFirebaseCrashlytics(): FirebaseCrashlytics = FirebaseCrashlytics.getInstance()
 }

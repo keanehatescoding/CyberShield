@@ -3,6 +3,7 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.dataOrNull
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
@@ -34,6 +35,7 @@ class FinalizeQuizAttemptsUseCase
     constructor(
         private val quizRepository: QuizRepository,
         private val userRepository: UserRepository,
+        private val crashReporter: CrashReporter,
     ) {
         suspend operator fun invoke() {
             val readyAttempts = quizRepository.getAttemptsReadyToFinalize()
@@ -45,7 +47,9 @@ class FinalizeQuizAttemptsUseCase
                     throw e
                 } catch (e: Exception) {
                     // Don't let one bad attempt take down the rest of this batch —
-                    // it simply stays provisional and gets retried next pass.
+                    // it simply stays provisional and gets retried next pass. Still
+                    // record it so a systemic failure doesn't go unnoticed forever.
+                    crashReporter.recordException(e, mapOf("resultId" to attempt.resultId))
                 }
             }
         }

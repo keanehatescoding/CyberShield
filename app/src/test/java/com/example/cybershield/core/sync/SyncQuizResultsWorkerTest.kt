@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.Result as DomainResult
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,6 +31,7 @@ class SyncQuizResultsWorkerTest {
     private lateinit var quizRepository: QuizRepository
     private lateinit var finalizeQuizAttempts: FinalizeQuizAttemptsUseCase
     private lateinit var networkMonitor: NetworkMonitor
+    private lateinit var crashReporter: CrashReporter
     private lateinit var context: Context
 
     @Before
@@ -37,6 +40,7 @@ class SyncQuizResultsWorkerTest {
         quizRepository = mockk()
         finalizeQuizAttempts = mockk()
         networkMonitor = mockk()
+        crashReporter = mockk(relaxed = true)
     }
 
     @Test
@@ -74,12 +78,15 @@ class SyncQuizResultsWorkerTest {
             // succeeds. A failure here should not undo a successful sync.
             every { networkMonitor.isCurrentlyOnline() } returns true
             coEvery { quizRepository.syncPendingResults() } returns DomainResult.Success(Unit)
-            coEvery { finalizeQuizAttempts() } throws RuntimeException("certificate generation blew up")
+            val boom = RuntimeException("certificate generation blew up")
+            coEvery { finalizeQuizAttempts() } throws boom
 
             val worker = directConstruct(runAttemptCount = 0)
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Success)
+            // ...but it shouldn't vanish silently either.
+            verify(exactly = 1) { crashReporter.recordException(boom) }
         }
 
     @Test
@@ -130,6 +137,7 @@ class SyncQuizResultsWorkerTest {
             quizRepository = quizRepository,
             finalizeQuizAttempts = finalizeQuizAttempts,
             networkMonitor = networkMonitor,
+            crashReporter = crashReporter,
         )
     }
 }

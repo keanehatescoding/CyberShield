@@ -13,6 +13,7 @@ import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
+import com.example.cybershield.core.domain.util.CrashReporter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -27,6 +28,7 @@ constructor(
     private val quizRepository: QuizRepository,
     private val finalizeQuizAttempts: FinalizeQuizAttemptsUseCase,
     private val networkMonitor: NetworkMonitor,
+    private val crashReporter: CrashReporter,
 ) : CoroutineWorker(context, workerParams) {
     override suspend fun doWork(): Result {
         // Guard — don't attempt if offline
@@ -48,6 +50,10 @@ constructor(
                 } catch (e: Exception) {
                     // Swallow — see comment above. The answers themselves are
                     // safely synced regardless of whether finalization ran.
+                    // Still record it, so a systemic finalization failure
+                    // (e.g. every callable invocation erroring) doesn't
+                    // silently persist forever with no signal.
+                    crashReporter.recordException(e)
                 }
                 Result.success()
             }
@@ -59,7 +65,7 @@ constructor(
                 // the rows are unsyncable, only that this chain gave up on them.
                 // Whether they ever get synced depends entirely on something else
                 // enqueueing this worker again later, which is what
-                // schedulePeriodicSync() below guarantees.
+                // SyncModule.schedulePeriodic() guarantees.
                 if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
             }
 

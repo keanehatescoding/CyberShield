@@ -1,6 +1,5 @@
 package com.example.cybershield.core.domain.repository
 
-import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -63,8 +62,6 @@ interface UserRepository {
 
     /** Updates last sign-in timestamp. */
     suspend fun updateLastSignedIn(uid: String): Result<Unit>
-
-    suspend fun saveCertificate(certificate: Certificate): Result<Unit>
 }
 
 /** Server-computed outcome of [UserRepository.completeModule]. */

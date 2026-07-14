@@ -4,10 +4,12 @@ import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.Result
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -15,6 +17,7 @@ import org.junit.Test
 class FinalizeQuizAttemptsUseCaseTest {
     private lateinit var quizRepository: QuizRepository
     private lateinit var userRepository: UserRepository
+    private lateinit var crashReporter: CrashReporter
     private lateinit var useCase: FinalizeQuizAttemptsUseCase
 
     private fun readyAttempt(
@@ -63,7 +66,8 @@ class FinalizeQuizAttemptsUseCaseTest {
     fun setUp() {
         quizRepository = mockk(relaxed = true)
         userRepository = mockk(relaxed = true)
-        useCase = FinalizeQuizAttemptsUseCase(quizRepository, userRepository)
+        crashReporter = mockk(relaxed = true)
+        useCase = FinalizeQuizAttemptsUseCase(quizRepository, userRepository, crashReporter)
     }
 
     @Test
@@ -97,7 +101,6 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             // The certificate + CyberDefender badge + XP are now all issued by the
             // server, never locally — verify nothing on the client writes them.
-            coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
             coVerify { userRepository.markQuizCompleted("user1", "quiz1") }
             coVerify {
                 quizRepository.finalizeAttempt(
@@ -256,7 +259,21 @@ class FinalizeQuizAttemptsUseCaseTest {
                     passed = false
                 )
             }
-            // Neither attempt's badge/certificate is written by the client.
-            coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
+        }
+
+    @Test
+    fun `records swallowed exception to crash reporter with the resultId`() =
+        runTest {
+            val attempt = readyAttempt(resultId = "result-1")
+            coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
+            stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100, xpEarned = 40)
+            val boom = RuntimeException("markQuizCompleted blew up")
+            coEvery { userRepository.markQuizCompleted(any(), any()) } throws boom
+
+            useCase()
+
+            verify(exactly = 1) {
+                crashReporter.recordException(boom, mapOf("resultId" to "result-1"))
+            }
         }
 }

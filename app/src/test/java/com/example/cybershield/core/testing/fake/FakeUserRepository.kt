@@ -1,6 +1,5 @@
 package com.example.cybershield.core.testing.fake
 
-import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.ModuleCompleteResult
 import com.example.cybershield.core.domain.repository.UserRepository
@@ -16,7 +15,6 @@ class FakeUserRepository : UserRepository {
             displayName = "Test User",
             email = "test@cybershield.com",
         )
-    val savedCertificates = mutableListOf<Certificate>()
     val completedQuizIds = mutableListOf<String>()
     val completedModuleIds = mutableListOf<String>()
 
@@ -170,12 +168,4 @@ class FakeUserRepository : UserRepository {
     ): Result<Unit> = Result.Success(Unit)
 
     override suspend fun updateLastSignedIn(uid: String): Result<Unit> = Result.Success(Unit)
-
-    override suspend fun saveCertificate(certificate: Certificate): Result<Unit> =
-        try {
-            savedCertificates.add(certificate)
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(e)
-        }
 }
