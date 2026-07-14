@@ -7,7 +7,7 @@ import { assertValidAnswerInput, gradeAnswer, writeGradedResult, finalizeQuizAtt
 import { completeModule } from "./modules";
 
 initializeApp();
-setGlobalOptions({ region: "us-central1", maxInstances: 20 });
+setGlobalOptions({ region: "me-central1", maxInstances: 20 });
 
 /**
  * Creates the public-safe `leaderboard/{uid}` mirror the moment a
