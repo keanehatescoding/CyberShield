@@ -32,29 +32,28 @@ interface UserRepository {
         photoUrl: String? = null,
     ): Result<Unit>
 
-    /** Atomically adds XP — uses FieldValue.increment server-side. */
-    suspend fun addXp(
-        uid: String,
-        points: Int,
-    ): Result<Unit>
-
-    /** Awards a badge — uses FieldValue.arrayUnion, idempotent. */
-    suspend fun awardBadge(
-        uid: String,
-        badge: String,
-    ): Result<Unit>
-
     /** Marks a quiz as completed. */
     suspend fun markQuizCompleted(
         uid: String,
         quizId: String,
     ): Result<Unit>
 
-    /** Marks a module as completed. */
-    suspend fun markModuleCompleted(
+    /**
+     * Server-authoritative module completion: marks the module completed
+     * and awards its xpReward atomically via the completeModuleFn callable.
+     *
+     * This replaces the old markModuleCompleted() + addXp() pair. Those were
+     * plain client Firestore writes gated only by `auth.uid == userId` —
+     * nothing validated that the `points` passed to addXp actually matched
+     * a real module's xpReward, so any authenticated client could award
+     * itself arbitrary XP (and, via the old client-writable leaderboard
+     * mirror, top the public leaderboard with it). The client never writes
+     * xp or completedModules directly anymore — see firestore.rules.
+     */
+    suspend fun completeModule(
         uid: String,
         moduleId: String,
-    ): Result<Unit>
+    ): Result<ModuleCompleteResult>
 
     /** Saves the FCM token for push notifications. */
     suspend fun updateFcmToken(
@@ -67,3 +66,9 @@ interface UserRepository {
 
     suspend fun saveCertificate(certificate: Certificate): Result<Unit>
 }
+
+/** Server-computed outcome of [UserRepository.completeModule]. */
+data class ModuleCompleteResult(
+    val alreadyCompleted: Boolean,
+    val xpEarned: Int,
+)

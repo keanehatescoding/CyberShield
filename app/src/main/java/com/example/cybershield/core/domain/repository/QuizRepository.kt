@@ -114,5 +114,11 @@ data class QuizFinalizeResult(
     val score: Int,
     val correctCount: Int,
     val percentage: Int,
+    /**
+     * XP awarded for this attempt, computed and applied server-side by
+     * finalizeQuizAttemptFn. The client must not separately increment xp —
+     * see UserRepository kdoc for why that used to be forgeable.
+     */
+    val xpEarned: Int = 0,
     val alreadyFinalized: Boolean = false,
 )

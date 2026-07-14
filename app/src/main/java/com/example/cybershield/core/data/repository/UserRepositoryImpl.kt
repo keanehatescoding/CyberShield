@@ -2,18 +2,22 @@ package com.example.cybershield.core.data.repository
 
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
+import com.example.cybershield.core.domain.repository.ModuleCompleteResult
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.domain.util.resultOf
 import com.example.cybershield.core.firebase.FirestoreUserDataSource
+import com.example.cybershield.core.firebase.FunctionsModuleDataSource
 import com.example.cybershield.core.firebase.model.UserDto
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.toObject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,6 +26,7 @@ class UserRepositoryImpl
 @Inject
 constructor(
     private val remoteSource: FirestoreUserDataSource,
+    private val functionsModuleDataSource: FunctionsModuleDataSource,
 ) : UserRepository {
     override fun getUserProfile(uid: String): Flow<Result<User>> =
         callbackFlow {
@@ -80,15 +85,11 @@ constructor(
                 )
             remoteSource.userDoc(uid).set(profile).await()
 
-            // Mirror only the public-safe fields into `leaderboard/{uid}` —
-            // never email/photoUrl/fcmToken. See leaderboardDoc() kdoc.
-            val leaderboardProfile =
-                mapOf(
-                    "displayName" to displayName,
-                    "xp" to 0,
-                    "badges" to emptyList<String>(),
-                )
-            remoteSource.leaderboardDoc(uid).set(leaderboardProfile).await()
+            // leaderboard/{uid} is no longer written from the client — the
+            // onUserProfileCreated Cloud Function trigger mirrors
+            // displayName/xp:0/badges:[] the moment this users/{uid} doc is
+            // created. See firestore.rules for why: leaderboard is
+            // client-read-only now.
 
             Result.Success(Unit)
         }
@@ -113,62 +114,23 @@ constructor(
             // if exists — never overwrites xp, badges, completedQuizzes
             remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
 
-            // Mirror displayName only — mirrors the "users" doc behavior above:
-            // xp/badges are deliberately NOT in this map, so a merge on a returning
-            // user's leaderboard doc leaves their existing xp/badges untouched. If
-            // the doc doesn't exist yet, xp/badges will simply be absent until the
-            // first addXp()/awardBadge() call; getTopLeaderboard() already falls
-            // back to 0/empty for missing fields.
-            val leaderboardProfile = mapOf("displayName" to displayName)
-            remoteSource.leaderboardDoc(uid).set(leaderboardProfile, SetOptions.merge()).await()
+            // leaderboard/{uid} is no longer written from the client. For a
+            // genuinely new user this users/{uid} doc creation fires
+            // onUserProfileCreated, which mirrors displayName there. For a
+            // returning user the doc already exists (merge = update, not
+            // create), so no trigger fires and their existing leaderboard
+            // entry is correctly left untouched.
 
             Result.Success(Unit)
         }
 
-    // ── Add XP atomically ──────────────────────────────────────────────
-    override suspend fun addXp(
+    // ── Complete a module + award its xpReward (server-side) ───────────
+    override suspend fun completeModule(
         uid: String,
-        points: Int,
-    ): Result<Unit> =
-        resultOf {
-            remoteSource
-                .userDoc(uid)
-                .update(
-                    "xp",
-                    FieldValue.increment(points.toLong()),
-                ).await()
-            // Same increment, same value, on the public mirror — keeps
-            // leaderboard/{uid}.xp consistent with users/{uid}.xp.
-            remoteSource
-                .leaderboardDoc(uid)
-                .set(
-                    mapOf("xp" to FieldValue.increment(points.toLong())),
-                    SetOptions.merge(),
-                ).await()
-            Result.Success(Unit)
-        }
-
-    // ── Award badge (idempotent) ───────────────────────────────────────
-    override suspend fun awardBadge(
-        uid: String,
-        badge: String,
-    ): Result<Unit> =
-        resultOf {
-            remoteSource
-                .userDoc(uid)
-                .update(
-                    "badges",
-                    FieldValue.arrayUnion(badge),
-                ).await()
-            // Mirror onto the public leaderboard doc — LeaderboardScreen shows
-            // a badge count per entry, so this needs to stay in sync too.
-            remoteSource
-                .leaderboardDoc(uid)
-                .set(
-                    mapOf("badges" to FieldValue.arrayUnion(badge)),
-                    SetOptions.merge(),
-                ).await()
-            Result.Success(Unit)
+        moduleId: String,
+    ): Result<ModuleCompleteResult> =
+        withContext(Dispatchers.IO) {
+            functionsModuleDataSource.completeModule(moduleId)
         }
 
     // ── Mark quiz completed ────────────────────────────────────────────
@@ -182,21 +144,6 @@ constructor(
                 .update(
                     "completedQuizzes",
                     FieldValue.arrayUnion(quizId),
-                ).await()
-            Result.Success(Unit)
-        }
-
-    // ── Mark module completed ──────────────────────────────────────────
-    override suspend fun markModuleCompleted(
-        uid: String,
-        moduleId: String,
-    ): Result<Unit> =
-        resultOf {
-            remoteSource
-                .userDoc(uid)
-                .update(
-                    "completedModules",
-                    FieldValue.arrayUnion(moduleId),
                 ).await()
             Result.Success(Unit)
         }

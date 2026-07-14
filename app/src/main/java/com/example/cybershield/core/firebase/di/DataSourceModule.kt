@@ -2,6 +2,7 @@ package com.example.cybershield.core.firebase.di
 
 import com.example.cybershield.core.firebase.FirestoreQuizDataSource
 import com.example.cybershield.core.firebase.FirestoreUserDataSource
+import com.example.cybershield.core.firebase.FunctionsModuleDataSource
 import com.example.cybershield.core.firebase.FunctionsQuizDataSource
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
@@ -25,4 +26,8 @@ object DataSourceModule {
     @Provides
     @Singleton
     fun provideFunctionsQuizDataSource(functions: FirebaseFunctions): FunctionsQuizDataSource = FunctionsQuizDataSource(functions)
+
+    @Provides
+    @Singleton
+    fun provideFunctionsModuleDataSource(functions: FirebaseFunctions): FunctionsModuleDataSource = FunctionsModuleDataSource(functions)
 }

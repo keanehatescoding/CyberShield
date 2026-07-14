@@ -17,8 +17,10 @@ constructor(
 ) {
     /**
      * Reads from the `leaderboard` collection — a mirror of only the
-     * public-safe fields (displayName, xp, badges), kept in sync by
-     * UserRepositoryImpl whenever xp/badges/displayName change.
+     * public-safe fields (displayName, xp, badges). Created by the
+     * onUserProfileCreated trigger and kept in sync only by
+     * finalizeQuizAttemptFn / completeModuleFn (Admin SDK writes); the
+     * client is read-only here (see firestore.rules).
      *
      * Deliberately NOT the `users` collection: that document also holds
      * email, fcmToken, photoUrl, completedQuizzes, etc., all of which

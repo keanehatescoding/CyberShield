@@ -12,14 +12,15 @@ import javax.inject.Inject
  * answers. For every attempt that was left provisional (see QuizViewModel /
  * QuizResult.provisional), checks whether every answer in it now has a
  * server verdict; if so, asks the server to finalize the attempt — which
- * recomputes the score from the verified quizResults and issues the
- * certificate + CyberDefender badge — then awards XP and marks the quiz
- * completed locally and flips the attempt to final.
+ * recomputes the score from the verified quizResults, awards XP, and (if
+ * passed) issues the certificate + CyberDefender badge — then marks the
+ * quiz completed locally and flips the attempt to final.
  *
- * The certificate and badge are issued *only* by the server (the
- * finalizeQuizAttempt callable); this use case never writes them, so they
- * cannot be forged by a malicious client. The callable is idempotent, so a
- * retried pass never double-issues them.
+ * XP, the certificate, and the badge are issued *only* by the server (the
+ * finalizeQuizAttempt callable); this use case never writes any of them
+ * itself, so none can be forged by a malicious client. The callable is
+ * idempotent (see finalizeQuizAttempt's quizAttempts marker doc), so a
+ * retried pass never double-awards or double-issues.
  *
  * This deliberately mirrors QuizViewModel.finishQuiz's reward logic rather
  * than sharing code with it: that method runs at quiz-completion time with
@@ -32,7 +33,6 @@ class FinalizeQuizAttemptsUseCase
     @Inject
     constructor(
         private val quizRepository: QuizRepository,
-        private val awardXp: AwardXpUseCase,
         private val userRepository: UserRepository,
     ) {
         suspend operator fun invoke() {
@@ -51,26 +51,15 @@ class FinalizeQuizAttemptsUseCase
         }
 
         private suspend fun processAttempt(attempt: ReadyToFinalizeAttempt) {
-            // Server recomputes the score from the verified quizResults and
-            // issues the certificate + CyberDefender badge. Idempotent, so a
-            // retried pass never double-issues. If it fails, leave the attempt
-            // provisional and retry later — do NOT award XP yet, because addXp
-            // is an increment that is not itself idempotent.
+            // Server recomputes the score from the verified quizResults,
+            // awards XP, and (if passed) issues the certificate +
+            // CyberDefender badge — all atomically and idempotently (see
+            // finalizeQuizAttempt's quizAttempts marker doc). If it fails,
+            // leave the attempt provisional and retry later.
             val finalize = quizRepository.finalizeQuizAttemptServer(attempt.resultId)
             val fr = finalize.dataOrNull ?: return
+            val xpEarned = fr.xpEarned
 
-            val xpResult =
-                awardXp(
-                    userId = attempt.userId,
-                    correctCount = fr.correctCount,
-                    totalCount = attempt.totalQuestions,
-                )
-            val xpEarned = xpResult.dataOrNull ?: return
-
-            // XP has now landed remotely. Retrying awardXp on a future pass would
-            // double-increment it, so from this point on we must finalize this
-            // attempt no matter what happens below — otherwise it would stay
-            // provisional forever and get double-awarded XP next sync.
             userRepository.markQuizCompleted(attempt.userId, attempt.quizId)
 
             // The certificate/badge were already issued by the server above; we

@@ -14,7 +14,6 @@ import org.junit.Test
 
 class FinalizeQuizAttemptsUseCaseTest {
     private lateinit var quizRepository: QuizRepository
-    private lateinit var awardXp: AwardXpUseCase
     private lateinit var userRepository: UserRepository
     private lateinit var useCase: FinalizeQuizAttemptsUseCase
 
@@ -37,12 +36,16 @@ class FinalizeQuizAttemptsUseCaseTest {
         correctCount = correctCount,
     )
 
+    // xpEarned is now part of the server's finalize response — it's computed
+    // and applied atomically alongside the score/correctCount/percentage
+    // recompute, not via a separate client-side awardXp call/write.
     private fun stubFinalize(
         resultId: String,
         passed: Boolean,
         score: Int,
         correctCount: Int,
         percentage: Int,
+        xpEarned: Int,
     ) {
         coEvery { quizRepository.finalizeQuizAttemptServer(resultId) } returns
                 Result.Success(
@@ -50,7 +53,8 @@ class FinalizeQuizAttemptsUseCaseTest {
                         passed = passed,
                         score = score,
                         correctCount = correctCount,
-                        percentage = percentage
+                        percentage = percentage,
+                        xpEarned = xpEarned,
                     )
                 )
     }
@@ -58,9 +62,8 @@ class FinalizeQuizAttemptsUseCaseTest {
     @Before
     fun setUp() {
         quizRepository = mockk(relaxed = true)
-        awardXp = mockk()
         userRepository = mockk(relaxed = true)
-        useCase = FinalizeQuizAttemptsUseCase(quizRepository, awardXp, userRepository)
+        useCase = FinalizeQuizAttemptsUseCase(quizRepository, userRepository)
     }
 
     @Test
@@ -71,7 +74,6 @@ class FinalizeQuizAttemptsUseCaseTest {
             useCase()
 
             coVerify(exactly = 0) { quizRepository.finalizeQuizAttemptServer(any()) }
-            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
             coVerify(exactly = 0) {
                 quizRepository.finalizeAttempt(
                     any(),
@@ -85,18 +87,16 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
-    fun `asks server to issue cert+badge for a passing attempt, then awards XP and finalizes`() =
+    fun `asks server to issue cert+badge and award XP for a passing attempt, then finalizes`() =
         runTest {
             val attempt = readyAttempt(correctCount = 4, totalQuestions = 4) // 100%
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100)
-            coEvery { awardXp("user1", 4, 4) } returns Result.Success(40)
+            stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100, xpEarned = 40)
 
             useCase()
 
-            // The certificate + CyberDefender badge are now issued by the server,
-            // never locally — verify nothing on the client writes them.
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
+            // The certificate + CyberDefender badge + XP are now all issued by the
+            // server, never locally — verify nothing on the client writes them.
             coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
             coVerify { userRepository.markQuizCompleted("user1", "quiz1") }
             coVerify {
@@ -112,16 +112,14 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
-    fun `does not award XP or finalize for a failing attempt, but still asks server to finalize`() =
+    fun `still awards XP and finalizes a failing attempt (no cert or badge)`() =
         runTest {
             val attempt = readyAttempt(correctCount = 1, totalQuestions = 4, score = 100) // 25%
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            stubFinalize("result-1", passed = false, score = 100, correctCount = 1, percentage = 25)
-            coEvery { awardXp("user1", 1, 4) } returns Result.Success(10)
+            stubFinalize("result-1", passed = false, score = 100, correctCount = 1, percentage = 25, xpEarned = 10)
 
             useCase()
 
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
             coVerify {
                 quizRepository.finalizeAttempt(
                     resultId = "result-1",
@@ -147,40 +145,6 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             // A failed server finalize must NOT award XP or finalize — leave the
             // attempt provisional so it is retried next pass.
-            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
-            coVerify(exactly = 0) {
-                quizRepository.finalizeAttempt(
-                    any(),
-                    any(),
-                    any(),
-                    any(),
-                    any(),
-                    any()
-                )
-            }
-            coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
-        }
-
-    @Test
-    fun `leaves attempt provisional for retry when awardXp fails, instead of finalizing with zero xp`() =
-        runTest {
-            val attempt = readyAttempt(correctCount = 1, totalQuestions = 4, score = 100)
-            coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            stubFinalize("result-1", passed = false, score = 100, correctCount = 1, percentage = 25)
-            coEvery {
-                awardXp(
-                    any(),
-                    any(),
-                    any()
-                )
-            } returns Result.Error(RuntimeException("write failed"))
-
-            useCase()
-
-            // A failed awardXp must NOT finalize the attempt — finalizeAttempt flips
-            // provisional to false and this attempt is never revisited. Finalizing here
-            // with a fabricated xpEarned = 0 would permanently and silently under-reward
-            // the user. It should simply stay provisional for the next sync pass.
             coVerify(exactly = 0) {
                 quizRepository.finalizeAttempt(
                     any(),
@@ -219,9 +183,9 @@ class FinalizeQuizAttemptsUseCaseTest {
                 passed = true,
                 score = 400,
                 correctCount = 4,
-                percentage = 100
+                percentage = 100,
+                xpEarned = 40,
             )
-            coEvery { awardXp("user2", 4, 4) } returns Result.Success(40)
 
             useCase()
 
@@ -265,10 +229,10 @@ class FinalizeQuizAttemptsUseCaseTest {
                 passed = true,
                 score = 400,
                 correctCount = 4,
-                percentage = 100
+                percentage = 100,
+                xpEarned = 40,
             )
-            stubFinalize("result-fail", passed = false, score = 0, correctCount = 0, percentage = 0)
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
+            stubFinalize("result-fail", passed = false, score = 0, correctCount = 0, percentage = 0, xpEarned = 0)
 
             useCase()
 
@@ -293,7 +257,6 @@ class FinalizeQuizAttemptsUseCaseTest {
                 )
             }
             // Neither attempt's badge/certificate is written by the client.
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
             coVerify(exactly = 0) { userRepository.saveCertificate(any()) }
         }
 }

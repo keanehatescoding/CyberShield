@@ -149,6 +149,7 @@ class FunctionsQuizDataSource
                         score = (data["score"] as Number).toInt(),
                         correctCount = (data["correctCount"] as Number).toInt(),
                         percentage = (data["percentage"] as Number).toInt(),
+                        xpEarned = (data["xpEarned"] as? Number)?.toInt() ?: 0,
                         alreadyFinalized = data["alreadyFinalized"] as? Boolean ?: false,
                     ),
                 )

@@ -119,10 +119,14 @@ class ModuleViewModel
         fun onVideoCompleted() {
             if (uid.isBlank()) return
             viewModelScope.launch {
-                val module = _uiState.value.module ?: return@launch
+                _uiState.value.module ?: return@launch
                 if (!_uiState.value.isAlreadyCompleted) {
-                    userRepository.markModuleCompleted(uid, moduleId)
-                    userRepository.addXp(uid, module.xpReward)
+                    // Server-side: marks completedModules and awards xpReward
+                    // atomically (and idempotently) via completeModuleFn. See
+                    // UserRepository.completeModule kdoc — this used to be two
+                    // separate client writes, one of which (addXp) let a
+                    // malicious client award itself arbitrary XP.
+                    userRepository.completeModule(uid, moduleId)
                     _uiState.update {
                         it.copy(
                             showCompletionDialog = true,

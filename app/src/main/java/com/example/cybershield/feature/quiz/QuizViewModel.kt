@@ -8,7 +8,6 @@ import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
-import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
@@ -40,7 +39,6 @@ class QuizViewModel
 constructor(
     private val getQuiz: GetQuizUseCase,
     private val submitAnswer: SubmitAnswerUseCase,
-    private val awardXp: AwardXpUseCase,
     private val userRepository: UserRepository,
     private val quizRepository: QuizRepository,
     private val getCurrentSession: GetCurrentSessionUseCase,
@@ -323,26 +321,23 @@ constructor(
             // SyncQuizResultsWorker confirms every answer has synced.
             val xpEarned =
                 if (uid.isNotBlank() && !provisional) {
-                    val xpResult = awardXp(userId = uid, correctCount = correctCount, totalCount = total)
                     userRepository.markQuizCompleted(uid, quizId)
-                    if (passed) {
-                        // The certificate + CyberDefender badge are issued by the
-                        // server (finalizeQuizAttempt callable), never locally, so
-                        // they can't be forged. If that call fails we surface a
-                        // recoverable error — the user can regenerate from profile.
-                        when (quizRepository.finalizeQuizAttemptServer(resultId)) {
-                            is Result.Error ->
-                                _events.send(
-                                    QuizUiEvent.CertificateGenerationFailed(
-                                        "You passed, but we couldn't issue your certificate. Please try again from your profile.",
-                                    ),
-                                )
-                            else -> {
-                                // certificate + badge issued server-side
-                            }
-                        }
+                    // XP, the certificate, and the CyberDefender badge are all
+                    // computed and applied server-side by finalizeQuizAttemptFn
+                    // now — never locally, so none of them can be forged (XP
+                    // used to be a direct client Firestore increment, which let
+                    // a malicious client set its own xp to anything). Called
+                    // for every attempt, pass or fail, since XP is awarded
+                    // either way; only a passing attempt also gets a cert/badge.
+                    val finalizeResult = quizRepository.finalizeQuizAttemptServer(resultId)
+                    if (finalizeResult is Result.Error && passed) {
+                        _events.send(
+                            QuizUiEvent.CertificateGenerationFailed(
+                                "You passed, but we couldn't issue your certificate. Please try again from your profile.",
+                            ),
+                        )
                     }
-                    xpResult.dataOrNull ?: 0
+                    finalizeResult.dataOrNull?.xpEarned ?: 0
                 } else if (uid.isNotBlank() && provisional) {
                     _events.send(
                         QuizUiEvent.AnswerSyncFailed(

@@ -1,10 +1,39 @@
 import { initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { assertValidAnswerInput, gradeAnswer, writeGradedResult, finalizeQuizAttempt, AnswerInput } from "./grading";
+import { completeModule } from "./modules";
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 20 });
+
+/**
+ * Creates the public-safe `leaderboard/{uid}` mirror the moment a
+ * `users/{uid}` profile is created (registration or first Google SSO).
+ * This used to be a client write (UserRepositoryImpl.createUserProfile /
+ * createUserProfileIfNotExists) — moved here so `leaderboard/{userId}` can
+ * be locked to `allow write: if false` in firestore.rules with no loss of
+ * functionality. xp/badges always start at 0/[]; they're only ever
+ * incremented afterward by finalizeQuizAttempt / completeModuleFn.
+ */
+export const onUserProfileCreated = onDocumentCreated("users/{uid}", async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+  const data = snapshot.data() as { displayName?: string };
+  await getFirestore()
+    .collection("leaderboard")
+    .doc(event.params.uid)
+    .set(
+      {
+        displayName: data.displayName ?? "CyberShield User",
+        xp: 0,
+        badges: [],
+      },
+      { merge: true },
+    );
+});
 
 /**
  * Called immediately when the device is online. Grades one answer against
@@ -114,5 +143,26 @@ export const finalizeQuizAttemptFn = onCall(
       throw new HttpsError("invalid-argument", "resultId is required.");
     }
     return finalizeQuizAttempt(request.auth.uid, resultId);
+  },
+);
+
+/**
+ * Marks a module complete and awards its xpReward — see completeModule()
+ * in modules.ts for why this moved server-side.
+ */
+export const completeModuleFn = onCall(
+  {
+    enforceAppCheck: true,
+    consumeAppCheckToken: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required.");
+    }
+    const moduleId = (request.data as { moduleId?: unknown } | null)?.moduleId;
+    if (typeof moduleId !== "string" || !moduleId) {
+      throw new HttpsError("invalid-argument", "moduleId is required.");
+    }
+    return completeModule(request.auth.uid, moduleId);
   },
 );

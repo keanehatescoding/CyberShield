@@ -8,7 +8,6 @@ import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.repository.UserRepository
-import com.example.cybershield.core.domain.usecase.AwardXpUseCase
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
@@ -59,7 +58,6 @@ class QuizViewModelTest {
 
     private lateinit var getQuiz: GetQuizUseCase
     private lateinit var submitAnswer: SubmitAnswerUseCase
-    private lateinit var awardXp: AwardXpUseCase
     private lateinit var userRepository: UserRepository
     private lateinit var quizRepository: QuizRepository
     private lateinit var getCurrentSession: GetCurrentSessionUseCase
@@ -115,7 +113,6 @@ class QuizViewModelTest {
         QuizViewModel(
             getQuiz = getQuiz,
             submitAnswer = submitAnswer,
-            awardXp = awardXp,
             userRepository = userRepository,
             quizRepository = quizRepository,
             getCurrentSession = getCurrentSession,
@@ -130,7 +127,6 @@ class QuizViewModelTest {
     fun setUp() {
         getQuiz = mockk()
         submitAnswer = mockk()
-        awardXp = mockk()
         userRepository = mockk(relaxed = true)
         quizRepository = mockk(relaxed = true)
         getCurrentSession = mockk()
@@ -279,7 +275,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -317,7 +312,6 @@ class QuizViewModelTest {
                             explanation = "B is correct."
                         )
                     )
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -350,7 +344,6 @@ class QuizViewModelTest {
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
                     Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -369,7 +362,6 @@ class QuizViewModelTest {
                 cancelAndIgnoreRemainingEvents()
             }
 
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -389,7 +381,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(50)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -454,8 +445,6 @@ class QuizViewModelTest {
             }
 
             // No reward path runs for a provisional (still-offline) completion.
-            coVerify(exactly = 0) { awardXp(any(), any(), any()) }
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
             coVerify(exactly = 0) { quizRepository.finalizeQuizAttemptServer(any()) }
             // The provisional attempt is still persisted (so the result screen has something to show).
             coVerify(exactly = 1) {
@@ -487,7 +476,6 @@ class QuizViewModelTest {
                     any()
                 )
             } throws RuntimeException("network down")
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -528,7 +516,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel(elapsedRealtimeProvider = { fakeElapsed })
@@ -589,7 +576,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel(resultIdProvider = { "result-abc" })
@@ -641,7 +627,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             // Certificate + badge are now issued server-side (finalizeQuizAttempt);
             // the default stub in setUp covers the call.
@@ -667,7 +652,7 @@ class QuizViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `finishQuiz does not award badge or certificate when failed`() =
+    fun `finishQuiz still finalizes (for XP) but does not surface a certificate error when failed`() =
         runTest(coroutineRule.testDispatcher) {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
@@ -682,7 +667,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -699,8 +683,10 @@ class QuizViewModelTest {
                 assertFalse((completed as QuizUiState.Completed).result.passed)
             }
 
-            coVerify(exactly = 0) { userRepository.awardBadge(any(), any()) }
-            coVerify(exactly = 0) { quizRepository.finalizeQuizAttemptServer(any()) }
+            // finalizeQuizAttemptFn is now called for every non-provisional attempt,
+            // pass or fail, since it's also the only path that awards XP. Only its
+            // cert/badge side effects are pass-gated (server-side).
+            coVerify { quizRepository.finalizeQuizAttemptServer(any()) }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -720,7 +706,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(100)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             // Certificate + badge are now issued server-side; the client no
             // longer reads the profile to build the certificate name.
@@ -760,7 +745,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             fakeElapsed = 1_000L
@@ -804,7 +788,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             fakeElapsed = 500_000L
@@ -844,7 +827,6 @@ class QuizViewModelTest {
                     any()
                 )
             } throws RuntimeException("network down")
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -916,7 +898,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { awardXp(any(), any(), any()) } returns Result.Success(0)
             coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()

@@ -125,31 +125,51 @@ export async function writeGradedResult(
 
 export const PASS_PERCENTAGE = 70;
 
+// XP formula — this used to live client-side (AwardXpUseCase) and be
+// applied via a direct client Firestore write to users/{uid}.xp and
+// leaderboard/{uid}.xp. That made XP (and therefore leaderboard rank)
+// trivially forgeable by any authenticated client, since the write rule
+// only checked auth.uid == userId with no validation of the increment
+// amount. XP is now computed and applied ONLY here, with the Admin SDK.
+export const XP_PER_CORRECT_ANSWER = 10;
+export const XP_BONUS_PERFECT_SCORE = 50;
+
+export interface FinalizeQuizAttemptResult {
+  passed: boolean;
+  score: number;
+  correctCount: number;
+  percentage: number;
+  xpEarned: number;
+  alreadyFinalized?: boolean;
+}
+
 /**
  * Recomputes a quiz attempt's score entirely from the server-graded
  * `quizResults` (isCorrect is written by writeGradedResult, never by the
- * client) and, if the attempt passed, issues the certificate and the
- * CyberDefender badge. This is the ONLY path allowed to create a certificate,
- * so a client can never forge a passing certificate.
+ * client), awards XP, and — if the attempt passed — issues the certificate
+ * and the CyberDefender badge. This is the ONLY path allowed to create a
+ * certificate or award XP, so neither can be forged by a client.
  *
- * Idempotent: the certificate document id equals `resultId` and the badge is
- * added via arrayUnion, so retrying never double-issues or double-counts.
+ * Idempotent: a `quizAttempts/{resultId}` marker doc records the outcome the
+ * first time this runs; retries (e.g. from the offline-sync path) read that
+ * marker back instead of re-incrementing XP or re-issuing the cert/badge.
  */
-export async function finalizeQuizAttempt(
-  uid: string,
-  resultId: string,
-): Promise<{ passed: boolean; score: number; correctCount: number; percentage: number; alreadyFinalized?: boolean }> {
+export async function finalizeQuizAttempt(uid: string, resultId: string): Promise<FinalizeQuizAttemptResult> {
   const db = getFirestore();
   if (!resultId || typeof resultId !== "string") {
     throw new HttpsError("invalid-argument", "resultId is required.");
   }
 
-  const resultsSnap = await db
-    .collection("users")
-    .doc(uid)
-    .collection("quizResults")
-    .where("resultId", "==", resultId)
-    .get();
+  const userRef = db.collection("users").doc(uid);
+  const attemptRef = userRef.collection("quizAttempts").doc(resultId);
+
+  const existingAttempt = await attemptRef.get();
+  if (existingAttempt.exists) {
+    const data = existingAttempt.data() as FinalizeQuizAttemptResult;
+    return { ...data, alreadyFinalized: true };
+  }
+
+  const resultsSnap = await userRef.collection("quizResults").where("resultId", "==", resultId).get();
 
   if (resultsSnap.empty) {
     throw new HttpsError("not-found", "No graded answers found for this attempt.");
@@ -168,53 +188,63 @@ export async function finalizeQuizAttempt(
     0,
   );
 
-  if (!passed) {
-    return { passed: false, score: 0, correctCount, percentage };
+  const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
+
+  const leaderboardRef = db.collection("leaderboard").doc(uid);
+  const batch = db.batch();
+
+  batch.update(userRef, { xp: FieldValue.increment(xpEarned) });
+  batch.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
+
+  let finalScore = score;
+  if (passed) {
+    const first = results[0] as { moduleId?: string; quizId?: string };
+    const moduleId = first.moduleId ?? "";
+    const quizId = first.quizId ?? "";
+
+    const [userSnap, moduleSnap, quizSnap] = await Promise.all([
+      userRef.get(),
+      moduleId ? db.collection("modules").doc(moduleId).get() : Promise.resolve(null),
+      quizId ? db.collection("quizzes").doc(quizId).get() : Promise.resolve(null),
+    ]);
+
+    const userData = (userSnap.data() ?? {}) as { displayName?: string };
+    const displayName = userData.displayName ?? "CyberShield User";
+    const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
+    const quizTitle =
+      quizSnap && quizSnap.exists ? ((quizSnap.data() as { title?: string }).title ?? "CyberShield Quiz") : "CyberShield Quiz";
+
+    const certRef = userRef.collection("certificates").doc(resultId);
+    batch.set(certRef, {
+      id: resultId,
+      userId: uid,
+      userName: displayName,
+      moduleId,
+      moduleName,
+      quizTitle,
+      score,
+      issuedAt: FieldValue.serverTimestamp(),
+    });
+
+    batch.update(userRef, { badges: FieldValue.arrayUnion("CyberDefender") });
+    batch.set(leaderboardRef, { badges: FieldValue.arrayUnion("CyberDefender") }, { merge: true });
+  } else {
+    finalScore = 0;
   }
 
-  const certRef = db.collection("users").doc(uid).collection("certificates").doc(resultId);
-  const existing = await certRef.get();
-  if (existing.exists) {
-    const data = existing.data() as { score?: number } | undefined;
-    return {
-      passed: true,
-      score: data?.score ?? score,
-      correctCount,
-      percentage,
-      alreadyFinalized: true,
-    };
-  }
-
-  const first = results[0] as { moduleId?: string; quizId?: string };
-  const moduleId = first.moduleId ?? "";
-  const quizId = first.quizId ?? "";
-
-  const [userSnap, moduleSnap, quizSnap] = await Promise.all([
-    db.collection("users").doc(uid).get(),
-    moduleId ? db.collection("modules").doc(moduleId).get() : Promise.resolve(null),
-    quizId ? db.collection("quizzes").doc(quizId).get() : Promise.resolve(null),
-  ]);
-
-  const userData = (userSnap.data() ?? {}) as { displayName?: string };
-  const displayName = userData.displayName ?? "CyberShield User";
-  const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
-  const quizTitle = quizSnap && quizSnap.exists ? ((quizSnap.data() as { title?: string }).title ?? "CyberShield Quiz") : "CyberShield Quiz";
-
-  await certRef.set({
-    id: resultId,
-    userId: uid,
-    userName: displayName,
-    moduleId,
-    moduleName,
-    quizTitle,
-    score,
-    issuedAt: FieldValue.serverTimestamp(),
+  const attemptResult: FinalizeQuizAttemptResult = {
+    passed,
+    score: finalScore,
+    correctCount,
+    percentage,
+    xpEarned,
+  };
+  batch.set(attemptRef, {
+    ...attemptResult,
+    finalizedAt: FieldValue.serverTimestamp(),
   });
 
-  await db
-    .collection("users")
-    .doc(uid)
-    .update({ badges: FieldValue.arrayUnion("CyberDefender") });
+  await batch.commit();
 
-  return { passed: true, score, correctCount, percentage };
+  return attemptResult;
 }

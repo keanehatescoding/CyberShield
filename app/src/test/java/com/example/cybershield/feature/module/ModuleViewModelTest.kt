@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.example.cybershield.core.domain.model.Module
 import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.repository.ModuleCompleteResult
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
 import com.example.cybershield.core.domain.usecase.module.GetModuleByIdUseCase
 import com.example.cybershield.core.domain.util.Result
@@ -234,6 +235,9 @@ class ModuleViewModelTest {
         runTest {
             moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
             userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+            userRepository.completeModuleResult = { _ ->
+                Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = testModule.xpReward))
+            }
 
             val viewModel = createViewModel()
             advanceUntilIdle()
@@ -242,7 +246,7 @@ class ModuleViewModelTest {
             advanceUntilIdle()
 
             assertTrue(testModule.id in userRepository.completedModuleIds)
-            assertEquals(testModule.xpReward, userRepository.totalXpAdded)
+            assertEquals(testModule.xpReward, userRepository.fakeUser.xp)
             assertTrue(viewModel.uiState.value.showCompletionDialog)
             assertTrue(viewModel.uiState.value.isAlreadyCompleted)
         }
@@ -263,7 +267,7 @@ class ModuleViewModelTest {
 
             assertFalse(viewModel.uiState.value.showCompletionDialog)
             assertTrue(userRepository.completedModuleIds.isEmpty())
-            assertEquals(0, userRepository.totalXpAdded)
+            assertEquals(0, userRepository.fakeUser.xp)
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)

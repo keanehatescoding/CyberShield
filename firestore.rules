@@ -38,15 +38,35 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == userId;
       // badges (e.g. "CyberDefender") are issued server-side by the
       // finalizeQuizAttempt callable — the client must not write them.
+      //
+      // xp is likewise server-only now: it used to be incremented by a
+      // direct client write (UserRepositoryImpl.addXp), which meant a
+      // malicious authenticated client could set their own xp to anything
+      // — no server logic ever checked the increment amount. XP is now
+      // computed and applied only by finalizeQuizAttemptFn / completeModuleFn.
+      //
+      // completedModules is also server-only now: completeModuleFn sets it
+      // atomically alongside the xp award it's tied to, so a client can no
+      // longer "complete" a module (and imply an xp award) without going
+      // through that callable.
       allow write: if request.auth != null
                    && request.auth.uid == userId
-                   && !('badges' in request.resource.data);
+                   && !('badges' in request.resource.data)
+                   && !('xp' in request.resource.data)
+                   && !('completedModules' in request.resource.data);
 
       // Grading is server-side only now: the client calls validateAnswer /
       // validateAnswersBatch, and those Cloud Functions write here with the
       // Admin SDK. A direct client write (with a self-reported isCorrect)
       // is no longer possible — this closes the original vulnerability.
       match /quizResults/{resultId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      // Idempotency marker written by finalizeQuizAttemptFn so a retried
+      // call never double-awards XP or double-issues a cert/badge.
+      match /quizAttempts/{resultId} {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if false;
       }
@@ -61,20 +81,23 @@ service cloud.firestore {
     }
 
     // ── leaderboard — public-safe mirror, top-level collection ─────────
-    // Mirrors ONLY displayName/xp/badges out of users/{uid}, written
-    // directly by UserRepositoryImpl (updateDisplayName, addXp,
-    // awardBadge, profile creation — see leaderboardDoc(uid)). This is a
+    // Mirrors ONLY displayName/xp/badges out of users/{uid}. This is a
     // sibling of /users/{userId}, NOT nested under it: the app queries
     // firestore.collection("leaderboard") at the top level, so the rule
     // has to live at the top level too, or the query is denied.
     //
-    // Owners can write their own leaderboard doc (same uid-match pattern
-    // as /users/{userId}) since there's no Cloud Function trigger doing
-    // this server-side. Any signed-in user can read the whole collection,
-    // since it deliberately contains nothing sensitive.
+    // Client-write is now fully disabled. Previously any signed-in user
+    // could `set` their own leaderboard/{uid}.xp directly (same uid-match
+    // pattern as /users/{userId}), which let them top the public
+    // leaderboard with an arbitrary xp value — the doc's own write rule
+    // never validated it against a real xp award. The doc is now created
+    // by the onUserProfileCreated trigger at registration and updated only
+    // by finalizeQuizAttemptFn / completeModuleFn via the Admin SDK, which
+    // bypasses these rules entirely. Any signed-in user can still read the
+    // whole collection, since it deliberately contains nothing sensitive.
     match /leaderboard/{userId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
   }
 }

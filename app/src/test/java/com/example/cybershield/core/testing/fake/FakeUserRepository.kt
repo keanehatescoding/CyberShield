@@ -2,6 +2,7 @@ package com.example.cybershield.core.testing.fake
 
 import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
+import com.example.cybershield.core.domain.repository.ModuleCompleteResult
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.Result
 import kotlinx.coroutines.flow.Flow
@@ -16,10 +17,11 @@ class FakeUserRepository : UserRepository {
             email = "test@cybershield.com",
         )
     val savedCertificates = mutableListOf<Certificate>()
-    val awardedBadges = mutableListOf<String>()
     val completedQuizIds = mutableListOf<String>()
     val completedModuleIds = mutableListOf<String>()
-    var totalXpAdded = 0
+
+    /** Result returned by [completeModule]; override in tests to simulate failure. */
+    var completeModuleResult: (moduleId: String) -> Result<ModuleCompleteResult> = { Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = 0)) }
 
     // ── getUserProfile() override controls ─────────────────────────────
     // Default (null) preserves the original behavior exactly: a fixed one-shot
@@ -142,23 +144,6 @@ class FakeUserRepository : UserRepository {
         return createUserProfileIfNotExistsResult
     }
 
-    override suspend fun addXp(
-        uid: String,
-        points: Int,
-    ): Result<Unit> {
-        totalXpAdded += points
-        fakeUser = fakeUser.copy(xp = fakeUser.xp + points)
-        return Result.Success(Unit)
-    }
-
-    override suspend fun awardBadge(
-        uid: String,
-        badge: String,
-    ): Result<Unit> {
-        awardedBadges.add(badge)
-        return Result.Success(Unit)
-    }
-
     override suspend fun markQuizCompleted(
         uid: String,
         quizId: String,
@@ -167,12 +152,16 @@ class FakeUserRepository : UserRepository {
         return Result.Success(Unit)
     }
 
-    override suspend fun markModuleCompleted(
+    override suspend fun completeModule(
         uid: String,
         moduleId: String,
-    ): Result<Unit> {
-        completedModuleIds.add(moduleId)
-        return Result.Success(Unit)
+    ): Result<ModuleCompleteResult> {
+        val result = completeModuleResult(moduleId)
+        if (result is Result.Success && !result.data.alreadyCompleted) {
+            completedModuleIds.add(moduleId)
+            fakeUser = fakeUser.copy(xp = fakeUser.xp + result.data.xpEarned)
+        }
+        return result
     }
 
     override suspend fun updateFcmToken(
