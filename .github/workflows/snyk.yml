@@ -25,11 +25,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
+      # No actions/setup-java here on purpose: the snyk/snyk:gradle-9-jdk21
+      # image already bundles JDK 21. Setting JAVA_HOME on this host runner
+      # would leak into the Snyk step below (it passes JAVA_HOME straight
+      # into the Docker container via `-e "JAVA_HOME"`), pointing at a host
+      # path that doesn't exist inside the container's mount namespace —
+      # gradlew then fails with "JAVA_HOME is set to an invalid directory"
+      # before Snyk ever runs, so snyk.sarif never gets written.
 
       # Required: the google-services Gradle plugin fails project
       # evaluation without this file, which meant Snyk's dependency graph
