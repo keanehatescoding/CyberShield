@@ -143,9 +143,9 @@ fun NavigationRoot(
                                     popUpTo(QuizRoute::class) { inclusive = true }
                                 }
                             },
-                            onViewCertificate = {
-                                navController.navigate(ProfileRoute)
-                                                },
+                            onViewCertificate = { certId ->
+                                navController.navigate(CertificateRoute(certId))
+                            },
                         )
                     }
                     composable<ProfileRoute> {

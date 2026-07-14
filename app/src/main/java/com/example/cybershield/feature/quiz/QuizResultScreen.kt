@@ -34,7 +34,7 @@ import com.example.cybershield.ui.theme.LoadingScreen
 fun QuizResultScreen(
     onNavigateHome: () -> Unit,
     onRetakeQuiz: (String) -> Unit,
-    onViewCertificate: () -> Unit,
+    onViewCertificate: (String) -> Unit,
     viewModel: QuizResultViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -50,7 +50,9 @@ fun QuizResultScreen(
                 onRetakeQuiz = {
                     onRetakeQuiz(state.result.quizId)
                 },
-                onViewCertificate = onViewCertificate,
+                onViewCertificate = {
+                    onViewCertificate(viewModel.resultId)
+                },
             )
         }
 

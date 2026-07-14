@@ -1,0 +1,154 @@
+diff --git a/app/src/main/java/com/example/cybershield/NavigationRoot.kt b/app/src/main/java/com/example/cybershield/NavigationRoot.kt
+index d8a7722..d505041 100644
+--- a/app/src/main/java/com/example/cybershield/NavigationRoot.kt
++++ b/app/src/main/java/com/example/cybershield/NavigationRoot.kt
+@@ -143,9 +143,9 @@ fun NavigationRoot(
+                                     popUpTo(QuizRoute::class) { inclusive = true }
+                                 }
+                             },
+-                            onViewCertificate = {
+-                                navController.navigate(ProfileRoute)
+-                                                },
++                            onViewCertificate = { certId ->
++                                navController.navigate(CertificateRoute(certId))
++                            },
+                         )
+                     }
+                     composable<ProfileRoute> {
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
+index 93bf368..c20f20e 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultScreen.kt
+@@ -34,7 +34,7 @@ import com.example.cybershield.ui.theme.LoadingScreen
+ fun QuizResultScreen(
+     onNavigateHome: () -> Unit,
+     onRetakeQuiz: (String) -> Unit,
+-    onViewCertificate: () -> Unit,
++    onViewCertificate: (String) -> Unit,
+     viewModel: QuizResultViewModel = hiltViewModel(),
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+@@ -50,7 +50,9 @@ fun QuizResultScreen(
+                 onRetakeQuiz = {
+                     onRetakeQuiz(state.result.quizId)
+                 },
+-                onViewCertificate = onViewCertificate,
++                onViewCertificate = {
++                    onViewCertificate(viewModel.resultId)
++                },
+             )
+         }
+ 
+diff --git a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultViewModel.kt b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultViewModel.kt
+index 2944e96..39c1a43 100644
+--- a/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultViewModel.kt
++++ b/app/src/main/java/com/example/cybershield/feature/quiz/QuizResultViewModel.kt
+@@ -20,7 +20,7 @@ class QuizResultViewModel @Inject constructor(
+     private val quizRepository: QuizRepository,
+     savedStateHandle: SavedStateHandle,
+ ) : ViewModel() {
+-    private val resultId = savedStateHandle.toRoute<QuizResultRoute>().resultId
++    val resultId = savedStateHandle.toRoute<QuizResultRoute>().resultId
+ 
+     val uiState: StateFlow<QuizResultUiState> =
+         flow { emit(quizRepository.getQuizAttempt(resultId)) }
+diff --git a/firestore.rules b/firestore.rules
+index 5189c9f..55b69b7 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -75,8 +75,17 @@ service cloud.firestore {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+ 
++      // Certificates are issued server-side only, by finalizeQuizAttemptFn
++      // (Admin SDK) once a quiz attempt passes — see grading.ts. A client
++      // write rule here (even scoped to request.auth.uid == userId) would
++      // let anyone with the app's bundled API key forge a certificate doc
++      // under their own uid, which CertificateScreen would then happily
++      // read and render. GenerateCertificateUseCase / saveCertificate is
++      // dead client-side code and is not a legitimate writer of this
++      // collection.
+       match /certificates/{certId} {
+-        allow read, write: if request.auth != null && request.auth.uid == userId;
++        allow read: if request.auth != null && request.auth.uid == userId;
++        allow write: if false;
+       }
+     }
+ 
+diff --git a/functions/src/grading.test.ts b/functions/src/grading.test.ts
+index 28b4eb9..adf5c47 100644
+--- a/functions/src/grading.test.ts
++++ b/functions/src/grading.test.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from "vitest";
+ import { HttpsError } from "firebase-functions/v2/https";
+-import { assertValidAnswerInput, PASS_PERCENTAGE } from "./grading";
++import { assertValidAnswerInput, clampTimeRemaining, MAX_TIME_REMAINING_SECONDS, PASS_PERCENTAGE } from "./grading";
+ 
+ const validInput = {
+   quizId: "quiz1",
+@@ -37,3 +37,23 @@ describe("PASS_PERCENTAGE", () => {
+     expect(PASS_PERCENTAGE).toBe(70);
+   });
+ });
++
++describe("clampTimeRemaining", () => {
++  it("passes through a value within the legitimate range", () => {
++    expect(clampTimeRemaining(12)).toBe(12);
++  });
++
++  it("caps a client-supplied value above the max countdown at the max", () => {
++    expect(clampTimeRemaining(999999)).toBe(MAX_TIME_REMAINING_SECONDS);
++  });
++
++  it("floors a negative value at zero", () => {
++    expect(clampTimeRemaining(-5)).toBe(0);
++  });
++
++  it("treats a missing or non-numeric value as zero", () => {
++    expect(clampTimeRemaining(undefined)).toBe(0);
++    expect(clampTimeRemaining("30")).toBe(0);
++    expect(clampTimeRemaining(NaN)).toBe(0);
++  });
++});
+diff --git a/functions/src/grading.ts b/functions/src/grading.ts
+index 250161e..25b5092 100644
+--- a/functions/src/grading.ts
++++ b/functions/src/grading.ts
+@@ -125,6 +125,21 @@ export async function writeGradedResult(
+ 
+ export const PASS_PERCENTAGE = 70;
+ 
++// Mirrors QuizViewModel.QUESTION_TIME_SECONDS on the client — the countdown
++// starts at this value, so a legitimate timeRemaining can never exceed it.
++// timeRemaining is client-supplied (see AnswerInput) and only ever feeds the
++// speed component of the certificate/history score, never XP/percentage/pass,
++// so clamping it here is enough to stop a client inflating that score by
++// sending an arbitrarily large value.
++export const MAX_TIME_REMAINING_SECONDS = 30;
++
++export function clampTimeRemaining(timeRemaining: unknown): number {
++  if (typeof timeRemaining !== "number" || !Number.isFinite(timeRemaining)) {
++    return 0;
++  }
++  return Math.min(Math.max(timeRemaining, 0), MAX_TIME_REMAINING_SECONDS);
++}
++
+ // XP formula — this used to live client-side (AwardXpUseCase) and be
+ // applied via a direct client Firestore write to users/{uid}.xp and
+ // leaderboard/{uid}.xp. That made XP (and therefore leaderboard rank)
+@@ -183,10 +198,10 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
+   const passed = percentage >= PASS_PERCENTAGE;
+ 
+   // speed-weighted score — mirrors the client's GenerateCertificateUseCase.
+-  const score = correctResults.reduce(
+-    (sum, r) => sum + (100 + (typeof r.timeRemaining === "number" ? (r.timeRemaining as number) : 0) * 5),
+-    0,
+-  );
++  // timeRemaining is client-supplied and stored as-is by writeGradedResult,
++  // so it's clamped here to the max a legitimate countdown could produce
++  // before it's used to compute a score that ends up on the certificate.
++  const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
+ 
+   const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
+

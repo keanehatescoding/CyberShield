@@ -20,7 +20,7 @@ class QuizResultViewModel @Inject constructor(
     private val quizRepository: QuizRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-    private val resultId = savedStateHandle.toRoute<QuizResultRoute>().resultId
+    val resultId = savedStateHandle.toRoute<QuizResultRoute>().resultId
 
     val uiState: StateFlow<QuizResultUiState> =
         flow { emit(quizRepository.getQuizAttempt(resultId)) }

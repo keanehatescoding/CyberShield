@@ -125,6 +125,21 @@ export async function writeGradedResult(
 
 export const PASS_PERCENTAGE = 70;
 
+// Mirrors QuizViewModel.QUESTION_TIME_SECONDS on the client — the countdown
+// starts at this value, so a legitimate timeRemaining can never exceed it.
+// timeRemaining is client-supplied (see AnswerInput) and only ever feeds the
+// speed component of the certificate/history score, never XP/percentage/pass,
+// so clamping it here is enough to stop a client inflating that score by
+// sending an arbitrarily large value.
+export const MAX_TIME_REMAINING_SECONDS = 30;
+
+export function clampTimeRemaining(timeRemaining: unknown): number {
+  if (typeof timeRemaining !== "number" || !Number.isFinite(timeRemaining)) {
+    return 0;
+  }
+  return Math.min(Math.max(timeRemaining, 0), MAX_TIME_REMAINING_SECONDS);
+}
+
 // XP formula — this used to live client-side (AwardXpUseCase) and be
 // applied via a direct client Firestore write to users/{uid}.xp and
 // leaderboard/{uid}.xp. That made XP (and therefore leaderboard rank)
@@ -183,10 +198,10 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
   const passed = percentage >= PASS_PERCENTAGE;
 
   // speed-weighted score — mirrors the client's GenerateCertificateUseCase.
-  const score = correctResults.reduce(
-    (sum, r) => sum + (100 + (typeof r.timeRemaining === "number" ? (r.timeRemaining as number) : 0) * 5),
-    0,
-  );
+  // timeRemaining is client-supplied and stored as-is by writeGradedResult,
+  // so it's clamped here to the max a legitimate countdown could produce
+  // before it's used to compute a score that ends up on the certificate.
+  const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
 
   const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
 
