@@ -7,7 +7,7 @@ import { assertValidAnswerInput, gradeAnswer, writeGradedResult, finalizeQuizAtt
 import { completeModule } from "./modules";
 
 initializeApp();
-setGlobalOptions({ region: "me-central1", maxInstances: 20 });
+setGlobalOptions({ region: "us-central1", maxInstances: 20 });
 
 /**
  * Creates the public-safe `leaderboard/{uid}` mirror the moment a
@@ -18,22 +18,25 @@ setGlobalOptions({ region: "me-central1", maxInstances: 20 });
  * functionality. xp/badges always start at 0/[]; they're only ever
  * incremented afterward by finalizeQuizAttempt / completeModuleFn.
  */
-export const onUserProfileCreated = onDocumentCreated("users/{uid}", async (event) => {
-  const snapshot = event.data;
-  if (!snapshot) return;
-  const data = snapshot.data() as { displayName?: string };
-  await getFirestore()
-    .collection("leaderboard")
-    .doc(event.params.uid)
-    .set(
-      {
-        displayName: data.displayName ?? "CyberShield User",
-        xp: 0,
-        badges: [],
-      },
-      { merge: true },
-    );
-});
+export const onUserProfileCreated = onDocumentCreated(
+  { document: "users/{uid}", region: "me-central1" },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data() as { displayName?: string };
+    await getFirestore()
+      .collection("leaderboard")
+      .doc(event.params.uid)
+      .set(
+        {
+          displayName: data.displayName ?? "CyberShield User",
+          xp: 0,
+          badges: [],
+        },
+        { merge: true },
+      );
+  },
+);
 
 /**
  * Called immediately when the device is online. Grades one answer against
