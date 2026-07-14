@@ -29,6 +29,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   deploy:
@@ -66,15 +67,18 @@ jobs:
         working-directory: functions
         run: npm run build
 
-      # Reuses the same service account already set up for Firebase App
-      # Distribution in release.yml. It needs the Firebase Admin (or at
-      # minimum Cloud Functions Developer + Service Account User + Cloud
-      # Datastore User) IAM roles for this job to succeed — App
-      # Distribution alone doesn't imply deploy/Firestore-write permission.
-      - name: Write service account credentials
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-        run: echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > "${{ runner.temp }}/service-account.json"
+      # No downloadable key involved: this mints a short-lived token for
+      # github-actions-deployer@... via Workload Identity Federation, scoped
+      # to this repo + the master branch (see the provider's
+      # attribute-condition). Replaces the old FIREBASE_SERVICE_ACCOUNT_JSON
+      # secret, which was a long-lived key with standing deploy access —
+      # if it ever leaked, whoever had it could deploy indefinitely until
+      # someone noticed and rotated it manually. WIF has no key to leak.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
 
       # One-off: splits correctIndex/explanation out of existing question
       # docs into the answerKeys collection. Safe to re-run (it's a no-op
@@ -86,19 +90,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_migration == 'true' }}
         working-directory: functions
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
           GCLOUD_PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
         run: node lib/scripts/migrateAnswerKeys.js
 
       - name: Deploy functions + Firestore rules
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
         run: |
           npx --yes firebase-tools@15.23.0 deploy \
             --only functions,firestore:rules \
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
             --non-interactive
-
-      - name: Shred credentials
-        if: always()
-        run: shred -u "${{ runner.temp }}/service-account.json" 2>/dev/null || true
