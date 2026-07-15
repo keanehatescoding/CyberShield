@@ -49,11 +49,18 @@ service cloud.firestore {
       // atomically alongside the xp award it's tied to, so a client can no
       // longer "complete" a module (and imply an xp award) without going
       // through that callable.
+      //
+      // completedQuizzes is server-only for the same reason: it was still
+      // client-writable via UserRepositoryImpl.markQuizCompleted (arrayUnion),
+      // which let any authenticated user mark arbitrary quizzes "completed"
+      // on their own doc with no server-side check. finalizeQuizAttemptFn
+      // (via FinalizeQuizAttemptsUseCase) is the only legitimate writer now.
       allow write: if request.auth != null
                    && request.auth.uid == userId
                    && !('badges' in request.resource.data)
                    && !('xp' in request.resource.data)
-                   && !('completedModules' in request.resource.data);
+                   && !('completedModules' in request.resource.data)
+                   && !('completedQuizzes' in request.resource.data);
 
       // Grading is server-side only now: the client calls validateAnswer /
       // validateAnswersBatch, and those Cloud Functions write here with the

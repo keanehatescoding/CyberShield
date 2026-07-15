@@ -211,11 +211,21 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
   batch.update(userRef, { xp: FieldValue.increment(xpEarned) });
   batch.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
 
+  const first = results[0] as { moduleId?: string; quizId?: string };
+  const quizId = first.quizId ?? "";
+
+  // completedQuizzes is server-only now, for the same reason completedModules
+  // is: it used to be a direct client write (UserRepositoryImpl.markQuizCompleted,
+  // an arrayUnion with no server-side check), which let any authenticated user
+  // mark arbitrary quizzes "completed" on their own doc. Recorded here for every
+  // finalized attempt — pass or fail — since that's what the old client write did.
+  if (quizId) {
+    batch.update(userRef, { completedQuizzes: FieldValue.arrayUnion(quizId) });
+  }
+
   let finalScore = score;
   if (passed) {
-    const first = results[0] as { moduleId?: string; quizId?: string };
     const moduleId = first.moduleId ?? "";
-    const quizId = first.quizId ?? "";
 
     const [userSnap, moduleSnap, quizSnap] = await Promise.all([
       userRef.get(),
