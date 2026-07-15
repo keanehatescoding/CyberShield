@@ -12,7 +12,7 @@ foundation              = "1.11.4"
 google-id               = "1.2.0"
 hilt                    = "2.60.1"
 hilt-ext                = "1.4.0"
-kotlin                  = "2.4.0"
+kotlin                  = "2.4.10"
 ksp                     = "2.3.4"
 ktlint                  = "14.2.0"
 lifecycle               = "2.11.0"
@@ -27,7 +27,7 @@ serialization-json      = "1.11.0"
 splashscreen            = "1.2.0"
 ui-text                 = "1.11.4"
 work-runtime            = "2.11.2"
-coreKtx = "1.7.0"
+coreKtx = "1.19.0"
 
 
 [libraries]
@@ -100,7 +100,8 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidx-test-rules" }
 firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
-androidx-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "coreKtx" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "androidx-test-runner" }
 
 [plugins]
 android-application     = { id = "com.android.application",                               version.ref = "agp" }

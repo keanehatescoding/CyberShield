@@ -35,10 +35,17 @@ android {
                 }
             val keystorePath = props["KEYSTORE_PATH"] as String?
             if (keystorePath != null) {
+                val storePass = props["KEYSTORE_PASSWORD"] as String?
+                val alias = props["KEY_ALIAS"] as String?
+                val keyPass = props["KEY_PASSWORD"] as String?
+                require(storePass != null && alias != null && keyPass != null) {
+                    "local.properties has KEYSTORE_PATH set but is missing one of " +
+                        "KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD"
+                }
                 storeFile = file(keystorePath)
-                storePassword = props["KEYSTORE_PASSWORD"] as String
-                keyAlias = props["KEY_ALIAS"] as String
-                keyPassword = props["KEY_PASSWORD"] as String
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
             }
         }
     }
@@ -242,6 +249,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.room.testing)
     testImplementation(libs.paging.testing)
+    testImplementation(libs.androidx.test.core.ktx)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test)
     androidTestImplementation(libs.hilt.testing)
