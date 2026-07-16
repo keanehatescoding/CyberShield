@@ -1,0 +1,62 @@
+name: Firestore Rules CI
+
+# Runs firestore-tests/ against a real Firestore emulator on every change to
+# firestore.rules or the tests themselves. This is what would have caught a
+# regression like the completedQuizzes client-write gap (fixed in 596190f)
+# before it reached master, rather than relying on code review alone.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "firestore.rules"
+      - "firestore-tests/**"
+      - ".github/workflows/firestore-rules-ci.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "firestore.rules"
+      - "firestore-tests/**"
+      - ".github/workflows/firestore-rules-ci.yml"
+
+concurrency:
+  group: firestore-rules-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rules-tests:
+    name: Firestore Rules Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: firestore-tests/package-lock.json
+
+      - name: Set up Java (required by the Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install test dependencies
+        working-directory: firestore-tests
+        run: npm ci
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Run rules tests against the emulator
+        # Run from repo root so firebase.json (which points at firestore.rules
+        # and pins the emulator to port 8080) is picked up automatically;
+        # the wrapped command then steps into firestore-tests/ to run vitest.
+        run: firebase emulators:exec --project cybershield-rules-test --only firestore "npm --prefix firestore-tests test"
