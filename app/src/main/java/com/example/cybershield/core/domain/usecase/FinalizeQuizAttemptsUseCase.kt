@@ -2,7 +2,6 @@ package com.example.cybershield.core.domain.usecase
 
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizRepository
-import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.dataOrNull
 import kotlinx.coroutines.CancellationException
@@ -34,7 +33,6 @@ class FinalizeQuizAttemptsUseCase
     @Inject
     constructor(
         private val quizRepository: QuizRepository,
-        private val userRepository: UserRepository,
         private val crashReporter: CrashReporter,
     ) {
         suspend operator fun invoke() {
@@ -63,8 +61,6 @@ class FinalizeQuizAttemptsUseCase
             val finalize = quizRepository.finalizeQuizAttemptServer(attempt.resultId)
             val fr = finalize.dataOrNull ?: return
             val xpEarned = fr.xpEarned
-
-            userRepository.markQuizCompleted(attempt.userId, attempt.quizId)
 
             // The certificate/badge were already issued by the server above; we
             // only record the (server-derived) outcome locally for display and

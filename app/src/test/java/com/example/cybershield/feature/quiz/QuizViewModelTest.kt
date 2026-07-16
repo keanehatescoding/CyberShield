@@ -275,7 +275,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -312,7 +311,6 @@ class QuizViewModelTest {
                             explanation = "B is correct."
                         )
                     )
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -344,7 +342,6 @@ class QuizViewModelTest {
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
                     Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -381,7 +378,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -476,7 +472,6 @@ class QuizViewModelTest {
                     any()
                 )
             } throws RuntimeException("network down")
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -516,7 +511,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel(elapsedRealtimeProvider = { fakeElapsed })
 
@@ -576,7 +570,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel(resultIdProvider = { "result-abc" })
 
@@ -627,7 +620,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             // Certificate + badge are now issued server-side (finalizeQuizAttempt);
             // the default stub in setUp covers the call.
 
@@ -667,7 +659,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -706,7 +697,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
             // Certificate + badge are now issued server-side; the client no
             // longer reads the profile to build the certificate name.
 
@@ -745,7 +735,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             fakeElapsed = 1_000L
             val viewModel = buildViewModel()
@@ -788,7 +777,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             fakeElapsed = 500_000L
             val viewModel = buildViewModel()
@@ -827,7 +815,6 @@ class QuizViewModelTest {
                     any()
                 )
             } throws RuntimeException("network down")
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
 
@@ -898,7 +885,6 @@ class QuizViewModelTest {
                     any()
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
-            coEvery { userRepository.markQuizCompleted(any(), any()) } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
             advanceUntilIdle()

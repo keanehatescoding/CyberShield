@@ -129,22 +129,6 @@ constructor(
             functionsModuleDataSource.completeModule(moduleId)
         }
 
-    // ── Mark quiz completed ────────────────────────────────────────────
-    // completedQuizzes is server-only now: this used to be a direct client
-    // arrayUnion write, which meant a malicious authenticated client could
-    // mark arbitrary quizzes "completed" on their own doc with no server
-    // check (the same hole completedModules had before completeModuleFn).
-    // firestore.rules now rejects this field on client writes, so the
-    // write happens once, atomically, inside finalizeQuizAttemptFn's batch
-    // (see functions/src/grading.ts) as part of the same call this method's
-    // callers already make via finalizeQuizAttemptServer. This method is
-    // kept as a no-op rather than removed outright, so QuizViewModel and
-    // FinalizeQuizAttemptsUseCase don't need to change their call sites.
-    override suspend fun markQuizCompleted(
-        uid: String,
-        quizId: String,
-    ): Result<Unit> = Result.Success(Unit)
-
     // ── Save FCM token ─────────────────────────────────────────────────
     override suspend fun updateFcmToken(
         uid: String,

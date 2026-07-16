@@ -3,7 +3,6 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
-import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.Result
 import io.mockk.coEvery
@@ -16,7 +15,6 @@ import org.junit.Test
 
 class FinalizeQuizAttemptsUseCaseTest {
     private lateinit var quizRepository: QuizRepository
-    private lateinit var userRepository: UserRepository
     private lateinit var crashReporter: CrashReporter
     private lateinit var useCase: FinalizeQuizAttemptsUseCase
 
@@ -65,9 +63,8 @@ class FinalizeQuizAttemptsUseCaseTest {
     @Before
     fun setUp() {
         quizRepository = mockk(relaxed = true)
-        userRepository = mockk(relaxed = true)
         crashReporter = mockk(relaxed = true)
-        useCase = FinalizeQuizAttemptsUseCase(quizRepository, userRepository, crashReporter)
+        useCase = FinalizeQuizAttemptsUseCase(quizRepository, crashReporter)
     }
 
     @Test
@@ -101,7 +98,6 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             // The certificate + CyberDefender badge + XP are now all issued by the
             // server, never locally — verify nothing on the client writes them.
-            coVerify { userRepository.markQuizCompleted("user1", "quiz1") }
             coVerify {
                 quizRepository.finalizeAttempt(
                     resultId = "result-1",
@@ -158,7 +154,6 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any()
                 )
             }
-            coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
         }
 
     @Test
@@ -267,8 +262,17 @@ class FinalizeQuizAttemptsUseCaseTest {
             val attempt = readyAttempt(resultId = "result-1")
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
             stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100, xpEarned = 40)
-            val boom = RuntimeException("markQuizCompleted blew up")
-            coEvery { userRepository.markQuizCompleted(any(), any()) } throws boom
+            val boom = RuntimeException("finalizeAttempt blew up")
+            coEvery {
+                quizRepository.finalizeAttempt(
+                    resultId = "result-1",
+                    score = 400,
+                    correctCount = 4,
+                    percentage = 100,
+                    xpEarned = 40,
+                    passed = true,
+                )
+            } throws boom
 
             useCase()
 

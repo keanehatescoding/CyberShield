@@ -15,7 +15,6 @@ class FakeUserRepository : UserRepository {
             displayName = "Test User",
             email = "test@cybershield.com",
         )
-    val completedQuizIds = mutableListOf<String>()
     val completedModuleIds = mutableListOf<String>()
 
     /** Result returned by [completeModule]; override in tests to simulate failure. */
@@ -140,14 +139,6 @@ class FakeUserRepository : UserRepository {
         createUserProfileIfNotExistsCallCount++
         lastCreateUserProfileIfNotExistsArgs = CreateProfileArgs(uid, displayName, email, photoUrl)
         return createUserProfileIfNotExistsResult
-    }
-
-    override suspend fun markQuizCompleted(
-        uid: String,
-        quizId: String,
-    ): Result<Unit> {
-        completedQuizIds.add(quizId)
-        return Result.Success(Unit)
     }
 
     override suspend fun completeModule(

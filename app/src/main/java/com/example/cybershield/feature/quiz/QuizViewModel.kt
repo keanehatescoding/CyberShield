@@ -321,7 +321,6 @@ constructor(
             // SyncQuizResultsWorker confirms every answer has synced.
             val xpEarned =
                 if (uid.isNotBlank() && !provisional) {
-                    userRepository.markQuizCompleted(uid, quizId)
                     // XP, the certificate, and the CyberDefender badge are all
                     // computed and applied server-side by finalizeQuizAttemptFn
                     // now — never locally, so none of them can be forged (XP
