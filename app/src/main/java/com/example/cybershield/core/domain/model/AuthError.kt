@@ -21,6 +21,8 @@ sealed class AuthError(
 
     data object TooManyRequests : AuthError("Too many attempts. Please wait and try again.")
 
+    data object InvalidDisplayName : AuthError("Please enter a name between 1 and 60 characters.")
+
     data object NoNetwork : AuthError("No internet connection.")
 
     data class Unknown(

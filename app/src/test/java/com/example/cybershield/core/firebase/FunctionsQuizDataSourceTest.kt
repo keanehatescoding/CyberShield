@@ -1,13 +1,12 @@
 package com.example.cybershield.core.firebase
 
-import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.HttpsCallableResult
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Before
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -18,21 +17,18 @@ import org.junit.Test
  * back. See functions/src/index.ts for the server side of this contract.
  *
  * The Firebase HTTPS-callable transport is swapped for an in-test seam
- * (the internal `httpsCallable` var) because HttpsCallableReference.call
- * is a final member with an inline extension that MockK cannot stub.
+ * (the internal constructor taking the invoker directly) because
+ * HttpsCallableReference.call is a final member with an inline extension
+ * that MockK cannot stub.
  * HttpsCallableResult is a final class whose `data` is a final field, so the
  * response mock stubs the explicit `getData()` method rather than the
  * property (MockK cannot always intercept the field-backed getter).
  */
 class FunctionsQuizDataSourceTest {
-    private lateinit var dataSource: FunctionsQuizDataSource
+    private lateinit var invoker: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult
 
-    @Before
-    fun setUp() {
-        // `functions` is only used by the default httpsCallable implementation,
-        // which every test below overrides — so a plain mock is sufficient.
-        dataSource = FunctionsQuizDataSource(mockk())
-    }
+    private val dataSource: FunctionsQuizDataSource
+        get() = FunctionsQuizDataSource { name, payload -> invoker(name, payload) }
 
     // -- validateAnswer --------------------------------------------------
 
@@ -48,7 +44,7 @@ class FunctionsQuizDataSourceTest {
                         "correctIndex" to 2L,
                         "explanation" to "Because."
                     )
-            dataSource.httpsCallable = { name, payload ->
+            invoker = { name, payload ->
                 assertEquals("validateAnswer", name)
                 captured = payload
                 response
@@ -93,7 +89,7 @@ class FunctionsQuizDataSourceTest {
                         "correctIndex" to 1L,
                         "explanation" to "Not quite."
                     )
-            dataSource.httpsCallable = { _, _ -> response }
+            invoker = { _, _ -> response }
 
             val validation = dataSource.validateAnswer(
                 "quiz1",
@@ -130,7 +126,7 @@ class FunctionsQuizDataSourceTest {
                                     ),
                                 ),
                     )
-            dataSource.httpsCallable = { name, payload ->
+            invoker = { name, payload ->
                 assertEquals("validateAnswersBatch", name)
                 captured = payload
                 response
@@ -191,7 +187,7 @@ class FunctionsQuizDataSourceTest {
                                     ),
                                 ),
                     )
-            dataSource.httpsCallable = { _, _ -> response }
+            invoker = { _, _ -> response }
 
             val results =
                 dataSource.validateAnswersBatch(
@@ -230,4 +226,70 @@ class FunctionsQuizDataSourceTest {
     fun `validateAnswersBatch respects the MAX_BATCH_SIZE contract with the server`() {
         assertEquals(100, FunctionsQuizDataSource.MAX_BATCH_SIZE)
     }
+
+    // -- malformed responses ----------------------------------------------
+
+    @Test(expected = MalformedCallableResponseException::class)
+    fun `validateAnswer throws a descriptive error when isCorrect is missing`() =
+        runTest {
+            val response = mockk<HttpsCallableResult>()
+            every { response.getData() } returns
+                    mapOf(
+                        "questionId" to "q1",
+                        // "isCorrect" missing entirely — e.g. a server-side regression.
+                        "correctIndex" to 2L,
+                        "explanation" to "Because.",
+                    )
+            invoker = { _, _ -> response }
+
+            dataSource.validateAnswer(
+                "quiz1",
+                "q1",
+                selectedIndex = 3,
+                answeredAt = 0L,
+                resultId = "r1",
+                timeRemaining = 0,
+            )
+        }
+
+    @Test(expected = MalformedCallableResponseException::class)
+    fun `validateAnswer throws a descriptive error when isCorrect is the wrong type`() =
+        runTest {
+            val response = mockk<HttpsCallableResult>()
+            every { response.getData() } returns
+                    mapOf(
+                        "questionId" to "q1",
+                        "isCorrect" to "true", // string instead of boolean
+                        "correctIndex" to 2L,
+                        "explanation" to "Because.",
+                    )
+            invoker = { _, _ -> response }
+
+            dataSource.validateAnswer(
+                "quiz1",
+                "q1",
+                selectedIndex = 3,
+                answeredAt = 0L,
+                resultId = "r1",
+                timeRemaining = 0,
+            )
+        }
+
+    @Test
+    fun `finalizeQuizAttempt turns a malformed response into a Result Error instead of crashing`() =
+        runTest {
+            val response = mockk<HttpsCallableResult>()
+            every { response.getData() } returns
+                    mapOf(
+                        "passed" to true,
+                        // "score" missing.
+                        "correctCount" to 4L,
+                        "percentage" to 80L,
+                    )
+            invoker = { _, _ -> response }
+
+            val result = dataSource.finalizeQuizAttempt("r1")
+
+            assertTrue(result is com.example.cybershield.core.domain.util.Result.Error)
+        }
 }

@@ -54,6 +54,63 @@ class RegisterUseCaseTest {
         }
 
     @Test
+    fun `whitespace-only name is rejected before touching either repository`() =
+        runTest {
+            val result = useCase("   ", "jane@example.com", "pw123456")
+
+            assertEquals(Result.Error(AuthError.InvalidDisplayName), result)
+            coVerify(exactly = 0) { authRepository.register(any(), any()) }
+        }
+
+    @Test
+    fun `name at the max length boundary is accepted`() =
+        runTest {
+            val name = "N".repeat(RegisterUseCase.MAX_DISPLAY_NAME_LENGTH)
+            coEvery { authRepository.register("jane@example.com", "pw123456") } returns Result.Success(session)
+            coEvery { authRepository.updateDisplayName(name) } returns Result.Success(Unit)
+            coEvery { authRepository.resendVerificationEmail() } returns Result.Success(Unit)
+
+            val result = useCase(name, "jane@example.com", "pw123456")
+
+            assertEquals(Result.Success(Unit), result)
+        }
+
+    @Test
+    fun `name one character past the max length is rejected before touching either repository`() =
+        runTest {
+            val name = "N".repeat(RegisterUseCase.MAX_DISPLAY_NAME_LENGTH + 1)
+
+            val result = useCase(name, "jane@example.com", "pw123456")
+
+            assertEquals(Result.Error(AuthError.InvalidDisplayName), result)
+            coVerify(exactly = 0) { authRepository.register(any(), any()) }
+        }
+
+    @Test
+    fun `an extremely long name is rejected without ever reaching Firestore`() =
+        runTest {
+            val name = "N".repeat(100_000)
+
+            val result = useCase(name, "jane@example.com", "pw123456")
+
+            assertEquals(Result.Error(AuthError.InvalidDisplayName), result)
+            assertEquals(0, userRepository.createUserProfileCallCount)
+        }
+
+    @Test
+    fun `surrounding whitespace is trimmed before it is written anywhere`() =
+        runTest {
+            coEvery { authRepository.register("jane@example.com", "pw123456") } returns Result.Success(session)
+            coEvery { authRepository.updateDisplayName("Jane") } returns Result.Success(Unit)
+            coEvery { authRepository.resendVerificationEmail() } returns Result.Success(Unit)
+
+            val result = useCase("  Jane  ", "jane@example.com", "pw123456")
+
+            assertEquals(Result.Success(Unit), result)
+            assertEquals("Jane", userRepository.lastCreateUserProfileArgs?.displayName)
+        }
+
+    @Test
     fun `blank email or password is rejected before touching either repository`() =
         runTest {
             val result = useCase("Jane", "", "pw123456")
