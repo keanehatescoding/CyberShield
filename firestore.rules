@@ -55,12 +55,24 @@ service cloud.firestore {
       // which let any authenticated user mark arbitrary quizzes "completed"
       // on their own doc with no server-side check. finalizeQuizAttemptFn
       // (via FinalizeQuizAttemptsUseCase) is the only legitimate writer now.
+      // NOTE: request.resource.data is the *entire resulting document*,
+      // not a diff — checking `'field' in request.resource.data` blocks
+      // every update once a guarded field exists on the doc at all, even
+      // updates that never touch it. We instead diff against the existing
+      // doc (resource.data) and only deny when a guarded key actually
+      // changes. On create, resource == null, so there's nothing to diff
+      // against — check request.resource.data directly instead.
       allow write: if request.auth != null
                    && request.auth.uid == userId
-                   && !('badges' in request.resource.data)
-                   && !('xp' in request.resource.data)
-                   && !('completedModules' in request.resource.data)
-                   && !('completedQuizzes' in request.resource.data);
+                   && (
+                     resource == null
+                       ? !('badges' in request.resource.data)
+                         && !('xp' in request.resource.data)
+                         && !('completedModules' in request.resource.data)
+                         && !('completedQuizzes' in request.resource.data)
+                       : !request.resource.data.diff(resource.data).affectedKeys()
+                           .hasAny(['badges', 'xp', 'completedModules', 'completedQuizzes'])
+                   );
 
       // Grading is server-side only now: the client calls validateAnswer /
       // validateAnswersBatch, and those Cloud Functions write here with the
