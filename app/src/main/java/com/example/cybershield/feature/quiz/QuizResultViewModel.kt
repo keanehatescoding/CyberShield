@@ -3,8 +3,6 @@ package com.example.cybershield.feature.quiz
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
-import com.example.cybershield.QuizResultRoute
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,7 +18,9 @@ class QuizResultViewModel @Inject constructor(
     private val quizRepository: QuizRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-    val resultId = savedStateHandle.toRoute<QuizResultRoute>().resultId
+    val resultId: String = requireNotNull(savedStateHandle["resultId"]) {
+        "QuizResultViewModel requires a resultId in the SavedStateHandle (QuizResultRoute)"
+    }
 
     val uiState: StateFlow<QuizResultUiState> =
         flow { emit(quizRepository.getQuizAttempt(resultId)) }
