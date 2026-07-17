@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.cybershield.core.data.CertificateGenerator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,6 +108,8 @@ fun CertificateScreen(
                 // Keep isGenerating = true until the permission result comes back.
                 pendingSave = { saveToDownloads(userName, quizTitle, score, date, id) }
                 permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 isGenerating = false
                 snackbarHostState.showSnackbar("Couldn't save certificate: ${e.message}")
@@ -157,16 +160,23 @@ fun CertificateScreen(
                     onClick = {
                         scope.launch {
                             isGenerating = true
-                            val file =
-                                generator.generate(
-                                    userName = user.displayName,
-                                    quizTitle = cert.quizTitle,
-                                    score = cert.score,
-                                    date = cert.datePassed,
-                                    certId = cert.id,
-                                )
-                            isGenerating = false
-                            generator.share(context, file)
+                            try {
+                                val file =
+                                    generator.generate(
+                                        userName = user.displayName,
+                                        quizTitle = cert.quizTitle,
+                                        score = cert.score,
+                                        date = cert.datePassed,
+                                        certId = cert.id,
+                                    )
+                                isGenerating = false
+                                generator.share(context, file)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                isGenerating = false
+                                snackbarHostState.showSnackbar("Couldn't share certificate: ${e.message}")
+                            }
                         }
                     },
                     enabled = !isGenerating,

@@ -6,6 +6,7 @@ import com.example.cybershield.core.domain.util.Result
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.functions.HttpsCallableResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -150,6 +151,8 @@ class FunctionsQuizDataSource
                         alreadyFinalized = data.optBoolean("alreadyFinalized"),
                     ),
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: FirebaseFunctionsException) {
                 Result.Error(Exception(e.message ?: "finalize failed", e))
             } catch (e: Exception) {
