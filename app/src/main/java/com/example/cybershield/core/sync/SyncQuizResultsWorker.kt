@@ -17,6 +17,7 @@ import com.example.cybershield.core.domain.util.CrashReporter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import com.example.cybershield.core.domain.util.Result as DomainResult
 
 @HiltWorker
@@ -47,6 +48,11 @@ constructor(
                 // isn't finalized yet.
                 try {
                     finalizeQuizAttempts()
+                } catch (e: CancellationException) {
+                    // Don't swallow cancellation — a WorkManager-cancelled
+                    // worker (constraints no longer met, app backgrounded,
+                    // etc.) must not be reported as a crash or as success.
+                    throw e
                 } catch (e: Exception) {
                     // Swallow — see comment above. The answers themselves are
                     // safely synced regardless of whether finalization ran.
