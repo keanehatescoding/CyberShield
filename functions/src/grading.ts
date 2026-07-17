@@ -209,6 +209,30 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     const total = results.length;
     const correctResults = results.filter((r) => r.isCorrect === true);
     const correctCount = correctResults.length;
+
+    const first = results[0] as { moduleId?: string; quizId?: string };
+    const quizId = first.quizId ?? "";
+    const moduleId = first.moduleId ?? "";
+
+    // `total` above is just "however many quizResults docs share this
+    // resultId" — it says nothing about whether that's the whole quiz. A
+    // client could call validateAnswer for one easy question, then invoke
+    // this callable directly with that resultId, bypassing the app's own
+    // "answer every question" flow: total = 1, correctCount = 1, 100%,
+    // instant pass + certificate + badge. Cross-check against the quiz's
+    // real question count before trusting `total` as the denominator.
+    const questionsCountSnap = quizId
+      ? await tx.get(db.collection("quizzes").doc(quizId).collection("questions").count())
+      : null;
+    const expectedQuestionCount = questionsCountSnap?.data().count ?? 0;
+
+    if (expectedQuestionCount > 0 && total < expectedQuestionCount) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Attempt is incomplete: ${total}/${expectedQuestionCount} questions graded.`,
+      );
+    }
+
     const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
     const passed = percentage >= PASS_PERCENTAGE;
 
@@ -219,10 +243,6 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
 
     const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
-
-    const first = results[0] as { moduleId?: string; quizId?: string };
-    const quizId = first.quizId ?? "";
-    const moduleId = first.moduleId ?? "";
 
     // Any further reads (issuing the certificate needs the user/module/quiz
     // docs) must also happen before the writes below, so they're gathered

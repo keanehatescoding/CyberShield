@@ -1,6 +1,6 @@
 # CyberShield
 
-CyberShield is a gamified cybersecurity education app for Android, built as a final year academic project at Strathmore University under the supervision of Mr. Tiberius Tabulu. The app teaches cybersecurity concepts to university students through interactive learning modules, quizzes, XP and badges, and a leaderboard.
+CyberShield is a gamified cybersecurity education app for Android, built as a third year academic project at Strathmore University under the supervision of Mr. Tiberius Tabulu. The app teaches cybersecurity concepts to university students through interactive learning modules, quizzes, XP and badges, and a leaderboard.
 
 ## Features
 
@@ -73,11 +73,13 @@ The project currently ships as a single `:app` module, with `core` and `feature`
 Unit tests (ViewModels, use cases, sync worker) live in `app/src/test`, using MockK, Turbine, and fake repository implementations. Instrumented tests live in `app/src/androidTest`.
 
 Run unit tests:
+
 ```bash
 ./gradlew test
 ```
 
 Run instrumented tests (requires a connected device or emulator):
+
 ```bash
 ./gradlew connectedAndroidTest
 ```
@@ -85,6 +87,7 @@ Run instrumented tests (requires a connected device or emulator):
 ## Code style
 
 The project uses [ktlint](https://github.com/jlleitschuh/ktlint-gradle), applied to all subprojects. Check formatting with:
+
 ```bash
 ./gradlew ktlintCheck
 ```
