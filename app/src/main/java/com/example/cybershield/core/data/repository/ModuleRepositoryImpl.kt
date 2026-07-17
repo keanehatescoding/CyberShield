@@ -34,7 +34,14 @@ class ModuleRepositoryImpl
                     .getAllModules()
                     .map { it.toDomain() }
 
-            moduleDao.replaceAll(modules.map { ModuleEntity.fromDomain(it) })
+            // An empty remote response is ambiguous — it could mean "no
+            // modules exist" or a transient/partial read — so don't let it
+            // overwrite a non-empty cache. Only a non-empty remote result is
+            // trusted as ground truth here, matching the fallback behavior
+            // getQuizzesForModule already has for the same ambiguity.
+            if (modules.isNotEmpty()) {
+                moduleDao.replaceAll(modules.map { ModuleEntity.fromDomain(it) })
+            }
 
             return modules
         }
@@ -44,7 +51,15 @@ class ModuleRepositoryImpl
             flow {
                 emit(Result.Loading)
                 try {
-                    emit(Result.Success(fetchAndCacheModules()))
+                    val remote = fetchAndCacheModules()
+                    if (remote.isNotEmpty()) {
+                        emit(Result.Success(remote))
+                    } else {
+                        // Nothing was written to the cache above for an empty
+                        // remote result, so this reads whatever was cached
+                        // from a previous successful fetch, if any.
+                        emit(Result.Success(moduleDao.getAll().map { it.toDomain() }))
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
