@@ -35,7 +35,16 @@ afterAll(async () => {
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), "leaderboard", OWNER_UID), {
+
+    // Grab the Firestore instance once and reuse it below — context.firestore()
+    // calls useEmulator() internally on every invocation, which the SDK only
+    // allows before any other operation has run on that instance. Calling it
+    // repeatedly here (once per setDoc) threw "Firestore has already been
+    // started and its settings can no longer be changed" on the second call,
+    // failing this beforeEach (and therefore every test in this file).
+    const db = context.firestore();
+    await setDoc(doc(db, "leaderboard", OWNER_UID), {
+
       displayName: "Ada",
       xp: 100,
     });
@@ -44,11 +53,11 @@ beforeEach(async () => {
       { quizId: "quiz-1", isCorrect: true },
     );
     await setDoc(
-      doc(context.firestore(), `users/${OWNER_UID}/quizAttempts/result-1`),
+      doc(context.firestore(), `users/${OWNER_UID}/quizResults/result-1`),
       { xpEarned: 10 },
     );
     await setDoc(
-      doc(context.firestore(), `users/${OWNER_UID}/certificates/result-1`),
+      doc(context.firestore(), `users/${OWNER_UID}/quizAttempts/result-1`),
       { quizId: "quiz-1" },
     );
   });
