@@ -33,10 +33,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: functions/package-lock.json
 
