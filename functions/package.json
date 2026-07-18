@@ -4,7 +4,7 @@
   "private": true,
   "description": "Server-side answer validation for CyberShield quizzes.",
   "engines": {
-    "node": "22"
+    "node": "24"
   },
   "main": "lib/index.js",
   "scripts": {
