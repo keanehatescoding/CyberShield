@@ -5,7 +5,7 @@
   "description": "Unit tests for firestore.rules, run against the Firestore emulator via @firebase/rules-unit-testing. Separate from functions/ (which unit-tests Cloud Functions logic with the Admin SDK) because these tests exercise the security rules themselves, not function code.",
   "type": "module",
   "engines": {
-    "node": "22"
+    "node": "24"
   },
   "scripts": {
     "test": "vitest run"
