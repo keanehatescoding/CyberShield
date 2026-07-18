@@ -107,7 +107,8 @@ class ProfileViewModelTest {
                 assertEquals(testUser, state.user)
                 assertEquals(testCertificates, state.certificates)
                 assertEquals(false, state.isLoading)
-                assertNull(state.error)
+                assertNull(state.profileError)
+                assertNull(state.certificatesError)
             }
         }
 
@@ -134,7 +135,8 @@ class ProfileViewModelTest {
             advanceUntilIdle()
 
             val state = viewModel.uiState.value
-            assertEquals("Error: network down", state.error)
+            assertEquals("Error: network down", state.profileError)
+            assertNull(state.certificatesError)
             assertEquals(false, state.isLoading)
             assertNull(state.user)
         }
@@ -154,8 +156,9 @@ class ProfileViewModelTest {
 
             val state = viewModel.uiState.value
             assertEquals(testUser, state.user)
-            assertTrue(state.error?.contains("Couldn't load certificates") == true)
-            assertTrue(state.error?.contains("firestore unavailable") == true)
+            assertNull(state.profileError)
+            assertTrue(state.certificatesError?.contains("Couldn't load certificates") == true)
+            assertTrue(state.certificatesError?.contains("firestore unavailable") == true)
             assertEquals(emptyList<Certificate>(), state.certificates)
         }
 
@@ -175,7 +178,8 @@ class ProfileViewModelTest {
             // "not signed in" state. This is worth a follow-up — see note below.
             val state = viewModel.uiState.value
             assertEquals(false, state.isLoading)
-            assertTrue(state.error != null)
+            assertTrue(state.profileError != null)
+            assertTrue(state.certificatesError != null)
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)

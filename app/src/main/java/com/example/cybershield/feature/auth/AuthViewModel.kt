@@ -93,15 +93,20 @@ class AuthViewModel
 
         fun resendVerificationEmail() {
             val s = _state.value as? AuthState.AwaitingEmailVerification ?: return
-            _state.value = s.copy(isResending = true)
+            _state.value = s.copy(isResending = true, error = null)
 
             viewModelScope.launch {
-                when (resendVerificationEmailUseCase()) {
+                when (val result = resendVerificationEmailUseCase()) {
                     is Result.Success -> {
-                        _state.value = s.copy(isResending = false, resendCooldownSeconds = 60)
+                        _state.value = s.copy(isResending = false, resendCooldownSeconds = 60, error = null)
                         startCooldownTimer()
                     }
-                    is Result.Error -> _state.value = s.copy(isResending = false)
+                    is Result.Error ->
+                        _state.value =
+                            s.copy(
+                                isResending = false,
+                                error = result.exception.message ?: "Couldn't resend the email. Please try again.",
+                            )
                     is Result.Loading -> Unit
                 }
             }

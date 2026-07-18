@@ -372,7 +372,7 @@ class AuthViewModelTest {
         }
 
     @Test
-    fun `resendVerificationEmail failure clears isResending without starting cooldown`() =
+    fun `resendVerificationEmail failure clears isResending, starts no cooldown, and surfaces the error`() =
         runTest {
             every { observeAuthState.currentSession() } returns
                 session(email = "a@b.com", isEmailVerified = false)
@@ -389,6 +389,7 @@ class AuthViewModelTest {
                 val after = awaitItem() as AuthState.AwaitingEmailVerification
                 assertEquals(false, after.isResending)
                 assertEquals(0, after.resendCooldownSeconds)
+                assertEquals("Too many attempts. Please wait and try again.", after.error)
             }
         }
 

@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
-import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.GetQuizUseCase
 import com.example.cybershield.core.domain.usecase.SubmitAnswerUseCase
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
@@ -39,7 +38,6 @@ class QuizViewModel
 constructor(
     private val getQuiz: GetQuizUseCase,
     private val submitAnswer: SubmitAnswerUseCase,
-    private val userRepository: UserRepository,
     private val quizRepository: QuizRepository,
     private val getCurrentSession: GetCurrentSessionUseCase,
     savedStateHandle: SavedStateHandle,

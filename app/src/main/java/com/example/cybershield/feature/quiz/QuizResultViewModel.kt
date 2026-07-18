@@ -3,7 +3,6 @@ package com.example.cybershield.feature.quiz
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
