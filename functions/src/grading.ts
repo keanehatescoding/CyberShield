@@ -205,28 +205,39 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
       throw new HttpsError("not-found", "No graded answers found for this attempt.");
     }
 
-    const results = resultsSnap.docs.map((d) => d.data() as Record<string, unknown>);
+    const allResults = resultsSnap.docs.map((d) => d.data() as Record<string, unknown>);
+
+    const first = allResults[0] as { moduleId?: string; quizId?: string };
+    const quizId = first.quizId ?? "";
+    const moduleId = first.moduleId ?? "";
+
+    if (!quizId) {
+      throw new HttpsError("failed-precondition", "Attempt has no associated quiz.");
+    }
+
+    // resultId is client-supplied and validateAnswer will grade *any*
+    // question under *any* resultId, so a client could otherwise submit
+    // extra graded answers from unrelated quizzes/questions tagged with
+    // this same resultId to pad total/correctCount. Only count results that
+    // actually belong to this attempt's quiz.
+    const results = allResults.filter((r) => r.quizId === quizId);
     const total = results.length;
     const correctResults = results.filter((r) => r.isCorrect === true);
     const correctCount = correctResults.length;
 
-    const first = results[0] as { moduleId?: string; quizId?: string };
-    const quizId = first.quizId ?? "";
-    const moduleId = first.moduleId ?? "";
+    // Cross-check against the quiz's real question count before trusting
+    // `total` as the denominator. This must be an EXACT match, not just a
+    // minimum: a client could call validateAnswer for one easy question,
+    // then invoke this callable directly with that resultId (total = 1,
+    // instant pass) — or, without the quizId filter above, brute-force and
+    // submit answers to every question in the app under one resultId so
+    // `total` sails past `expectedQuestionCount` and the old `total <
+    // expectedQuestionCount` check never fires, inflating xpEarned with no
+    // cap. Requiring `total === expectedQuestionCount` closes both.
+    const questionsCountSnap = await tx.get(db.collection("quizzes").doc(quizId).collection("questions").count());
+    const expectedQuestionCount = questionsCountSnap.data().count ?? 0;
 
-    // `total` above is just "however many quizResults docs share this
-    // resultId" — it says nothing about whether that's the whole quiz. A
-    // client could call validateAnswer for one easy question, then invoke
-    // this callable directly with that resultId, bypassing the app's own
-    // "answer every question" flow: total = 1, correctCount = 1, 100%,
-    // instant pass + certificate + badge. Cross-check against the quiz's
-    // real question count before trusting `total` as the denominator.
-    const questionsCountSnap = quizId
-      ? await tx.get(db.collection("quizzes").doc(quizId).collection("questions").count())
-      : null;
-    const expectedQuestionCount = questionsCountSnap?.data().count ?? 0;
-
-    if (expectedQuestionCount > 0 && total < expectedQuestionCount) {
+    if (expectedQuestionCount === 0 || total !== expectedQuestionCount) {
       throw new HttpsError(
         "failed-precondition",
         `Attempt is incomplete: ${total}/${expectedQuestionCount} questions graded.`,
