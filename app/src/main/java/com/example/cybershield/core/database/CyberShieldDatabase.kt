@@ -23,7 +23,13 @@ import com.example.cybershield.core.database.entity.QuizResultEntity
         QuizAttemptEntity::class,
     ],
     version = 8,
-    exportSchema = false,
+    // Exported so future version bumps have a real schema history to write
+    // Migration objects against, and so migrations can be tested with
+    // Room's MigrationTestHelper instead of guessed at. See
+    // app/build.gradle.kts for the ksp `room.schemaLocation` arg that
+    // controls where these land (app/schemas/), and DatabaseModule for why
+    // this matters: destructive fallback silently drops unsynced rows.
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class CyberShieldDatabase : RoomDatabase() {

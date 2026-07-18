@@ -79,6 +79,13 @@ android {
         buildConfig = true
     }
 }
+
+// Room schema history — required now that CyberShieldDatabase sets
+// exportSchema = true. Commit the JSON files this writes to app/schemas/;
+// they're what Migration objects and MigrationTestHelper get diffed against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
 // Mapping files only carry value for minified (release) builds — debug is
 // never obfuscated, so uploading its "mapping" is pure waste: an extra
 // network call to Firebase on every debug build for a file with nothing to
