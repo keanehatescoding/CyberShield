@@ -13,10 +13,9 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
     "firebase": "^10.14.1",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   },
   "allowScripts": {
-    "esbuild@0.21.5": true,
     "protobufjs@7.6.5": true
   }
 }
