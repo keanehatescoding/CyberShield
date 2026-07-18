@@ -32,11 +32,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v5
+        
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: functions/package-lock.json
 
