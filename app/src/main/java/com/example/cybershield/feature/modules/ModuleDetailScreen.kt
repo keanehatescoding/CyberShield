@@ -66,6 +66,7 @@ fun ModuleDetailScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     val isSavedPositionLoaded by viewModel.isSavedPositionLoaded.collectAsStateWithLifecycle()
     var showSpeedMenu by remember { mutableStateOf(false) }
+    var videoError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val observer =
@@ -186,11 +187,34 @@ fun ModuleDetailScreen(
                             playbackSpeed = playbackSpeed,
                             onVideoEnded = { viewModel.onVideoCompleted() },
                             onPositionChanged = { pos -> viewModel.savePosition(pos) },
+                            onPlaybackError = { message -> videoError = message },
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(16f / 9f),
                         )
+                        if (videoError != null) {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = "Couldn't play this video — check your connection and reopen the module.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),

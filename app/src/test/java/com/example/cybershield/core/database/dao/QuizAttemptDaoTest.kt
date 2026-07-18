@@ -126,4 +126,36 @@ class QuizAttemptDaoTest : RoomDbTestBase() {
             assertNull(dao.getById("old"))
             assertEquals("new", dao.getById("new")?.resultId)
         }
+
+    @Test
+    fun `updateFinalizeFailure records the count without abandoning below the caller's threshold`() =
+        runTest {
+            dao.insert(fakeAttempt(resultId = "result-1", provisional = true))
+
+            dao.updateFinalizeFailure(resultId = "result-1", count = 3, abandoned = false)
+
+            val updated = dao.getById("result-1")
+            assertEquals(3, updated?.finalizeFailureCount)
+            assertEquals(false, updated?.abandoned)
+            // Still provisional=true, so it's still returned by getProvisionalAttempts —
+            // the caller (QuizRepositoryImpl) hasn't hit its retry limit yet.
+            assertEquals(1, dao.getProvisionalAttempts().size)
+        }
+
+    @Test
+    fun `updateFinalizeFailure with abandoned=true clears provisional and excludes it from getProvisionalAttempts`() =
+        runTest {
+            dao.insert(fakeAttempt(resultId = "result-1", provisional = true))
+            dao.insert(fakeAttempt(resultId = "result-2", provisional = true))
+
+            dao.updateFinalizeFailure(resultId = "result-1", count = 5, abandoned = true)
+
+            val abandoned = dao.getById("result-1")
+            assertEquals(true, abandoned?.abandoned)
+            assertEquals(false, abandoned?.provisional)
+
+            val stillPending = dao.getProvisionalAttempts()
+            assertEquals(1, stillPending.size)
+            assertEquals("result-2", stillPending.single().resultId)
+        }
 }

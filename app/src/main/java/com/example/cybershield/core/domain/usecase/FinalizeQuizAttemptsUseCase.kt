@@ -56,10 +56,28 @@ class FinalizeQuizAttemptsUseCase
             // Server recomputes the score from the verified quizResults,
             // awards XP, and (if passed) issues the certificate +
             // CyberDefender badge — all atomically and idempotently (see
-            // finalizeQuizAttempt's quizAttempts marker doc). If it fails,
-            // leave the attempt provisional and retry later.
+            // finalizeQuizAttempt's quizAttempts marker doc).
             val finalize = quizRepository.finalizeQuizAttemptServer(attempt.resultId)
-            val fr = finalize.dataOrNull ?: return
+            val fr = finalize.dataOrNull
+            if (fr == null) {
+                // Some failures are transient (network blip, Firestore quota)
+                // and worth leaving provisional for the next sync pass to
+                // retry. Others are permanent — most commonly, the user
+                // retook this same quiz before it synced, and the retake's
+                // answers overwrote this attempt's quizResults docs
+                // server-side, so finalizeQuizAttempt can never again see a
+                // complete answer set for it. Without a limit, that second
+                // case retried silently forever. recordFinalizeFailure tracks
+                // the count and abandons the attempt once it's clearly not
+                // transient, reporting it once instead of losing it silently.
+                if (quizRepository.recordFinalizeFailure(attempt.resultId)) {
+                    crashReporter.recordException(
+                        IllegalStateException("Abandoned quiz attempt after repeated finalize failures"),
+                        mapOf("resultId" to attempt.resultId),
+                    )
+                }
+                return
+            }
             val xpEarned = fr.xpEarned
 
             // The certificate/badge were already issued by the server above; we
