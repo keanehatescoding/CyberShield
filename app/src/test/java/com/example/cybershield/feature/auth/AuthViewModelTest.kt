@@ -10,6 +10,7 @@ import com.example.cybershield.core.domain.usecase.auth.ResendVerificationEmailU
 import com.example.cybershield.core.domain.usecase.auth.SignInUseCase
 import com.example.cybershield.core.domain.usecase.auth.SignOutUseCase
 import com.example.cybershield.core.domain.util.Result
+import com.example.cybershield.core.sync.FcmTokenSyncTrigger
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -51,6 +52,10 @@ class AuthViewModelTest {
     private val resendVerificationEmailUseCase: ResendVerificationEmailUseCase = mockk()
     private val checkEmailVerifiedUseCase: CheckEmailVerifiedUseCase = mockk()
     private val signOutUseCase: SignOutUseCase = mockk()
+    private val fcmTokenSyncTrigger: FcmTokenSyncTrigger =
+        mockk {
+            coEvery { syncCurrentToken() } returns Unit
+        }
 
     private fun session(
         uid: String = "uid-123",
@@ -70,6 +75,7 @@ class AuthViewModelTest {
             resendVerificationEmailUseCase = resendVerificationEmailUseCase,
             checkEmailVerifiedUseCase = checkEmailVerifiedUseCase,
             signOutUseCase = signOutUseCase,
+            fcmTokenSyncTrigger = fcmTokenSyncTrigger,
         )
 
     // ---------------------------------------------------------------------
@@ -129,6 +135,31 @@ class AuthViewModelTest {
 
         assertEquals(AuthState.Authenticated("uid-999"), viewModel.state.value)
     }
+
+    @Test
+    fun `init with verified session syncs the FCM token`() =
+        runTest {
+            // Covers an already-authenticated cold start: a token issued before
+            // this session existed (e.g. pre-login on a prior run) must still
+            // get attached once there's a uid to attach it to.
+            every { observeAuthState.currentSession() } returns session(uid = "uid-999", isEmailVerified = true)
+
+            buildViewModel()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
+        }
+
+    @Test
+    fun `init with no session does not sync the FCM token`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+
+            buildViewModel()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { fcmTokenSyncTrigger.syncCurrentToken() }
+        }
 
     // ---------------------------------------------------------------------
     // register()
@@ -291,6 +322,34 @@ class AuthViewModelTest {
             }
         }
 
+    @Test
+    fun `signIn success with verified email syncs the FCM token`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase("a@b.com", "pw") } returns
+                Result.Success(session(uid = "uid-42", isEmailVerified = true))
+
+            val viewModel = buildViewModel()
+            viewModel.signIn("a@b.com", "pw")
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
+        }
+
+    @Test
+    fun `signIn success with unverified email does not sync the FCM token`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase("a@b.com", "pw") } returns
+                Result.Success(session(email = "a@b.com", isEmailVerified = false))
+
+            val viewModel = buildViewModel()
+            viewModel.signIn("a@b.com", "pw")
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { fcmTokenSyncTrigger.syncCurrentToken() }
+        }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signIn is a no-op when state is not SignedOut`() =
@@ -446,6 +505,20 @@ class AuthViewModelTest {
                 viewModel.checkEmailVerified()
                 assertEquals(AuthState.Authenticated("uid-7"), awaitItem())
             }
+        }
+
+    @Test
+    fun `checkEmailVerified true syncs the FCM token`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
+                session(uid = "uid-7", email = "a@b.com", isEmailVerified = false)
+            coEvery { checkEmailVerifiedUseCase() } returns Result.Success(true)
+
+            val viewModel = buildViewModel()
+            viewModel.checkEmailVerified()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
