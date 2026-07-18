@@ -17,7 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.cybershield"
-        minSdk = 26
+        minSdk = 27
         targetSdk = 37
         versionCode = 1
         versionName = "1.0.0"
@@ -78,6 +78,13 @@ android {
         compose = true
         buildConfig = true
     }
+}
+
+// Room schema history — required now that CyberShieldDatabase sets
+// exportSchema = true. Commit the JSON files this writes to app/schemas/;
+// they're what Migration objects and MigrationTestHelper get diffed against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 // Mapping files only carry value for minified (release) builds — debug is
 // never obfuscated, so uploading its "mapping" is pure waste: an extra

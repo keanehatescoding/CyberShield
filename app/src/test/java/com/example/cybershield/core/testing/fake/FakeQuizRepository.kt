@@ -23,8 +23,12 @@ class FakeQuizRepository : QuizRepository {
     val validatedAnswers = mutableListOf<SavedQuizResult>()
     val pendingAnswers = mutableListOf<SavedQuizResult>()
     val finalizedAttempts = mutableListOf<FinalizedAttempt>()
+    val recordedFinalizeFailures = mutableListOf<String>()
     var shouldReturnError = false
     var errorMessage = "Fake error"
+
+    /** Lets tests script whether recordFinalizeFailure(resultId) reports the attempt as newly abandoned. */
+    var recordFinalizeFailureResult: (resultId: String) -> Boolean = { false }
 
     /** Lets tests script the server's verdict per question, mirroring what validateAnswer would return. */
     var validationProvider: (questionId: String, selectedIndex: Int) -> AnswerValidation =
@@ -201,6 +205,11 @@ class FakeQuizRepository : QuizRepository {
                 percentage = 100
             )
         )
+
+    override suspend fun recordFinalizeFailure(resultId: String): Boolean {
+        recordedFinalizeFailures.add(resultId)
+        return recordFinalizeFailureResult(resultId)
+    }
 
     companion object {
         const val DEFAULT_PASS_MARK = 70

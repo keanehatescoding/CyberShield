@@ -26,7 +26,13 @@ class CertificateRepositoryImpl
                             userName = data["userName"] as? String ?: "",
                             moduleId = data["moduleId"] as? String ?: "",
                             moduleName = data["moduleName"] as? String ?: data["quizTitle"] as? String ?: "",
-                            score = (data["score"] as? Long)?.toInt() ?: 0,
+                            // `as? Number` (not `as? Long`) — Firestore's Map<String, Any?>
+                            // representation isn't guaranteed to hand back a Long for every
+                            // numeric field. Same pitfall as LeaderboardRepositoryImpl's xp
+                            // cast: a bare `as? Long` silently returns null (and therefore
+                            // the `?: 0` fallback) for anything else, which would render
+                            // every certificate's score as 0.
+                            score = (data["score"] as? Number)?.toInt() ?: 0,
                             issuedAt = (data["issuedAt"] as? com.google.firebase.Timestamp)?.toDate()?.time
                                 ?: System.currentTimeMillis(),
                         )

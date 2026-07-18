@@ -106,6 +106,15 @@ interface QuizRepository {
      * Returns the server's verdict (or Result.Error to retry later).
      */
     suspend fun finalizeQuizAttemptServer(resultId: String): Result<QuizFinalizeResult>
+
+    /**
+     * Called by FinalizeQuizAttemptsUseCase after [finalizeQuizAttemptServer]
+     * fails or returns no data for [resultId]. Tracks how many times that's
+     * happened; once it crosses the retry limit, the attempt is marked
+     * abandoned (and un-provisional) so it stops being retried on every sync
+     * pass. Returns true if this call caused the attempt to be abandoned.
+     */
+    suspend fun recordFinalizeFailure(resultId: String): Boolean
 }
 
 /** Server-computed outcome of [finalizeQuizAttemptServer]. */

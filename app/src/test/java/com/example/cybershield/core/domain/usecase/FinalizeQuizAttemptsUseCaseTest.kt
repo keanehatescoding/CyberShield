@@ -3,7 +3,6 @@ package com.example.cybershield.core.domain.usecase
 import com.example.cybershield.core.domain.model.ReadyToFinalizeAttempt
 import com.example.cybershield.core.domain.repository.QuizFinalizeResult
 import com.example.cybershield.core.domain.repository.QuizRepository
-import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.Result
 import io.mockk.coEvery
@@ -16,7 +15,6 @@ import org.junit.Test
 
 class FinalizeQuizAttemptsUseCaseTest {
     private lateinit var quizRepository: QuizRepository
-    private lateinit var userRepository: UserRepository
     private lateinit var crashReporter: CrashReporter
     private lateinit var useCase: FinalizeQuizAttemptsUseCase
 
@@ -65,9 +63,8 @@ class FinalizeQuizAttemptsUseCaseTest {
     @Before
     fun setUp() {
         quizRepository = mockk(relaxed = true)
-        userRepository = mockk(relaxed = true)
         crashReporter = mockk(relaxed = true)
-        useCase = FinalizeQuizAttemptsUseCase(quizRepository, userRepository, crashReporter)
+        useCase = FinalizeQuizAttemptsUseCase(quizRepository, crashReporter)
     }
 
     @Test
@@ -101,7 +98,6 @@ class FinalizeQuizAttemptsUseCaseTest {
 
             // The certificate + CyberDefender badge + XP are now all issued by the
             // server, never locally — verify nothing on the client writes them.
-            coVerify { userRepository.markQuizCompleted("user1", "quiz1") }
             coVerify {
                 quizRepository.finalizeAttempt(
                     resultId = "result-1",
@@ -158,7 +154,6 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any()
                 )
             }
-            coVerify(exactly = 0) { userRepository.markQuizCompleted(any(), any()) }
         }
 
     @Test
@@ -262,13 +257,65 @@ class FinalizeQuizAttemptsUseCaseTest {
         }
 
     @Test
+    fun `records a finalize failure but does not report to crash reporter below the retry limit`() =
+        runTest {
+            val attempt = readyAttempt(resultId = "result-1")
+            coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns Result.Error(
+                RuntimeException("finalize failed")
+            )
+            coEvery { quizRepository.recordFinalizeFailure("result-1") } returns false
+
+            useCase()
+
+            coVerify(exactly = 1) { quizRepository.recordFinalizeFailure("result-1") }
+            verify(exactly = 0) { crashReporter.recordException(any(), any()) }
+        }
+
+    @Test
+    fun `reports to crash reporter once recordFinalizeFailure abandons the attempt`() =
+        runTest {
+            // Simulates the case this fix targets: the attempt's quizResults
+            // docs were overwritten server-side by a later retake of the same
+            // quiz, so finalizeQuizAttemptServer will never succeed for it
+            // again. Once recordFinalizeFailure reports the retry limit was
+            // hit, the use case should stop silently swallowing this and
+            // surface it once instead.
+            val attempt = readyAttempt(resultId = "result-stuck")
+            coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-stuck") } returns Result.Error(
+                RuntimeException("Attempt is incomplete: 2/4 questions graded.")
+            )
+            coEvery { quizRepository.recordFinalizeFailure("result-stuck") } returns true
+
+            useCase()
+
+            coVerify(exactly = 1) { quizRepository.recordFinalizeFailure("result-stuck") }
+            verify(exactly = 1) {
+                crashReporter.recordException(any(), mapOf("resultId" to "result-stuck"))
+            }
+            coVerify(exactly = 0) {
+                quizRepository.finalizeAttempt(any(), any(), any(), any(), any(), any())
+            }
+        }
+
+    @Test
     fun `records swallowed exception to crash reporter with the resultId`() =
         runTest {
             val attempt = readyAttempt(resultId = "result-1")
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
             stubFinalize("result-1", passed = true, score = 400, correctCount = 4, percentage = 100, xpEarned = 40)
-            val boom = RuntimeException("markQuizCompleted blew up")
-            coEvery { userRepository.markQuizCompleted(any(), any()) } throws boom
+            val boom = RuntimeException("finalizeAttempt blew up")
+            coEvery {
+                quizRepository.finalizeAttempt(
+                    resultId = "result-1",
+                    score = 400,
+                    correctCount = 4,
+                    percentage = 100,
+                    xpEarned = 40,
+                    passed = true,
+                )
+            } throws boom
 
             useCase()
 

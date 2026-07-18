@@ -55,6 +55,7 @@ jobs:
         uses: snyk/actions/gradle-9-jdk21@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           args: >
+            --all-sub-projects
             --severity-threshold=high
             --sarif-file-output=snyk.sarif
 

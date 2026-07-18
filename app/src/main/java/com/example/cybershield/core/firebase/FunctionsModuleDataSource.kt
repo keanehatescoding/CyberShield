@@ -5,6 +5,7 @@ import com.example.cybershield.core.domain.util.Result
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.functions.HttpsCallableResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,26 +17,28 @@ import javax.inject.Singleton
  */
 @Singleton
 class FunctionsModuleDataSource
-    @Inject
-    constructor(
-        private val functions: FirebaseFunctions,
+    internal constructor(
+        /** Test seam — see FunctionsQuizDataSource's matching constructor for why this shape. */
+        private val httpsCallable: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult,
     ) {
-        /** Test seam — see FunctionsQuizDataSource.httpsCallable for why this shape. */
-        internal var httpsCallable: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult =
-            { name, payload -> functions.getHttpsCallable(name).call(payload).await() }
+        @Inject
+        constructor(functions: FirebaseFunctions) : this(
+            { name, payload -> functions.getHttpsCallable(name).call(payload).await() },
+        )
 
         suspend fun completeModule(moduleId: String): Result<ModuleCompleteResult> =
             try {
                 val response = httpsCallable("completeModuleFn", hashMapOf("moduleId" to moduleId))
 
-                @Suppress("UNCHECKED_CAST")
-                val data = response.data as Map<String, Any?>
+                val data = response.data.asCallableData("completeModuleFn")
                 Result.Success(
                     ModuleCompleteResult(
-                        alreadyCompleted = data["alreadyCompleted"] as? Boolean ?: false,
-                        xpEarned = (data["xpEarned"] as? Number)?.toInt() ?: 0,
+                        alreadyCompleted = data.optBoolean("alreadyCompleted"),
+                        xpEarned = data.optInt("xpEarned"),
                     ),
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: FirebaseFunctionsException) {
                 Result.Error(Exception(e.message ?: "completeModule failed", e))
             } catch (e: Exception) {

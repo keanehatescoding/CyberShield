@@ -305,7 +305,27 @@ constructor(
             functionsSource.finalizeQuizAttempt(resultId)
         }
 
+    override suspend fun recordFinalizeFailure(resultId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val current = quizAttemptDao.getById(resultId) ?: return@withContext false
+            val newCount = current.finalizeFailureCount + 1
+            val shouldAbandon = newCount >= MAX_FINALIZE_FAILURES
+            quizAttemptDao.updateFinalizeFailure(
+                resultId = resultId,
+                count = newCount,
+                abandoned = shouldAbandon,
+            )
+            shouldAbandon
+        }
+
     private companion object {
         const val HISTORY_PAGE_SIZE = 20
+
+        // A handful of retries covers transient failures (network blip,
+        // Firestore quota, a brief functions outage). Beyond that, it's most
+        // likely permanent — e.g. the user retook this quiz before the
+        // attempt synced, and the retake's answers overwrote this attempt's
+        // quizResults docs server-side — so there's no point retrying forever.
+        const val MAX_FINALIZE_FAILURES = 5
     }
 }

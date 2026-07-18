@@ -6,6 +6,7 @@ import com.example.cybershield.core.domain.util.Result
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.functions.HttpsCallableResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,19 +36,21 @@ data class BatchAnswerResult(
  */
 @Singleton
 class FunctionsQuizDataSource
-    @Inject
-    constructor(
-        private val functions: FirebaseFunctions,
-    ) {
+    internal constructor(
         /**
-         * Test seam: the actual Firebase HTTPS-callable invocation. Kept as an
-         * overridable `var` (not a constructor param) so tests can replace it
-         * without mocking `HttpsCallableReference` - a final Firebase type whose
-         * `call` is an inline extension that MockK can't stub directly.
-         * Defaults to the real `functions.getHttpsCallable(name).call(payload).await()`.
+         * Test seam: the actual Firebase HTTPS-callable invocation, injected
+         * once at construction time (not a mutable `var`) so production code
+         * can't reassign the transport after the singleton is built. Tests use
+         * this internal constructor directly to supply a fake, since
+         * `HttpsCallableReference.call` is a final Firebase member with an
+         * inline extension that MockK can't stub directly.
          */
-        internal var httpsCallable: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult =
-            { name, payload -> functions.getHttpsCallable(name).call(payload).await() }
+        private val httpsCallable: suspend (name: String, payload: Map<String, Any?>) -> HttpsCallableResult,
+    ) {
+        @Inject
+        constructor(functions: FirebaseFunctions) : this(
+            { name, payload -> functions.getHttpsCallable(name).call(payload).await() },
+        )
 
         /** Online path — called immediately after the user taps an option, for instant feedback. */
         suspend fun validateAnswer(
@@ -70,13 +73,12 @@ class FunctionsQuizDataSource
             val response =
                 httpsCallable("validateAnswer", payload)
 
-            @Suppress("UNCHECKED_CAST")
-            val data = response.data as Map<String, Any?>
+            val data = response.data.asCallableData("validateAnswer")
             return AnswerValidation(
-                questionId = data["questionId"] as String,
-                isCorrect = data["isCorrect"] as Boolean,
-                correctIndex = (data["correctIndex"] as Number).toInt(),
-                explanation = data["explanation"] as? String ?: "",
+                questionId = data.requireString("questionId", "validateAnswer"),
+                isCorrect = data.requireBoolean("isCorrect", "validateAnswer"),
+                correctIndex = data.requireInt("correctIndex", "validateAnswer"),
+                explanation = data.optString("explanation") ?: "",
             )
         }
 
@@ -103,15 +105,12 @@ class FunctionsQuizDataSource
             val response =
                 httpsCallable("validateAnswersBatch", payload)
 
-            @Suppress("UNCHECKED_CAST")
-            val data = response.data as Map<String, Any?>
-
-            @Suppress("UNCHECKED_CAST")
-            val rawResults = data["results"] as List<Map<String, Any?>>
+            val data = response.data.asCallableData("validateAnswersBatch")
+            val rawResults = data.requireMapList("results", "validateAnswersBatch")
 
             // Results come back in the same order as the request.
             return pending.zip(rawResults).map { (p, r) ->
-                val error = r["error"] as? String
+                val error = r.optString("error")
                 if (error != null) {
                     BatchAnswerResult(localId = p.localId, validation = null, error = error)
                 } else {
@@ -119,10 +118,10 @@ class FunctionsQuizDataSource
                         localId = p.localId,
                         validation =
                             AnswerValidation(
-                                questionId = r["questionId"] as String,
-                                isCorrect = r["isCorrect"] as Boolean,
-                                correctIndex = (r["correctIndex"] as Number).toInt(),
-                                explanation = r["explanation"] as? String ?: "",
+                                questionId = r.requireString("questionId", "validateAnswersBatch"),
+                                isCorrect = r.requireBoolean("isCorrect", "validateAnswersBatch"),
+                                correctIndex = r.requireInt("correctIndex", "validateAnswersBatch"),
+                                explanation = r.optString("explanation") ?: "",
                             ),
                         error = null,
                     )
@@ -141,18 +140,19 @@ class FunctionsQuizDataSource
                 val response =
                     httpsCallable("finalizeQuizAttemptFn", hashMapOf("resultId" to resultId))
 
-                @Suppress("UNCHECKED_CAST")
-                val data = response.data as Map<String, Any?>
+                val data = response.data.asCallableData("finalizeQuizAttemptFn")
                 Result.Success(
                     QuizFinalizeResult(
-                        passed = data["passed"] as Boolean,
-                        score = (data["score"] as Number).toInt(),
-                        correctCount = (data["correctCount"] as Number).toInt(),
-                        percentage = (data["percentage"] as Number).toInt(),
-                        xpEarned = (data["xpEarned"] as? Number)?.toInt() ?: 0,
-                        alreadyFinalized = data["alreadyFinalized"] as? Boolean ?: false,
+                        passed = data.requireBoolean("passed", "finalizeQuizAttemptFn"),
+                        score = data.requireInt("score", "finalizeQuizAttemptFn"),
+                        correctCount = data.requireInt("correctCount", "finalizeQuizAttemptFn"),
+                        percentage = data.requireInt("percentage", "finalizeQuizAttemptFn"),
+                        xpEarned = data.optInt("xpEarned"),
+                        alreadyFinalized = data.optBoolean("alreadyFinalized"),
                     ),
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: FirebaseFunctionsException) {
                 Result.Error(Exception(e.message ?: "finalize failed", e))
             } catch (e: Exception) {

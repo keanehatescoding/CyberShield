@@ -61,6 +61,10 @@ fun EmailVerificationScreen(viewModel: AuthViewModel) {
             ) {
                 Text(if (s.resendCooldownSeconds > 0) "Resend (${s.resendCooldownSeconds}s)" else "Resend email")
             }
+            s.error?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }

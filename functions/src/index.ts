@@ -97,9 +97,9 @@ export const validateAnswersBatch = onCall(
 
     const results = [];
     for (const raw of answers) {
-      assertValidAnswerInput(raw);
-      const input = raw as AnswerInput;
       try {
+        assertValidAnswerInput(raw);
+        const input = raw as AnswerInput;
         const graded = await gradeAnswer(input);
         await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt, input.resultId, input.timeRemaining);
         results.push({
@@ -110,10 +110,14 @@ export const validateAnswersBatch = onCall(
           error: null,
         });
       } catch (e) {
-        // One bad row (e.g. a question that was later deleted) shouldn't
-        // fail the whole batch — report it and let the rest sync.
+        // One bad row (e.g. a question that was later deleted, or a
+        // malformed cached entry) shouldn't fail the whole batch — report
+        // it and let the rest sync. assertValidAnswerInput is inside this
+        // try too, so a row that fails shape validation is reported the
+        // same way instead of throwing out of the whole callable.
+        const questionId = (raw as Partial<AnswerInput> | null)?.questionId ?? null;
         results.push({
-          questionId: input.questionId,
+          questionId,
           isCorrect: null,
           correctIndex: null,
           explanation: null,

@@ -4,7 +4,10 @@ import android.view.ViewGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -12,6 +15,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -28,6 +32,11 @@ fun VideoPlayerComposable(
     onVideoEnded: () -> Unit,
     onPositionChanged: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    // Fired on any playback failure (bad URL, network error, unsupported
+    // codec, expired Storage token, etc). Previously nothing overrode
+    // Player.Listener.onPlayerError, so failures were silent — the user
+    // just saw a frozen/black player with no explanation and no retry path.
+    onPlaybackError: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -63,7 +72,7 @@ fun VideoPlayerComposable(
         }
     }
 
-    // Listen for video ended event
+    // Listen for video ended / error events
     DisposableEffect(player) {
         val listener =
             object : Player.Listener {
@@ -72,23 +81,40 @@ fun VideoPlayerComposable(
                         onVideoEnded()
                     }
                 }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    onPlaybackError(error.message ?: "Video playback failed.")
+                }
             }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
 
-    // Lifecycle — pause on background, resume on foreground, release on exit
+    // Whether the player was actually playing (not just present) the moment
+    // we backgrounded it — distinct from whether the *user* had paused it
+    // themselves beforehand. Without this, ON_RESUME unconditionally called
+    // player.play(), so a user who deliberately paused, switched away, and
+    // came back would find the video auto-resuming against their wishes.
+    var wasPlayingBeforeBackground by remember { mutableStateOf(true) }
+
+    // Lifecycle — pause on background, resume on foreground (only if it was
+    // actually playing before), release on exit
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_PAUSE -> {
+                        // Capture intent before pause() flips isPlaying to false.
+                        wasPlayingBeforeBackground = player.isPlaying
                         // Save position when going to background
                         onPositionChanged(player.currentPosition)
                         player.pause()
                     }
 
-                    Lifecycle.Event.ON_RESUME -> player.play()
+                    Lifecycle.Event.ON_RESUME -> {
+                        if (wasPlayingBeforeBackground) player.play()
+                    }
+
                     else -> {}
                 }
             }

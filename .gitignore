@@ -18,3 +18,4 @@ local.properties
 /app/google-services.json
 /app/build
 /.kotlin
+/app/src/*/google-services.json

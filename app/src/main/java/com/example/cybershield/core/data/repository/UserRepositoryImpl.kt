@@ -129,21 +129,6 @@ constructor(
             functionsModuleDataSource.completeModule(moduleId)
         }
 
-    // ── Mark quiz completed ────────────────────────────────────────────
-    override suspend fun markQuizCompleted(
-        uid: String,
-        quizId: String,
-    ): Result<Unit> =
-        resultOf {
-            remoteSource
-                .userDoc(uid)
-                .update(
-                    "completedQuizzes",
-                    FieldValue.arrayUnion(quizId),
-                ).await()
-            Result.Success(Unit)
-        }
-
     // ── Save FCM token ─────────────────────────────────────────────────
     override suspend fun updateFcmToken(
         uid: String,

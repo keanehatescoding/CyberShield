@@ -12,6 +12,7 @@ sealed class AuthState {
         val email: String,
         val isResending: Boolean = false,
         val resendCooldownSeconds: Int = 0,
+        val error: String? = null,
     ) : AuthState()
 
     data class Authenticated(

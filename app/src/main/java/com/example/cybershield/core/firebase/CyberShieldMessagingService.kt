@@ -7,18 +7,10 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.example.cybershield.MainActivity
 import com.example.cybershield.R
-import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.sync.FcmTokenSyncWorker
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class CyberShieldMessagingService : FirebaseMessagingService() {

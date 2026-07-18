@@ -43,11 +43,11 @@ class ProfileViewModel
                         when (result) {
                             is Result.Success ->
                                 _uiState.update {
-                                    it.copy(user = result.data, isLoading = false)
+                                    it.copy(user = result.data, isLoading = false, profileError = null)
                                 }
                             is Result.Error ->
                                 _uiState.update {
-                                    it.copy(error = "Error: ${result.exception.message}", isLoading = false)
+                                    it.copy(profileError = "Error: ${result.exception.message}", isLoading = false)
                                 }
                             else -> {}
                         }
@@ -65,11 +65,11 @@ class ProfileViewModel
                 when (val result = certificateRepository.getCertificatesForUser(uid)) {
                     is Result.Success ->
                         _uiState.update {
-                            it.copy(certificates = result.data)
+                            it.copy(certificates = result.data, certificatesError = null)
                         }
                     is Result.Error ->
                         _uiState.update {
-                            it.copy(error = "Couldn't load certificates: ${result.exception.message}")
+                            it.copy(certificatesError = "Couldn't load certificates: ${result.exception.message}")
                         }
                     Result.Loading -> Unit
                 }

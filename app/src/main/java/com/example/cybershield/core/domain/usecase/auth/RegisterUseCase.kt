@@ -18,12 +18,25 @@ constructor(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
 ) {
+    companion object {
+        /**
+         * Upper bound on the display name written to Firebase Auth and the
+         * Firestore user profile. Without a bound here, an arbitrarily long
+         * string can be submitted client-side, bloating the profile document
+         * and any UI (leaderboards, certificates) that renders the name.
+         */
+        const val MAX_DISPLAY_NAME_LENGTH = 60
+    }
+
     suspend operator fun invoke(
         name: String,
         email: String,
         password: String,
     ): Result<Unit> {
-        if (name.isBlank()) return Result.Error(AuthError.Unknown())
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty() || trimmedName.length > MAX_DISPLAY_NAME_LENGTH) {
+            return Result.Error(AuthError.InvalidDisplayName)
+        }
         if (email.isBlank() || password.isBlank()) return Result.Error(AuthError.Unknown())
 
         val session =
@@ -33,7 +46,7 @@ constructor(
                 Result.Loading -> return Result.Error(AuthError.Unknown())
             }
 
-        when (val nameResult = authRepository.updateDisplayName(name)) {
+        when (val nameResult = authRepository.updateDisplayName(trimmedName)) {
             is Result.Error -> {
                 // Auth account exists but is in a half-set-up state; roll it back
                 // rather than leaving an orphaned, name-less account behind.
@@ -50,7 +63,7 @@ constructor(
         val profileResult =
             userRepository.createUserProfile(
                 uid = session.uid,
-                displayName = name,
+                displayName = trimmedName,
                 email = email,
             )
         if (profileResult is Result.Error) {

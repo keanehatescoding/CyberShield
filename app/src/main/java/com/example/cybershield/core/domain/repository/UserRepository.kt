@@ -31,12 +31,6 @@ interface UserRepository {
         photoUrl: String? = null,
     ): Result<Unit>
 
-    /** Marks a quiz as completed. */
-    suspend fun markQuizCompleted(
-        uid: String,
-        quizId: String,
-    ): Result<Unit>
-
     /**
      * Server-authoritative module completion: marks the module completed
      * and awards its xpReward atomically via the completeModuleFn callable.

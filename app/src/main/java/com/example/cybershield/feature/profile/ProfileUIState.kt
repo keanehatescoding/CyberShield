@@ -7,5 +7,6 @@ data class ProfileUiState(
     val user: User? = null,
     val certificates: List<Certificate> = emptyList(),
     val isLoading: Boolean = true,
-    val error: String? = null,
+    val profileError: String? = null,
+    val certificatesError: String? = null,
 )

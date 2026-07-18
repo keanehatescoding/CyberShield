@@ -21,13 +21,13 @@ media3                  = "1.10.1"
 navigation              = "2.9.8"
 paging                  = "3.5.0"
 room                    = "2.8.4"
-robolectric = "4.16.1"
-roomTesting = "2.8.4"
+robolectric             = "4.16.1"
+roomTesting             = "2.8.4"
 serialization-json      = "1.11.0"
 splashscreen            = "1.2.0"
 ui-text                 = "1.11.4"
 work-runtime            = "2.11.2"
-coreKtx = "1.19.0"
+coreKtx                 = "1.19.0"
 
 
 [libraries]

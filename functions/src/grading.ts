@@ -168,6 +168,16 @@ export interface FinalizeQuizAttemptResult {
  * Idempotent: a `quizAttempts/{resultId}` marker doc records the outcome the
  * first time this runs; retries (e.g. from the offline-sync path) read that
  * marker back instead of re-incrementing XP or re-issuing the cert/badge.
+ *
+ * The idempotency check and every write below run inside a single Firestore
+ * transaction. Firebase Functions can (and does) receive two concurrent
+ * calls for the same resultId — e.g. the offline-sync retry firing while an
+ * earlier attempt is still in flight. With a plain get()-then-batch, both
+ * calls can read `alreadyFinalized: false` before either commits, and both
+ * go on to award XP and issue a certificate/badge a second time. A
+ * transaction makes Firestore retry one of the two callers if their read
+ * sets overlap, so only one ever observes the "not yet finalized" state and
+ * proceeds to write.
  */
 export async function finalizeQuizAttempt(uid: string, resultId: string): Promise<FinalizeQuizAttemptResult> {
   const db = getFirestore();
@@ -177,89 +187,137 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
 
   const userRef = db.collection("users").doc(uid);
   const attemptRef = userRef.collection("quizAttempts").doc(resultId);
-
-  const existingAttempt = await attemptRef.get();
-  if (existingAttempt.exists) {
-    const data = existingAttempt.data() as FinalizeQuizAttemptResult;
-    return { ...data, alreadyFinalized: true };
-  }
-
-  const resultsSnap = await userRef.collection("quizResults").where("resultId", "==", resultId).get();
-
-  if (resultsSnap.empty) {
-    throw new HttpsError("not-found", "No graded answers found for this attempt.");
-  }
-
-  const results = resultsSnap.docs.map((d) => d.data() as Record<string, unknown>);
-  const total = results.length;
-  const correctResults = results.filter((r) => r.isCorrect === true);
-  const correctCount = correctResults.length;
-  const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
-  const passed = percentage >= PASS_PERCENTAGE;
-
-  // speed-weighted score — mirrors the client's GenerateCertificateUseCase.
-  // timeRemaining is client-supplied and stored as-is by writeGradedResult,
-  // so it's clamped here to the max a legitimate countdown could produce
-  // before it's used to compute a score that ends up on the certificate.
-  const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
-
-  const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
-
   const leaderboardRef = db.collection("leaderboard").doc(uid);
-  const batch = db.batch();
 
-  batch.update(userRef, { xp: FieldValue.increment(xpEarned) });
-  batch.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
+  return db.runTransaction(async (tx) => {
+    // All reads must happen before any writes within a Firestore
+    // transaction, so every get()/query this function needs is gathered
+    // up front via tx.get(), and the batch.* calls below become tx.* calls.
+    const existingAttempt = await tx.get(attemptRef);
+    if (existingAttempt.exists) {
+      const data = existingAttempt.data() as FinalizeQuizAttemptResult;
+      return { ...data, alreadyFinalized: true };
+    }
 
-  let finalScore = score;
-  if (passed) {
-    const first = results[0] as { moduleId?: string; quizId?: string };
-    const moduleId = first.moduleId ?? "";
+    const resultsSnap = await tx.get(userRef.collection("quizResults").where("resultId", "==", resultId));
+
+    if (resultsSnap.empty) {
+      throw new HttpsError("not-found", "No graded answers found for this attempt.");
+    }
+
+    const allResults = resultsSnap.docs.map((d) => d.data() as Record<string, unknown>);
+
+    const first = allResults[0] as { moduleId?: string; quizId?: string };
     const quizId = first.quizId ?? "";
+    const moduleId = first.moduleId ?? "";
 
-    const [userSnap, moduleSnap, quizSnap] = await Promise.all([
-      userRef.get(),
-      moduleId ? db.collection("modules").doc(moduleId).get() : Promise.resolve(null),
-      quizId ? db.collection("quizzes").doc(quizId).get() : Promise.resolve(null),
-    ]);
+    if (!quizId) {
+      throw new HttpsError("failed-precondition", "Attempt has no associated quiz.");
+    }
 
-    const userData = (userSnap.data() ?? {}) as { displayName?: string };
-    const displayName = userData.displayName ?? "CyberShield User";
-    const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
-    const quizTitle =
-      quizSnap && quizSnap.exists ? ((quizSnap.data() as { title?: string }).title ?? "CyberShield Quiz") : "CyberShield Quiz";
+    // resultId is client-supplied and validateAnswer will grade *any*
+    // question under *any* resultId, so a client could otherwise submit
+    // extra graded answers from unrelated quizzes/questions tagged with
+    // this same resultId to pad total/correctCount. Only count results that
+    // actually belong to this attempt's quiz.
+    const results = allResults.filter((r) => r.quizId === quizId);
+    const total = results.length;
+    const correctResults = results.filter((r) => r.isCorrect === true);
+    const correctCount = correctResults.length;
 
-    const certRef = userRef.collection("certificates").doc(resultId);
-    batch.set(certRef, {
-      id: resultId,
-      userId: uid,
-      userName: displayName,
-      moduleId,
-      moduleName,
-      quizTitle,
-      score,
-      issuedAt: FieldValue.serverTimestamp(),
+    // Cross-check against the quiz's real question count before trusting
+    // `total` as the denominator. This must be an EXACT match, not just a
+    // minimum: a client could call validateAnswer for one easy question,
+    // then invoke this callable directly with that resultId (total = 1,
+    // instant pass) — or, without the quizId filter above, brute-force and
+    // submit answers to every question in the app under one resultId so
+    // `total` sails past `expectedQuestionCount` and the old `total <
+    // expectedQuestionCount` check never fires, inflating xpEarned with no
+    // cap. Requiring `total === expectedQuestionCount` closes both.
+    const questionsCountSnap = await tx.get(db.collection("quizzes").doc(quizId).collection("questions").count());
+    const expectedQuestionCount = questionsCountSnap.data().count ?? 0;
+
+    if (expectedQuestionCount === 0 || total !== expectedQuestionCount) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Attempt is incomplete: ${total}/${expectedQuestionCount} questions graded.`,
+      );
+    }
+
+    const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
+    const passed = percentage >= PASS_PERCENTAGE;
+
+    // speed-weighted score — mirrors the client's QuizScoring formula.
+    // timeRemaining is client-supplied and stored as-is by writeGradedResult,
+    // so it's clamped here to the max a legitimate countdown could produce
+    // before it's used to compute a score that ends up on the certificate.
+    const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
+
+    const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
+
+    // Any further reads (issuing the certificate needs the user/module/quiz
+    // docs) must also happen before the writes below, so they're gathered
+    // here rather than lazily inside the `if (passed)` write block.
+    const [userSnap, moduleSnap, quizSnap] = passed
+      ? await Promise.all([
+          tx.get(userRef),
+          moduleId ? tx.get(db.collection("modules").doc(moduleId)) : Promise.resolve(null),
+          quizId ? tx.get(db.collection("quizzes").doc(quizId)) : Promise.resolve(null),
+        ])
+      : [null, null, null];
+
+    // --- writes from here on ---
+
+    tx.update(userRef, { xp: FieldValue.increment(xpEarned) });
+    tx.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
+
+    // completedQuizzes is server-only now, for the same reason completedModules
+    // is: it used to be a direct client write (UserRepositoryImpl.markQuizCompleted,
+    // an arrayUnion with no server-side check), which let any authenticated user
+    // mark arbitrary quizzes "completed" on their own doc. Recorded here for every
+    // finalized attempt — pass or fail — since that's what the old client write did.
+    if (quizId) {
+      tx.update(userRef, { completedQuizzes: FieldValue.arrayUnion(quizId) });
+    }
+
+    let finalScore = score;
+    if (passed) {
+      const userData = (userSnap?.data() ?? {}) as { displayName?: string };
+      const displayName = userData.displayName ?? "CyberShield User";
+      const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
+      const quizTitle =
+        quizSnap && quizSnap.exists ? ((quizSnap.data() as { title?: string }).title ?? "CyberShield Quiz") : "CyberShield Quiz";
+
+      const certRef = userRef.collection("certificates").doc(resultId);
+      tx.set(certRef, {
+        id: resultId,
+        userId: uid,
+        userName: displayName,
+        moduleId,
+        moduleName,
+        quizTitle,
+        score,
+        issuedAt: FieldValue.serverTimestamp(),
+      });
+
+      tx.update(userRef, { badges: FieldValue.arrayUnion("CyberDefender") });
+      tx.set(leaderboardRef, { badges: FieldValue.arrayUnion("CyberDefender") }, { merge: true });
+    } else {
+      finalScore = 0;
+    }
+
+    const attemptResult: FinalizeQuizAttemptResult = {
+      passed,
+      score: finalScore,
+      correctCount,
+      percentage,
+      xpEarned,
+    };
+    tx.set(attemptRef, {
+      ...attemptResult,
+      finalizedAt: FieldValue.serverTimestamp(),
     });
 
-    batch.update(userRef, { badges: FieldValue.arrayUnion("CyberDefender") });
-    batch.set(leaderboardRef, { badges: FieldValue.arrayUnion("CyberDefender") }, { merge: true });
-  } else {
-    finalScore = 0;
-  }
-
-  const attemptResult: FinalizeQuizAttemptResult = {
-    passed,
-    score: finalScore,
-    correctCount,
-    percentage,
-    xpEarned,
-  };
-  batch.set(attemptRef, {
-    ...attemptResult,
-    finalizedAt: FieldValue.serverTimestamp(),
+    return attemptResult;
   });
-
-  await batch.commit();
-
-  return attemptResult;
 }

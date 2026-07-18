@@ -78,6 +78,26 @@ fun ProfileScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // ── Errors ─────────────────────────────────────────────────────
+            uiState.profileError?.let { message ->
+                item(key = "profile-error") {
+                    Text(
+                        message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            uiState.certificatesError?.let { message ->
+                item(key = "certificates-error") {
+                    Text(
+                        message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
             // ── Profile card ───────────────────────────────────────────────
             item(key = "profile-card") {
                 uiState.user?.let { user ->
