@@ -1,5 +1,6 @@
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
+import { isValidFirestoreDocId } from "./validation";
 
 /**
  * The answer key lives in a collection the client can never read
@@ -41,16 +42,26 @@ export function assertValidAnswerInput(input: unknown): asserts input is AnswerI
   const a = input as Partial<AnswerInput> | null;
   if (
     !a ||
-    typeof a.quizId !== "string" ||
-    !a.quizId ||
-    typeof a.questionId !== "string" ||
-    !a.questionId ||
     typeof a.selectedIndex !== "number" ||
-    !Number.isInteger(a.selectedIndex) ||
-    typeof a.resultId !== "string" ||
-    !a.resultId
+    !Number.isInteger(a.selectedIndex)
   ) {
     throw new HttpsError("invalid-argument", "quizId, questionId, an integer selectedIndex, and resultId are required.");
+  }
+
+  // quizId and questionId are combined into the answerKeys/quizResults doc
+  // id (`${quizId}_${questionId}`) and resultId is used directly as the
+  // quizAttempts/certificates doc id, so all three must be safe Firestore
+  // doc-id segments — otherwise a malformed value (e.g. containing "/")
+  // throws a raw SDK error deep inside gradeAnswer/writeGradedResult
+  // instead of a clean invalid-argument here.
+  if (!isValidFirestoreDocId(a.quizId)) {
+    throw new HttpsError("invalid-argument", "quizId must be a non-empty, valid document id.");
+  }
+  if (!isValidFirestoreDocId(a.questionId)) {
+    throw new HttpsError("invalid-argument", "questionId must be a non-empty, valid document id.");
+  }
+  if (!isValidFirestoreDocId(a.resultId)) {
+    throw new HttpsError("invalid-argument", "resultId must be a non-empty, valid document id.");
   }
 }
 
@@ -181,8 +192,8 @@ export interface FinalizeQuizAttemptResult {
  */
 export async function finalizeQuizAttempt(uid: string, resultId: string): Promise<FinalizeQuizAttemptResult> {
   const db = getFirestore();
-  if (!resultId || typeof resultId !== "string") {
-    throw new HttpsError("invalid-argument", "resultId is required.");
+  if (!isValidFirestoreDocId(resultId)) {
+    throw new HttpsError("invalid-argument", "resultId must be a non-empty, valid document id.");
   }
 
   const userRef = db.collection("users").doc(uid);

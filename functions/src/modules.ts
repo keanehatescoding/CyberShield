@@ -1,5 +1,6 @@
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
+import { isValidFirestoreDocId } from "./validation";
 
 /**
  * Marks a module as completed for a user and awards its xpReward, entirely
@@ -17,8 +18,8 @@ export async function completeModule(
   uid: string,
   moduleId: string,
 ): Promise<{ alreadyCompleted: boolean; xpEarned: number }> {
-  if (!moduleId || typeof moduleId !== "string") {
-    throw new HttpsError("invalid-argument", "moduleId is required.");
+  if (!isValidFirestoreDocId(moduleId)) {
+    throw new HttpsError("invalid-argument", "moduleId must be a non-empty, valid document id.");
   }
 
   const db = getFirestore();
