@@ -27,6 +27,11 @@ describe("assertValidAnswerInput", () => {
     ["non-numeric selectedIndex", { ...validInput, selectedIndex: "2" }],
     ["missing resultId", { ...validInput, resultId: undefined }],
     ["empty resultId", { ...validInput, resultId: "" }],
+    ["quizId with a slash", { ...validInput, quizId: "quiz/1" }],
+    ["questionId with a slash", { ...validInput, questionId: "q/1" }],
+    ["resultId with a slash", { ...validInput, resultId: "r/1" }],
+    ["resultId of '.'", { ...validInput, resultId: "." }],
+    ["resultId of '..'", { ...validInput, resultId: ".." }],
   ])("rejects %s", (_label, input) => {
     expect(() => assertValidAnswerInput(input)).toThrow(HttpsError);
   });

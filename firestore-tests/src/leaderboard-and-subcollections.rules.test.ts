@@ -44,20 +44,19 @@ beforeEach(async () => {
     // failing this beforeEach (and therefore every test in this file).
     const db = context.firestore();
     await setDoc(doc(db, "leaderboard", OWNER_UID), {
-
       displayName: "Ada",
       xp: 100,
     });
     await setDoc(
-      doc(context.firestore(), `users/${OWNER_UID}/quizResults/result-1`),
+      doc(db, `users/${OWNER_UID}/quizResults/result-1`),
       { quizId: "quiz-1", isCorrect: true },
     );
     await setDoc(
-      doc(context.firestore(), `users/${OWNER_UID}/quizResults/result-1`),
+      doc(db, `users/${OWNER_UID}/quizResults/result-1`),
       { xpEarned: 10 },
     );
     await setDoc(
-      doc(context.firestore(), `users/${OWNER_UID}/quizAttempts/result-1`),
+      doc(db, `users/${OWNER_UID}/quizAttempts/result-1`),
       { quizId: "quiz-1" },
     );
   });
