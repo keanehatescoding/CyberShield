@@ -43,6 +43,28 @@ class CertificateFormattingTest {
     }
 
     @Test
+    fun `cacheFileName strips path separators from a malicious certId`() {
+        assertEquals(
+            "certificate_______evil.pdf",
+            CertificateFormatting.cacheFileName("../../evil"),
+        )
+    }
+
+    @Test
+    fun `downloadsFileName strips path separators from a malicious certId`() {
+        assertEquals(
+            "CyberShield_______evil.pdf",
+            CertificateFormatting.downloadsFileName("../../evil"),
+        )
+    }
+
+    @Test
+    fun `sanitization leaves normal UUID-style ids untouched`() {
+        val uuid = "8f14e45f-ceea-467e-bd23-11c8c8f1beac"
+        assertEquals("certificate_$uuid.pdf", CertificateFormatting.cacheFileName(uuid))
+    }
+
+    @Test
     fun `scoreLabel formats score with prefix`() {
         assertEquals("Score: 85", CertificateFormatting.scoreLabel(85))
     }
