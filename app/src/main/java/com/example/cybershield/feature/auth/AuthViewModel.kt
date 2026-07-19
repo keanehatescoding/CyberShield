@@ -146,8 +146,10 @@ class AuthViewModel
         }
 
         fun signOut() {
-            signOutUseCase()
-            _state.value = AuthState.SignedOut()
+            viewModelScope.launch {
+                signOutUseCase()
+                _state.value = AuthState.SignedOut()
+            }
         }
 
         private fun fail(message: String) {

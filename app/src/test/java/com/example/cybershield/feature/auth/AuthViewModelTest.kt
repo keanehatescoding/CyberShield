@@ -35,12 +35,10 @@ import kotlin.time.Duration.Companion.milliseconds
  * standing up [AuthRepository] or Firebase — that surface is covered by
  * AuthRepositoryImpl's own tests.
  *
- * NOTE on [SignOutUseCase]: its source wasn't available when writing this file. It's assumed
- * to be a synchronous passthrough — `operator fun invoke() = authRepository.signOut()` —
- * matching the "pure passthrough -> no suspend" convention used elsewhere (e.g.
- * ObserveAuthStateUseCase.currentSession()). If SignOutUseCase is actually suspend, change
- * `every { signOutUseCase() }` to `coEvery { signOutUseCase() }` and wrap the signOut() call
- * in viewModel.signOut() inside runTest { } with advanceUntilIdle() — the assertions don't change.
+ * NOTE on [SignOutUseCase]: it's suspend — it clears the local Room DB after signing out of
+ * Firebase (see its kdoc) — so `signOutUseCase()` is stubbed with `coEvery` below, and
+ * `viewModel.signOut()` (which now launches in viewModelScope) is exercised inside
+ * `runTest { }` with `advanceUntilIdle()`. The assertions themselves are unchanged.
  */
 class AuthViewModelTest {
     @get:Rule
@@ -582,30 +580,34 @@ class AuthViewModelTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `signOut invokes use case and resets to SignedOut`() {
-        every { observeAuthState.currentSession() } returns
-            session(uid = "uid-7", isEmailVerified = true)
-        every { signOutUseCase() } returns Unit // assumed synchronous, see class-level NOTE
+    fun `signOut invokes use case and resets to SignedOut`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns
+                session(uid = "uid-7", isEmailVerified = true)
+            coEvery { signOutUseCase() } returns Unit
 
-        val viewModel = buildViewModel()
-        assertTrue(viewModel.state.value is AuthState.Authenticated)
+            val viewModel = buildViewModel()
+            assertTrue(viewModel.state.value is AuthState.Authenticated)
 
-        viewModel.signOut()
+            viewModel.signOut()
+            advanceUntilIdle()
 
-        verify(exactly = 1) { signOutUseCase() }
-        assertEquals(AuthState.SignedOut(), viewModel.state.value)
-    }
+            coVerify(exactly = 1) { signOutUseCase() }
+            assertEquals(AuthState.SignedOut(), viewModel.state.value)
+        }
 
     @Test
-    fun `signOut clears any prior error or loading flags`() {
-        every { observeAuthState.currentSession() } returns null
-        every { signOutUseCase() } returns Unit
+    fun `signOut clears any prior error or loading flags`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signOutUseCase() } returns Unit
 
-        val viewModel = buildViewModel()
-        viewModel.signOut()
+            val viewModel = buildViewModel()
+            viewModel.signOut()
+            advanceUntilIdle()
 
-        val state = viewModel.state.value as AuthState.SignedOut
-        assertEquals(false, state.isLoading)
-        assertNull(state.error)
-    }
+            val state = viewModel.state.value as AuthState.SignedOut
+            assertEquals(false, state.isLoading)
+            assertNull(state.error)
+        }
 }
