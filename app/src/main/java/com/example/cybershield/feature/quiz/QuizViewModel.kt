@@ -375,7 +375,6 @@ constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         timerJob?.cancel()
     }
 }
