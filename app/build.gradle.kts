@@ -8,6 +8,15 @@ plugins {
     alias(libs.plugins.google.services) // Firebase — reads google-services.json
     alias(libs.plugins.firebase.crashlytics) // crash reporting
     alias(libs.plugins.compose.compiler)
+    // The root build.gradle.kts also applies this, but the ktlint Gradle
+    // plugin only lints Kotlin files that live in the project it's applied
+    // to — it doesn't cascade to subprojects on its own. The root project
+    // has no .kt sources of its own (only build.gradle.kts/settings.gradle.kts),
+    // so `./gradlew ktlintCheck` in ci.yml was linting an empty project and
+    // always passing trivially, while every file under app/src (where the
+    // actual Kotlin lives) went unchecked. Applying it here too is what
+    // makes ktlintCheck actually cover the app module.
+    alias(libs.plugins.ktlint)
     jacoco
 }
 
