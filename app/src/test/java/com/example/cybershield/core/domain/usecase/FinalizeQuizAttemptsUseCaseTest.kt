@@ -49,15 +49,15 @@ class FinalizeQuizAttemptsUseCaseTest {
         xpEarned: Int,
     ) {
         coEvery { quizRepository.finalizeQuizAttemptServer(resultId) } returns
-                Result.Success(
-                    QuizFinalizeResult(
-                        passed = passed,
-                        score = score,
-                        correctCount = correctCount,
-                        percentage = percentage,
-                        xpEarned = xpEarned,
-                    )
-                )
+            Result.Success(
+                QuizFinalizeResult(
+                    passed = passed,
+                    score = score,
+                    correctCount = correctCount,
+                    percentage = percentage,
+                    xpEarned = xpEarned,
+                ),
+            )
     }
 
     @Before
@@ -82,7 +82,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             }
         }
@@ -136,9 +136,10 @@ class FinalizeQuizAttemptsUseCaseTest {
         runTest {
             val attempt = readyAttempt(correctCount = 4, totalQuestions = 4, score = 400)
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns Result.Error(
-                RuntimeException("finalize failed")
-            )
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns
+                Result.Error(
+                    RuntimeException("finalize failed"),
+                )
 
             useCase()
 
@@ -151,7 +152,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             }
         }
@@ -159,23 +160,26 @@ class FinalizeQuizAttemptsUseCaseTest {
     @Test
     fun `one attempt failing does not prevent the rest of the batch from finalizing`() =
         runTest {
-            val broken = readyAttempt(
-                resultId = "result-broken",
-                userId = "user1",
-                correctCount = 1,
-                totalQuestions = 4,
-                score = 100
-            )
-            val healthy = readyAttempt(
-                resultId = "result-healthy",
-                userId = "user2",
-                correctCount = 4,
-                totalQuestions = 4
-            )
+            val broken =
+                readyAttempt(
+                    resultId = "result-broken",
+                    userId = "user1",
+                    correctCount = 1,
+                    totalQuestions = 4,
+                    score = 100,
+                )
+            val healthy =
+                readyAttempt(
+                    resultId = "result-healthy",
+                    userId = "user2",
+                    correctCount = 4,
+                    totalQuestions = 4,
+                )
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(broken, healthy)
-            coEvery { quizRepository.finalizeQuizAttemptServer("result-broken") } returns Result.Error(
-                RuntimeException("finalize failed")
-            )
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-broken") } returns
+                Result.Error(
+                    RuntimeException("finalize failed"),
+                )
             stubFinalize(
                 "result-healthy",
                 passed = true,
@@ -194,7 +198,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             }
             coVerify(exactly = 1) {
@@ -204,7 +208,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     xpEarned = 40,
-                    passed = true
+                    passed = true,
                 )
             }
         }
@@ -214,13 +218,14 @@ class FinalizeQuizAttemptsUseCaseTest {
         runTest {
             val passing =
                 readyAttempt(resultId = "result-pass", correctCount = 4, totalQuestions = 4)
-            val failing = readyAttempt(
-                resultId = "result-fail",
-                userId = "user2",
-                correctCount = 0,
-                totalQuestions = 4,
-                score = 0
-            )
+            val failing =
+                readyAttempt(
+                    resultId = "result-fail",
+                    userId = "user2",
+                    correctCount = 0,
+                    totalQuestions = 4,
+                    score = 0,
+                )
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(passing, failing)
             stubFinalize(
                 "result-pass",
@@ -241,7 +246,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     any(),
-                    passed = true
+                    passed = true,
                 )
             }
             coVerify(exactly = 1) {
@@ -251,7 +256,7 @@ class FinalizeQuizAttemptsUseCaseTest {
                     any(),
                     any(),
                     any(),
-                    passed = false
+                    passed = false,
                 )
             }
         }
@@ -261,9 +266,10 @@ class FinalizeQuizAttemptsUseCaseTest {
         runTest {
             val attempt = readyAttempt(resultId = "result-1")
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns Result.Error(
-                RuntimeException("finalize failed")
-            )
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-1") } returns
+                Result.Error(
+                    RuntimeException("finalize failed"),
+                )
             coEvery { quizRepository.recordFinalizeFailure("result-1") } returns false
 
             useCase()
@@ -283,9 +289,10 @@ class FinalizeQuizAttemptsUseCaseTest {
             // surface it once instead.
             val attempt = readyAttempt(resultId = "result-stuck")
             coEvery { quizRepository.getAttemptsReadyToFinalize() } returns listOf(attempt)
-            coEvery { quizRepository.finalizeQuizAttemptServer("result-stuck") } returns Result.Error(
-                RuntimeException("Attempt is incomplete: 2/4 questions graded.")
-            )
+            coEvery { quizRepository.finalizeQuizAttemptServer("result-stuck") } returns
+                Result.Error(
+                    RuntimeException("Attempt is incomplete: 2/4 questions graded."),
+                )
             coEvery { quizRepository.recordFinalizeFailure("result-stuck") } returns true
 
             useCase()

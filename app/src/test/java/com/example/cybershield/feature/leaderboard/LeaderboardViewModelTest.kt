@@ -9,8 +9,8 @@ import com.example.cybershield.core.testing.fake.FakeLeaderboardRepository
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -56,11 +56,11 @@ class LeaderboardViewModelTest {
         authRepository = mockk()
 
         every { authRepository.currentSession() } returns
-                AuthRepository.AuthSession(
-                    uid = testUid,
-                    email = "test@cybershield.com",
-                    isEmailVerified = true,
-                )
+            AuthRepository.AuthSession(
+                uid = testUid,
+                email = "test@cybershield.com",
+                isEmailVerified = true,
+            )
 
         getCurrentSession = GetCurrentSessionUseCase(authRepository)
     }

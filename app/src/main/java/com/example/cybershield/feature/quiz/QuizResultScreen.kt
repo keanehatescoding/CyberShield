@@ -70,7 +70,7 @@ private fun QuizResultContent(
     result: QuizResult,
     onNavigateHome: () -> Unit,
     onRetakeQuiz: () -> Unit,
-    onViewCertificate: () -> Unit
+    onViewCertificate: () -> Unit,
 ) {
     Scaffold { padding ->
         Column(

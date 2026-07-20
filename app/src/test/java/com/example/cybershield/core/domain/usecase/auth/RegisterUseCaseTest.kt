@@ -2,6 +2,7 @@ package com.example.cybershield.core.domain.usecase.auth
 
 import com.example.cybershield.core.domain.model.AuthError
 import com.example.cybershield.core.domain.repository.AuthRepository
+import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
 import com.example.cybershield.core.domain.util.Result
 import com.example.cybershield.core.testing.fake.FakeUserRepository
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
@@ -9,12 +10,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import com.example.cybershield.core.domain.repository.AuthRepository.AuthSession
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 
 /**
  * [RegisterUseCase] is where account creation (AuthRepository) and profile creation
@@ -138,7 +138,7 @@ class RegisterUseCaseTest {
     fun `auth account creation failure returns the error and never touches UserRepository`() =
         runTest {
             coEvery { authRepository.register("jane@example.com", "pw123456") } returns
-                    Result.Error(AuthError.EmailAlreadyInUse)
+                Result.Error(AuthError.EmailAlreadyInUse)
 
             val result = useCase("Jane", "jane@example.com", "pw123456")
 

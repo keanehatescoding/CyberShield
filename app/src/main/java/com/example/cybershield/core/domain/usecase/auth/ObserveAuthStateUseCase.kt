@@ -12,11 +12,11 @@ import javax.inject.Inject
  * directly.
  */
 class ObserveAuthStateUseCase
-@Inject
-constructor(
-    private val authRepository: AuthRepository,
-) {
-    fun currentSession(): AuthRepository.AuthSession? = authRepository.currentSession()
+    @Inject
+    constructor(
+        private val authRepository: AuthRepository,
+    ) {
+        fun currentSession(): AuthRepository.AuthSession? = authRepository.currentSession()
 
-    fun observe(): Flow<AuthRepository.AuthSession?> = authRepository.observeAuthState()
-}
+        fun observe(): Flow<AuthRepository.AuthSession?> = authRepository.observeAuthState()
+    }

@@ -11,6 +11,9 @@ class Converters {
 
     @TypeConverter
     fun toList(value: String): List<String> =
-        if (value.isBlank()) emptyList()
-        else json.decodeFromString(value)
+        if (value.isBlank()) {
+            emptyList()
+        } else {
+            json.decodeFromString(value)
+        }
 }

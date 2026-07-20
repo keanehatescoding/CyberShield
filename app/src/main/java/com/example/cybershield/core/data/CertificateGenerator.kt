@@ -29,9 +29,10 @@ class CertificateGenerator(
     }
 
     /** Thrown when saveToDownloads() needs WRITE_EXTERNAL_STORAGE on API 26-28, but it isn't granted. */
-    class MissingStoragePermissionException : Exception(
-        "WRITE_EXTERNAL_STORAGE permission is required to save files on this Android version.",
-    )
+    class MissingStoragePermissionException :
+        Exception(
+            "WRITE_EXTERNAL_STORAGE permission is required to save files on this Android version.",
+        )
 
     // ── Generate PDF and save to cache ─────────────────────────────────
     suspend fun generate(
@@ -202,6 +203,7 @@ class CertificateGenerator(
     }
 
     // ── Save to Downloads ─────────────────────────────────────────────
+
     /**
      * @throws MissingStoragePermissionException on API 26-28 if WRITE_EXTERNAL_STORAGE
      *   has not been granted. Callers should catch this, request the permission via

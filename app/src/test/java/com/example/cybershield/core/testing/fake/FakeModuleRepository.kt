@@ -43,8 +43,7 @@ class FakeModuleRepository : ModuleRepository {
 
     override fun getModuleById(moduleId: String): Flow<Result<Module>> = getModuleByIdFlowProvider(moduleId)
 
-    override fun getPendingModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
-        pendingModulesPagingProvider(completedIds)
+    override fun getPendingModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> = pendingModulesPagingProvider(completedIds)
 
     override fun getCompletedModulesPaged(completedIds: List<String>): Flow<PagingData<Module>> =
         completedModulesPagingProvider(completedIds)

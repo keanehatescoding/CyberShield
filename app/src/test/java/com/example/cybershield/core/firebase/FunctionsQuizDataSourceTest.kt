@@ -38,12 +38,12 @@ class FunctionsQuizDataSourceTest {
             var captured: Map<String, Any?>? = null
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "questionId" to "q1",
-                        "isCorrect" to true,
-                        "correctIndex" to 2L,
-                        "explanation" to "Because."
-                    )
+                mapOf(
+                    "questionId" to "q1",
+                    "isCorrect" to true,
+                    "correctIndex" to 2L,
+                    "explanation" to "Because.",
+                )
             invoker = { name, payload ->
                 assertEquals("validateAnswer", name)
                 captured = payload
@@ -56,7 +56,7 @@ class FunctionsQuizDataSourceTest {
                 selectedIndex = 2,
                 answeredAt = 555L,
                 resultId = "r1",
-                timeRemaining = 30
+                timeRemaining = 30,
             )
 
             val sent = captured!!
@@ -67,8 +67,9 @@ class FunctionsQuizDataSourceTest {
                     "selectedIndex",
                     "answeredAt",
                     "resultId",
-                    "timeRemaining"
-                ), sent.keys
+                    "timeRemaining",
+                ),
+                sent.keys,
             )
             assertEquals("quiz1", sent["quizId"])
             assertEquals("q1", sent["questionId"])
@@ -83,22 +84,23 @@ class FunctionsQuizDataSourceTest {
         runTest {
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "questionId" to "q1",
-                        "isCorrect" to false,
-                        "correctIndex" to 1L,
-                        "explanation" to "Not quite."
-                    )
+                mapOf(
+                    "questionId" to "q1",
+                    "isCorrect" to false,
+                    "correctIndex" to 1L,
+                    "explanation" to "Not quite.",
+                )
             invoker = { _, _ -> response }
 
-            val validation = dataSource.validateAnswer(
-                "quiz1",
-                "q1",
-                selectedIndex = 3,
-                answeredAt = 0L,
-                resultId = "r1",
-                timeRemaining = 0
-            )
+            val validation =
+                dataSource.validateAnswer(
+                    "quiz1",
+                    "q1",
+                    selectedIndex = 3,
+                    answeredAt = 0L,
+                    resultId = "r1",
+                    timeRemaining = 0,
+                )
 
             assertEquals("q1", validation.questionId)
             assertEquals(false, validation.isCorrect)
@@ -114,18 +116,18 @@ class FunctionsQuizDataSourceTest {
             var captured: Map<String, Any?>? = null
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "results" to
-                                listOf(
-                                    mapOf(
-                                        "questionId" to "q1",
-                                        "isCorrect" to true,
-                                        "correctIndex" to 0L,
-                                        "explanation" to "",
-                                        "error" to null
-                                    ),
-                                ),
-                    )
+                mapOf(
+                    "results" to
+                        listOf(
+                            mapOf(
+                                "questionId" to "q1",
+                                "isCorrect" to true,
+                                "correctIndex" to 0L,
+                                "explanation" to "",
+                                "error" to null,
+                            ),
+                        ),
+                )
             invoker = { name, payload ->
                 assertEquals("validateAnswersBatch", name)
                 captured = payload
@@ -141,8 +143,8 @@ class FunctionsQuizDataSourceTest {
                         questionId = "q1",
                         selectedIndex = 0,
                         answeredAt = 10L,
-                        timeRemaining = 20
-                    )
+                        timeRemaining = 20,
+                    ),
                 ),
             )
 
@@ -156,8 +158,9 @@ class FunctionsQuizDataSourceTest {
                     "selectedIndex",
                     "answeredAt",
                     "resultId",
-                    "timeRemaining"
-                ), answers.single().keys
+                    "timeRemaining",
+                ),
+                answers.single().keys,
             )
             assertEquals("r1", answers.single()["resultId"])
             assertEquals(20, answers.single()["timeRemaining"])
@@ -168,25 +171,25 @@ class FunctionsQuizDataSourceTest {
         runTest {
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "results" to
-                                listOf(
-                                    mapOf(
-                                        "questionId" to "q1",
-                                        "isCorrect" to true,
-                                        "correctIndex" to 0L,
-                                        "explanation" to "ok",
-                                        "error" to null
-                                    ),
-                                    mapOf(
-                                        "questionId" to "q2",
-                                        "isCorrect" to null,
-                                        "correctIndex" to null,
-                                        "explanation" to null,
-                                        "error" to "Question not found."
-                                    ),
-                                ),
-                    )
+                mapOf(
+                    "results" to
+                        listOf(
+                            mapOf(
+                                "questionId" to "q1",
+                                "isCorrect" to true,
+                                "correctIndex" to 0L,
+                                "explanation" to "ok",
+                                "error" to null,
+                            ),
+                            mapOf(
+                                "questionId" to "q2",
+                                "isCorrect" to null,
+                                "correctIndex" to null,
+                                "explanation" to null,
+                                "error" to "Question not found.",
+                            ),
+                        ),
+                )
             invoker = { _, _ -> response }
 
             val results =
@@ -199,7 +202,7 @@ class FunctionsQuizDataSourceTest {
                             questionId = "q1",
                             selectedIndex = 0,
                             answeredAt = 1L,
-                            timeRemaining = 5
+                            timeRemaining = 5,
                         ),
                         PendingAnswer(
                             localId = 200L,
@@ -208,7 +211,7 @@ class FunctionsQuizDataSourceTest {
                             questionId = "q2",
                             selectedIndex = 1,
                             answeredAt = 2L,
-                            timeRemaining = 9
+                            timeRemaining = 9,
                         ),
                     ),
                 )
@@ -234,12 +237,12 @@ class FunctionsQuizDataSourceTest {
         runTest {
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "questionId" to "q1",
-                        // "isCorrect" missing entirely — e.g. a server-side regression.
-                        "correctIndex" to 2L,
-                        "explanation" to "Because.",
-                    )
+                mapOf(
+                    "questionId" to "q1",
+                    // "isCorrect" missing entirely — e.g. a server-side regression.
+                    "correctIndex" to 2L,
+                    "explanation" to "Because.",
+                )
             invoker = { _, _ -> response }
 
             dataSource.validateAnswer(
@@ -257,12 +260,12 @@ class FunctionsQuizDataSourceTest {
         runTest {
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "questionId" to "q1",
-                        "isCorrect" to "true", // string instead of boolean
-                        "correctIndex" to 2L,
-                        "explanation" to "Because.",
-                    )
+                mapOf(
+                    "questionId" to "q1",
+                    "isCorrect" to "true", // string instead of boolean
+                    "correctIndex" to 2L,
+                    "explanation" to "Because.",
+                )
             invoker = { _, _ -> response }
 
             dataSource.validateAnswer(
@@ -280,12 +283,12 @@ class FunctionsQuizDataSourceTest {
         runTest {
             val response = mockk<HttpsCallableResult>()
             every { response.getData() } returns
-                    mapOf(
-                        "passed" to true,
-                        // "score" missing.
-                        "correctCount" to 4L,
-                        "percentage" to 80L,
-                    )
+                mapOf(
+                    "passed" to true,
+                    // "score" missing.
+                    "correctCount" to 4L,
+                    "percentage" to 80L,
+                )
             invoker = { _, _ -> response }
 
             val result = dataSource.finalizeQuizAttempt("r1")

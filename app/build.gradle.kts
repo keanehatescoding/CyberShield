@@ -105,7 +105,6 @@ tasks.configureEach {
     }
 }
 
-
 jacoco {
     // Gradle's bundled default lags behind on Kotlin coroutine/inline-function
     // debug-info handling; pin to a recent release for more accurate counts
@@ -127,12 +126,20 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     // package and is caught by "**/di/**" below. The pattern was too broad:
     // it also matched core/domain/model/Module.kt — the app's core domain
     // entity — and silently excluded it from coverage. Removed.
-    val fileFilter = listOf(
-        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
-        "**/*Test*.*", "android/**/*.*",
-        "**/*_Factory.*", "**/*_MembersInjector.*", "**/Hilt_*.*", "**/*_HiltModules*.*",
-        "**/di/**"
-    )
+    val fileFilter =
+        listOf(
+            "**/R.class",
+            "**/R$*.class",
+            "**/BuildConfig.*",
+            "**/Manifest*.*",
+            "**/*Test*.*",
+            "android/**/*.*",
+            "**/*_Factory.*",
+            "**/*_MembersInjector.*",
+            "**/Hilt_*.*",
+            "**/*_HiltModules*.*",
+            "**/di/**",
+        )
 
     val mainSrcDir = layout.projectDirectory.dir("src/main/java")
 
@@ -141,12 +148,12 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         layout.buildDirectory.asFileTree.matching {
             include("tmp/kotlin-classes/debug/**")
             exclude(fileFilter)
-        }
+        },
     )
     executionData.setFrom(
         layout.buildDirectory.asFileTree.matching {
             include("**/*.exec", "**/*.ec")
-        }
+        },
     )
 }
 
@@ -161,12 +168,20 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     description = "Fails the build if instruction coverage from unit tests drops below the floor."
     dependsOn("jacocoTestReport")
 
-    val fileFilter = listOf(
-        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
-        "**/*Test*.*", "android/**/*.*",
-        "**/*_Factory.*", "**/*_MembersInjector.*", "**/Hilt_*.*", "**/*_HiltModules*.*",
-        "**/di/**"
-    )
+    val fileFilter =
+        listOf(
+            "**/R.class",
+            "**/R$*.class",
+            "**/BuildConfig.*",
+            "**/Manifest*.*",
+            "**/*Test*.*",
+            "android/**/*.*",
+            "**/*_Factory.*",
+            "**/*_MembersInjector.*",
+            "**/Hilt_*.*",
+            "**/*_HiltModules*.*",
+            "**/di/**",
+        )
     val mainSrcDir = layout.projectDirectory.dir("src/main/java")
 
     sourceDirectories.setFrom(files(mainSrcDir))
@@ -174,12 +189,12 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
         layout.buildDirectory.asFileTree.matching {
             include("tmp/kotlin-classes/debug/**")
             exclude(fileFilter)
-        }
+        },
     )
     executionData.setFrom(
         layout.buildDirectory.asFileTree.matching {
             include("**/*.exec", "**/*.ec")
-        }
+        },
     )
 
     violationRules {

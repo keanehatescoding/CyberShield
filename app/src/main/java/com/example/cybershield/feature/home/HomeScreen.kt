@@ -32,6 +32,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,7 +56,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -151,9 +151,10 @@ private fun HomeContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        ),
+        contentPadding =
+            PaddingValues(
+                bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         // ── Greeting + XP card ────────────────────────────────────────

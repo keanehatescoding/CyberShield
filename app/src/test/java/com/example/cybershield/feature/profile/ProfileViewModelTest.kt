@@ -148,7 +148,7 @@ class ProfileViewModelTest {
             userRepository.setUserProfile(testUid, testUser)
             certificateRepository.setCertificatesError(
                 testUid,
-                RuntimeException("firestore unavailable")
+                RuntimeException("firestore unavailable"),
             )
 
             val viewModel = createViewModel()

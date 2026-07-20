@@ -87,6 +87,7 @@ fun CertificateScreen(
             }
             pendingSave = null
         }
+
     fun saveToDownloads(
         userName: String,
         quizTitle: String,
@@ -131,7 +132,7 @@ fun CertificateScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        ) { padding ->
+    ) { padding ->
         if (cert == null || user == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(

@@ -1,0 +1,13 @@
+root = true
+
+[*.{kt,kts}]
+# Jetpack Compose's own style guide requires stateless composable functions
+# that emit UI (no return value) to be named in PascalCase, like a type —
+# e.g. `fun ModuleDetailScreen(...)`, `fun QuizActiveScreen(...)`. ktlint's
+# standard function-naming rule doesn't know about that convention and
+# flags every one of them as a lowercase-camelCase violation. This is the
+# officially documented way to reconcile the two: exempt any function
+# annotated @Composable from the naming rule instead of either fighting
+# ktlint on every composable or disabling the rule project-wide (which
+# would also stop catching real naming mistakes in non-Composable code).
+ktlint_function_naming_ignore_when_annotated_with = Composable

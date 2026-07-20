@@ -7,7 +7,6 @@ import java.util.Locale
 import java.util.TimeZone
 
 class CertificateFormattingTest {
-
     @Test
     fun `formatDate returns empty string when date is null`() {
         assertEquals("", CertificateFormatting.formatDate(null))

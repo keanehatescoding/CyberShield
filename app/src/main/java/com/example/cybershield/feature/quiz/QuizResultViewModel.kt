@@ -13,16 +13,19 @@ import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 @HiltViewModel
-class QuizResultViewModel @Inject constructor(
-    private val quizRepository: QuizRepository,
-    savedStateHandle: SavedStateHandle,
-) : ViewModel() {
-    val resultId: String = requireNotNull(savedStateHandle["resultId"]) {
-        "QuizResultViewModel requires a resultId in the SavedStateHandle (QuizResultRoute)"
-    }
+class QuizResultViewModel
+    @Inject
+    constructor(
+        private val quizRepository: QuizRepository,
+        savedStateHandle: SavedStateHandle,
+    ) : ViewModel() {
+        val resultId: String =
+            requireNotNull(savedStateHandle["resultId"]) {
+                "QuizResultViewModel requires a resultId in the SavedStateHandle (QuizResultRoute)"
+            }
 
-    val uiState: StateFlow<QuizResultUiState> =
-        flow { emit(quizRepository.getQuizAttempt(resultId)) }
-            .map { result -> result?.let { QuizResultUiState.Loaded(it) } ?: QuizResultUiState.NotFound }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuizResultUiState.Loading)
-}
+        val uiState: StateFlow<QuizResultUiState> =
+            flow { emit(quizRepository.getQuizAttempt(resultId)) }
+                .map { result -> result?.let { QuizResultUiState.Loaded(it) } ?: QuizResultUiState.NotFound }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuizResultUiState.Loading)
+    }

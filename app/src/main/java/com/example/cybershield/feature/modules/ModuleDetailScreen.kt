@@ -147,7 +147,6 @@ fun ModuleDetailScreen(
                 }
             }
             module != null -> {
-
                 Column(
                     modifier =
                         Modifier

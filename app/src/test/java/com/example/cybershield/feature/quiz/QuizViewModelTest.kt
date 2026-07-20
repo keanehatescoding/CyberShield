@@ -96,7 +96,7 @@ class QuizViewModelTest {
         questionId = questionId,
         isCorrect = isCorrect,
         correctIndex = correctIndex,
-        explanation = explanation
+        explanation = explanation,
     )
 
     // NOTE: QuizViewModel's @Inject constructor only takes the real
@@ -134,11 +134,11 @@ class QuizViewModelTest {
         fakeElapsed = 0L
 
         every { getCurrentSession() } returns
-                AuthRepository.AuthSession(
-                    uid = testUid,
-                    email = "keane@example.com",
-                    isEmailVerified = true,
-                )
+            AuthRepository.AuthSession(
+                uid = testUid,
+                email = "keane@example.com",
+                isEmailVerified = true,
+            )
         coEvery {
             quizRepository.saveQuizAttempt(
                 any(),
@@ -146,20 +146,20 @@ class QuizViewModelTest {
                 any(),
                 any(),
                 any(),
-                any()
+                any(),
             )
         } just Runs
         // Certificate + CyberDefender badge are now issued by the server; this
         // keeps the happy-path call from throwing in tests that pass.
         coEvery { quizRepository.finalizeQuizAttemptServer(any()) } returns
-                Result.Success(
-                    QuizFinalizeResult(
-                        passed = true,
-                        score = 100,
-                        correctCount = 1,
-                        percentage = 100
-                    )
-                )
+            Result.Success(
+                QuizFinalizeResult(
+                    passed = true,
+                    score = 100,
+                    correctCount = 1,
+                    percentage = 100,
+                ),
+            )
     }
 
     // ---------------------------------------------------------------------
@@ -183,7 +183,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(null)
 
@@ -272,7 +272,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 
@@ -303,14 +303,14 @@ class QuizViewModelTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
-                    Result.Success(
-                        validation(
-                            "q1",
-                            isCorrect = true,
-                            correctIndex = 1,
-                            explanation = "B is correct."
-                        )
-                    )
+                Result.Success(
+                    validation(
+                        "q1",
+                        isCorrect = true,
+                        correctIndex = 1,
+                        explanation = "B is correct.",
+                    ),
+                )
 
             val viewModel = buildViewModel()
 
@@ -341,7 +341,7 @@ class QuizViewModelTest {
             val q1 = question(id = "q1")
             coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
             coEvery { submitAnswer(any(), any(), any(), any(), any(), any(), any()) } returns
-                    Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
+                Result.Success(validation("q1", isCorrect = false, correctIndex = 2))
 
             val viewModel = buildViewModel()
 
@@ -358,7 +358,6 @@ class QuizViewModelTest {
                 advanceUntilIdle()
                 cancelAndIgnoreRemainingEvents()
             }
-
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -375,7 +374,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 
@@ -416,7 +415,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(null)
 
@@ -469,7 +468,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } throws RuntimeException("network down")
 
@@ -508,7 +507,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
 
@@ -567,7 +566,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 
@@ -617,7 +616,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
             // Certificate + badge are now issued server-side (finalizeQuizAttempt);
@@ -656,7 +655,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = false))
 
@@ -694,7 +693,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
             // Certificate + badge are now issued server-side; the client no
@@ -732,7 +731,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 
@@ -774,7 +773,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 
@@ -812,7 +811,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } throws RuntimeException("network down")
 
@@ -847,7 +846,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(null)
 
@@ -882,7 +881,7 @@ class QuizViewModelTest {
                     any(),
                     any(),
                     any(),
-                    any()
+                    any(),
                 )
             } returns Result.Success(validation("q1", isCorrect = true))
 

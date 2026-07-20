@@ -17,8 +17,7 @@ data class QuizEntity(
     val order: Int,
     val moduleName: String,
     val quizTitle: String,
-){
-
+) {
     fun toDomain() =
         Question(
             id = id,

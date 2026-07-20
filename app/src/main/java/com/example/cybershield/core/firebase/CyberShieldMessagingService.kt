@@ -16,7 +16,6 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class CyberShieldMessagingService : FirebaseMessagingService() {
-
     @Deprecated("Deprecated in Java")
     override fun onNewToken(token: String) {
         super.onNewToken(token)

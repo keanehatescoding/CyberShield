@@ -5,7 +5,6 @@ import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.CrashReporter
-import com.example.cybershield.core.domain.util.Result as DomainResult
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -16,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import androidx.work.ListenableWorker.Result as WorkResult
+import com.example.cybershield.core.domain.util.Result as DomainResult
 
 /**
  * The Firestore batching, chunking, and per-chunk mark-and-delete behavior

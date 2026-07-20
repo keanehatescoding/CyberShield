@@ -192,8 +192,10 @@ private fun QuizHistoryRow(entry: QuizResultHistoryItem) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                        .format(Date(entry.answeredAt)),
+                    text =
+                        DateFormat
+                            .getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                            .format(Date(entry.answeredAt)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

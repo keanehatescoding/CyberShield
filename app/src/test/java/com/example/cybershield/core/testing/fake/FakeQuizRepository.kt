@@ -37,7 +37,7 @@ class FakeQuizRepository : QuizRepository {
                 questionId = questionId,
                 isCorrect = false,
                 correctIndex = -1,
-                explanation = ""
+                explanation = "",
             )
         }
     var quizResultHistoryProvider: (String) -> Flow<PagingData<QuizResultHistoryItem>> = {
@@ -146,8 +146,7 @@ class FakeQuizRepository : QuizRepository {
         return Result.Success(Unit)
     }
 
-    override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> =
-        quizResultHistoryProvider(userId)
+    override fun getQuizResultHistory(userId: String): Flow<PagingData<QuizResultHistoryItem>> = quizResultHistoryProvider(userId)
 
     override suspend fun saveQuizAttempt(
         resultId: String,
@@ -162,8 +161,7 @@ class FakeQuizRepository : QuizRepository {
 
     override suspend fun getQuizAttempt(resultId: String): QuizResult? = attempts[resultId]
 
-    override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> =
-        readyToFinalizeProvider()
+    override suspend fun getAttemptsReadyToFinalize(): List<ReadyToFinalizeAttempt> = readyToFinalizeProvider()
 
     override suspend fun finalizeAttempt(
         resultId: String,
@@ -180,8 +178,8 @@ class FakeQuizRepository : QuizRepository {
                 correctCount,
                 percentage,
                 xpEarned,
-                passed
-            )
+                passed,
+            ),
         )
         attempts[resultId]?.let { existing ->
             attempts[resultId] =
@@ -202,8 +200,8 @@ class FakeQuizRepository : QuizRepository {
                 passed = true,
                 score = 100,
                 correctCount = 1,
-                percentage = 100
-            )
+                percentage = 100,
+            ),
         )
 
     override suspend fun recordFinalizeFailure(resultId: String): Boolean {
