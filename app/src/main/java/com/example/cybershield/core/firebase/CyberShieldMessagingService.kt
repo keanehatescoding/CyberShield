@@ -4,7 +4,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import com.example.cybershield.MainActivity
 import com.example.cybershield.R
 import com.example.cybershield.core.sync.FcmTokenSyncWorker
@@ -53,9 +55,21 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
         val tapIntent =
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                data["screen"]?.let { putExtra("screen", it) }
-                data["quizId"]?.let { putExtra("quizId", it) }
-                data["moduleId"]?.let { putExtra("moduleId", it) }
+                // Previously this attached quizId/moduleId as raw putExtra()
+                // values, and nothing in the app ever read them.
+                // NavigationRoot's LaunchedEffect routes every launch intent
+                // through navController.handleDeepLink(intent), which only
+                // matches on intent.data against the moduleDeepLinks /
+                // quizDeepLinks patterns ("cybershield://module/{moduleId}",
+                // "cybershield://quiz/{quizId}" — see NavigationRoot.kt and
+                // the AndroidManifest comment). Without intent.data set,
+                // handleDeepLink() always no-ops and every notification tap
+                // silently landed on Home regardless of type. Setting a real
+                // deep-link URI here makes quiz_reminder taps open the quiz
+                // and xp_award/badge_award/module-related taps open the
+                // module, the same way an external cybershield:// link would.
+                data["quizId"]?.let { this.data = deepLinkUri("quiz", it) }
+                    ?: data["moduleId"]?.let { this.data = deepLinkUri("module", it) }
             }
         val pendingIntent =
             PendingIntent.getActivity(
@@ -125,5 +139,16 @@ class CyberShieldMessagingService : FirebaseMessagingService() {
         const val TYPE_QUIZ_REMINDER = "quiz_reminder"
         const val TYPE_XP_AWARD = "xp_award"
         const val TYPE_BADGE_AWARD = "badge_award"
+
+        /**
+         * Builds a `cybershield://<segment>/<id>` deep-link Uri matching the
+         * patterns registered in NavigationRoot.kt (moduleDeepLinks /
+         * quizDeepLinks). [id] is percent-encoded since it's server/FCM
+         * data, not something this code controls the shape of.
+         */
+        internal fun deepLinkUri(
+            segment: String,
+            id: String,
+        ): Uri = "cybershield://$segment/${Uri.encode(id)}".toUri()
     }
 }
