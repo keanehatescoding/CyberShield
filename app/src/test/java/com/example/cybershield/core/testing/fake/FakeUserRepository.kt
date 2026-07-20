@@ -18,7 +18,9 @@ class FakeUserRepository : UserRepository {
     val completedModuleIds = mutableListOf<String>()
 
     /** Result returned by [completeModule]; override in tests to simulate failure. */
-    var completeModuleResult: (moduleId: String) -> Result<ModuleCompleteResult> = { Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = 0)) }
+    var completeModuleResult: (
+        moduleId: String,
+    ) -> Result<ModuleCompleteResult> = { Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = 0)) }
 
     // ── getUserProfile() override controls ─────────────────────────────
     // Default (null) preserves the original behavior exactly: a fixed one-shot
@@ -56,8 +58,7 @@ class FakeUserRepository : UserRepository {
 
     private val profileFlows = mutableMapOf<String, MutableSharedFlow<Result<User>>>()
 
-    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> =
-        profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
+    private fun flowFor(uid: String): MutableSharedFlow<Result<User>> = profileFlows.getOrPut(uid) { MutableSharedFlow(replay = 1) }
 
     /**
      * @param emitImmediately when false, the flow is created but nothing is

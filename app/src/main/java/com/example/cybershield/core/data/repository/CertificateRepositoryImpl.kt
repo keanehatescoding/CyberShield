@@ -33,8 +33,9 @@ class CertificateRepositoryImpl
                             // the `?: 0` fallback) for anything else, which would render
                             // every certificate's score as 0.
                             score = (data["score"] as? Number)?.toInt() ?: 0,
-                            issuedAt = (data["issuedAt"] as? com.google.firebase.Timestamp)?.toDate()?.time
-                                ?: System.currentTimeMillis(),
+                            issuedAt =
+                                (data["issuedAt"] as? com.google.firebase.Timestamp)?.toDate()?.time
+                                    ?: System.currentTimeMillis(),
                         )
                     }
                 Result.Success(certs)

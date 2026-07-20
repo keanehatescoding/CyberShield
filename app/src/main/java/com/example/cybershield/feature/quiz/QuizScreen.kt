@@ -66,7 +66,6 @@ fun QuizScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-
     // One-shot sync-failure notifications. Uses viewModel.events (Channel), not
     // uiState, because a Channel guarantees delivery exactly once even when
     // advanceQuiz() immediately overwrites the state on the same frame.
@@ -130,7 +129,7 @@ fun QuizScreen(
             },
             transitionSpec = {
                 slideInHorizontally { it } + fadeIn() togetherWith
-                        slideOutHorizontally { -it } + fadeOut()
+                    slideOutHorizontally { -it } + fadeOut()
             },
             modifier = Modifier.padding(innerPadding),
         ) { state ->
@@ -141,7 +140,8 @@ fun QuizScreen(
                     QuizActiveScreen(
                         state = state,
                         timeLeft = timeLeft,
-                        onSelect = viewModel::selectAnswer,                    )
+                        onSelect = viewModel::selectAnswer,
+                    )
                 }
                 is QuizUiState.Error ->
                     QuizErrorScreen(
@@ -178,7 +178,7 @@ private fun QuizActiveScreen(
         ) {
             TimerDisplay(
                 timeLeft = timeLeft,
-                timerProgress =  timeLeft.toFloat() / QuizViewModel.QUESTION_TIME_SECONDS.toFloat()
+                timerProgress = timeLeft.toFloat() / QuizViewModel.QUESTION_TIME_SECONDS.toFloat(),
             )
             ScoreDisplay(score = state.score)
         }

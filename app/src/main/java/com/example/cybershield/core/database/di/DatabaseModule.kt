@@ -29,8 +29,7 @@ object DatabaseModule {
                 context,
                 CyberShieldDatabase::class.java,
                 "cybershield.db",
-            )
-            .addMigrations(MIGRATION_8_9)
+            ).addMigrations(MIGRATION_8_9)
             // NOTE: this used to be fallbackToDestructiveMigration(dropAllTables = true),
             // which drops every table — including quiz_results rows with
             // synced = false and quiz_attempts rows with provisional = true,

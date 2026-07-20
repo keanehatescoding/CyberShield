@@ -50,21 +50,26 @@ data class ModuleRoute(
     val moduleId: String,
 )
 
-val moduleDeepLinks = listOf(
-    navDeepLink<ModuleRoute>(basePath = "cybershield://module"),
-)
+val moduleDeepLinks =
+    listOf(
+        navDeepLink<ModuleRoute>(basePath = "cybershield://module"),
+    )
+
 @Serializable
 data class QuizRoute(
     val quizId: String,
 )
-val quizDeepLinks = listOf(
-    navDeepLink<QuizRoute>(basePath = "cybershield://quiz"),
-)
+
+val quizDeepLinks =
+    listOf(
+        navDeepLink<QuizRoute>(basePath = "cybershield://quiz"),
+    )
 
 @Serializable
 data class QuizResultRoute(
-    val resultId: String
+    val resultId: String,
 )
+
 @Serializable
 data class CertificateRoute(
     val certId: String,
@@ -73,8 +78,7 @@ data class CertificateRoute(
 @Composable
 fun NavigationRoot(
     deepLinkViewModel: DeepLinkViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity),
-
-    ) {
+) {
     val authViewModel: AuthViewModel = hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
     val connectivityViewModel: ConnectivityViewModel =
         hiltViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
@@ -84,7 +88,7 @@ fun NavigationRoot(
     Column(
         modifier =
             Modifier
-                .fillMaxSize()
+                .fillMaxSize(),
     ) {
         OfflineBanner(isOffline = !isOnline)
         when (authState) {
@@ -125,7 +129,7 @@ fun NavigationRoot(
                             onNavigateToResult = { resultId ->
                                 navController.navigate(
                                     QuizResultRoute(
-                                        resultId = resultId
+                                        resultId = resultId,
                                     ),
                                 ) { popUpTo(QuizRoute::class) { inclusive = true } }
                             },

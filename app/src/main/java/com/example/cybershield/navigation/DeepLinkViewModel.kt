@@ -9,15 +9,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 @HiltViewModel
-class DeepLinkViewModel @Inject constructor() : ViewModel() {
-    private val _pendingIntent = MutableStateFlow<Intent?>(null)
-    val pendingIntent: StateFlow<Intent?> = _pendingIntent.asStateFlow()
+class DeepLinkViewModel
+    @Inject
+    constructor() : ViewModel() {
+        private val _pendingIntent = MutableStateFlow<Intent?>(null)
+        val pendingIntent: StateFlow<Intent?> = _pendingIntent.asStateFlow()
 
-    fun onNewIntent(intent: Intent) {
-        _pendingIntent.value = intent
-    }
+        fun onNewIntent(intent: Intent) {
+            _pendingIntent.value = intent
+        }
 
-    fun consumed() {
-        _pendingIntent.value = null
+        fun consumed() {
+            _pendingIntent.value = null
+        }
     }
-}

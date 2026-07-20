@@ -14,8 +14,7 @@ object CertificateFormatting {
     private const val DATE_PATTERN = "dd MMMM yyyy"
 
     /** Formats [date] as "dd MMMM yyyy", or "" when [date] is null. */
-    fun formatDate(date: Date?): String =
-        date?.let { SimpleDateFormat(DATE_PATTERN, Locale.getDefault()).format(it) } ?: ""
+    fun formatDate(date: Date?): String = date?.let { SimpleDateFormat(DATE_PATTERN, Locale.getDefault()).format(it) } ?: ""
 
     /**
      * certId is the quiz attempt's resultId, which the client itself

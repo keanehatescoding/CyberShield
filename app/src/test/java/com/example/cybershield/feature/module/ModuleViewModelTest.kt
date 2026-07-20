@@ -46,8 +46,7 @@ class ModuleViewModelTest {
             xpReward = 50,
         )
 
-    private fun savedStateHandleFor(moduleId: String): SavedStateHandle =
-        SavedStateHandle(mapOf("moduleId" to moduleId))
+    private fun savedStateHandleFor(moduleId: String): SavedStateHandle = SavedStateHandle(mapOf("moduleId" to moduleId))
 
     @Before
     fun setup() {
