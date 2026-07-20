@@ -29,6 +29,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -76,7 +78,9 @@ private fun QuizHistoryContent(
         // First load in flight — nothing rendered yet
         history.loadState.refresh is LoadState.Loading && history.itemCount == 0 -> {
             Box(modifier = modifier, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(
+                    Modifier.semantics { contentDescription = "Loading quiz history" },
+                )
             }
         }
 

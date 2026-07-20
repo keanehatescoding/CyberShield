@@ -16,7 +16,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -134,6 +133,7 @@ class AuthViewModelTest {
         assertEquals(AuthState.Authenticated("uid-999"), viewModel.state.value)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `init with verified session syncs the FCM token`() =
         runTest {
@@ -148,6 +148,7 @@ class AuthViewModelTest {
             coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `init with no session does not sync the FCM token`() =
         runTest {
@@ -320,6 +321,7 @@ class AuthViewModelTest {
             }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signIn success with verified email syncs the FCM token`() =
         runTest {
@@ -334,6 +336,7 @@ class AuthViewModelTest {
             coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signIn success with unverified email does not sync the FCM token`() =
         runTest {
@@ -505,6 +508,7 @@ class AuthViewModelTest {
             }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `checkEmailVerified true syncs the FCM token`() =
         runTest {
@@ -579,6 +583,7 @@ class AuthViewModelTest {
     // signOut()
     // ---------------------------------------------------------------------
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signOut invokes use case and resets to SignedOut`() =
         runTest {
@@ -596,6 +601,7 @@ class AuthViewModelTest {
             assertEquals(AuthState.SignedOut(), viewModel.state.value)
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signOut clears any prior error or loading flags`() =
         runTest {
