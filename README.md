@@ -10,21 +10,22 @@ CyberShield is a gamified cybersecurity education app for Android, built as a th
 - **Profile & certificates** — User XP/level tracking and generated completion certificates
 - **Leaderboard** — Ranks users by XP earned
 - **Offline support** — Room database caches modules and quiz results, with background sync via WorkManager when connectivity returns
+- **Server-side quiz grading** — Quiz answers are validated and finalized in Cloud Functions rather than trusted from the client, with XP, badges, module completion, and certificates all written server-side
 
 ## Tech stack
 
 - **UI**: Jetpack Compose, Material 3, Navigation Compose (type-safe routes)
 - **Architecture**: MVVM with Clean Architecture layering (data / domain / feature)
 - **DI**: Hilt
-- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Messaging, Crashlytics, App Check)
+- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Messaging, Crashlytics, App Check) + Cloud Functions (TypeScript) for server-side quiz grading and validation
 - **Local storage**: Room
 - **Background work**: WorkManager
 - **Media**: Media3 / ExoPlayer
 - **Async**: Kotlin Coroutines & Flow
 - **Image loading**: Coil
-- **Testing**: JUnit, MockK, Turbine, Compose UI testing, Hilt testing
+- **Testing**: JUnit, MockK, Turbine, Compose UI testing, Hilt testing (app) · Vitest (Cloud Functions) · Firebase Rules Unit Testing (Firestore security rules)
 
-See `gradle/libs.versions.toml` for exact dependency versions.
+See `gradle/libs.versions.toml` for exact dependency versions, and `functions/package.json` for Cloud Functions dependencies.
 
 ## Requirements
 
@@ -64,6 +65,10 @@ app/src/main/java/com/example/cybershield/
 │   ├── profile/       # Profile, XP, certificates
 │   └── leaderboard/   # XP leaderboard
 └── ui/theme/          # App-wide Compose theme
+
+functions/               # Cloud Functions: server-side quiz grading, validation, finalize/complete flows
+firestore-tests/        # Firebase Rules Unit Testing suite for firestore.rules
+firestore.rules         # Firestore security rules (client reads, server-only writes for XP/badges/certificates)
 ```
 
 The project currently ships as a single `:app` module, with `core` and `feature` organized as packages rather than separate Gradle modules. The build is structured to make a future split into multi-module builds straightforward.
@@ -82,6 +87,20 @@ Run instrumented tests (requires a connected device or emulator):
 
 ```bash
 ./gradlew connectedAndroidTest
+```
+
+Cloud Functions unit tests (in `functions/`):
+
+```bash
+npm ci
+npm test
+```
+
+Firestore security rules tests (in `firestore-tests/`, requires the Firebase emulator):
+
+```bash
+npm ci
+npm test
 ```
 
 ## Code style
