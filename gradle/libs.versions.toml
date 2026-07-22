@@ -49,6 +49,7 @@ hilt-android            = { module = "com.google.dagger:hilt-android",          
 hilt-compiler           = { module = "com.google.dagger:hilt-android-compiler",           version.ref = "hilt" }
 hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose",            version.ref = "hilt-ext" }
 hilt-work               = { module = "androidx.hilt:hilt-work",                          version.ref = "hilt-ext" }
+hilt-work-compiler      = { module = "androidx.hilt:hilt-compiler",                       version.ref = "hilt-ext" }
 # Firebase
 firebase-bom            = { module = "com.google.firebase:firebase-bom",                  version.ref = "firebase-bom" }
 firebase-auth           = { module = "com.google.firebase:firebase-auth" }
