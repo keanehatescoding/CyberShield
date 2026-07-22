@@ -76,7 +76,6 @@ class UserRepositoryImpl
                         "photoUrl" to photoUrl,
                         "lastSignedInAt" to FieldValue.serverTimestamp(),
                         "level" to 1,
-                        "completedQuizzes" to emptyList<String>(),
                         "createdAt" to FieldValue.serverTimestamp(),
                     )
                 remoteSource.userDoc(uid).set(profile).await()
