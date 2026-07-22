@@ -239,6 +239,7 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     implementation(libs.hilt.work)
     ksp(libs.hilt.compiler)
+    ksp(libs.hilt.work.compiler)
 
     // -- Room ----------------
     ksp(libs.room.compiler)
