@@ -56,6 +56,7 @@ class ProfileViewModel
         }
 
         override fun onCleared() {
+            super.onCleared()
             profileJob?.cancel()
         }
 

@@ -376,6 +376,7 @@ class QuizViewModel
         }
 
         override fun onCleared() {
+            super.onCleared()
             timerJob?.cancel()
         }
     }
