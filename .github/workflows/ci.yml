@@ -33,34 +33,52 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # Dependabot-authored pull_request runs get NO repository secrets from GitHub
+      # (by design, so a malicious dependency bump can't exfiltrate them) — so
+      # GOOGLE_SERVICES_JSON is empty on those runs. Fall back to a placeholder file
+      # so lint/test/assembleDebug can still run; they never make real Firebase calls.
+      # Either way, validate the JSON so a bad secret fails fast with a clear message
+      # instead of a confusing Gradle stacktrace three tasks later.
       - name: Write google-services.json
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-
-      - name: Decode release keystore
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
-          mkdir -p "${{ runner.temp }}/keystore"
-          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/keystore/release.jks"
-
-      # app/build.gradle.kts reads KEYSTORE_PATH / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
-      # straight out of local.properties (same file you use locally) — no gradle.properties
-      # or env-var wiring needed on the Kotlin DSL side.
-      - name: Write local.properties
-        env:
-          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-        run: |
-          cat > local.properties <<EOF
-          sdk.dir=${ANDROID_HOME}
-          KEYSTORE_PATH=${{ runner.temp }}/keystore/release.jks
-          KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}
-          KEY_ALIAS=${KEY_ALIAS}
-          KEY_PASSWORD=${KEY_PASSWORD}
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON secret not available for this run (likely a Dependabot PR) — writing a placeholder google-services.json so the build can proceed."
+            cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "cybershield-ci-placeholder",
+              "storage_bucket": "cybershield-ci-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "com.example.cybershield" }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "AIzaSyDUMMY-CI-PLACEHOLDER-KEY-0000000" }],
+                "services": {
+                  "appinvite_service": { "other_platform_oauth_client": [] }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
           EOF
+          fi
+          python3 -c "import json; json.load(open('app/google-services.json'))"
+
+      # Debug builds never read the release signingConfig (app/build.gradle.kts only
+      # wires KEYSTORE_PATH/KEY_ALIAS/etc. into the `release` build type), so lint,
+      # unit tests, and assembleDebug need nothing beyond sdk.dir here. Keystore
+      # decoding and signing secrets belong in release.yml only — see that workflow.
+      - name: Write local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
