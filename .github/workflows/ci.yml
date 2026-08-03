@@ -31,7 +31,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
 
       # Dependabot-authored pull_request runs get NO repository secrets from GitHub
       # (by design, so a malicious dependency bump can't exfiltrate them) — so
