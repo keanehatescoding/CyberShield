@@ -127,7 +127,15 @@ data class QuizFinalizeResult(
      * XP awarded for this attempt, computed and applied server-side by
      * finalizeQuizAttemptFn. The client must not separately increment xp —
      * see UserRepository kdoc for why that used to be forgeable.
+     *
+     * Always 0 on a retake ([alreadyAttempted] = true).
      */
     val xpEarned: Int = 0,
     val alreadyFinalized: Boolean = false,
+    /**
+     * True when this is a retake — a prior finalized attempt for this quizId
+     * already exists, so XP was not awarded (xpEarned is 0). The UI uses
+     * this to show "Practice complete" copy rather than "You earned N XP".
+     */
+    val alreadyAttempted: Boolean = false,
 )

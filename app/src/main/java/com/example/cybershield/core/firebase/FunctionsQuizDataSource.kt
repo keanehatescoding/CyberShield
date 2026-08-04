@@ -149,6 +149,7 @@ class FunctionsQuizDataSource
                         percentage = data.requireInt("percentage", "finalizeQuizAttemptFn"),
                         xpEarned = data.optInt("xpEarned"),
                         alreadyFinalized = data.optBoolean("alreadyFinalized"),
+                        alreadyAttempted = data.optBoolean("alreadyAttempted"),
                     ),
                 )
             } catch (e: CancellationException) {

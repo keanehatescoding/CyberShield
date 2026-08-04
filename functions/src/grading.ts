@@ -167,6 +167,13 @@ export interface FinalizeQuizAttemptResult {
   percentage: number;
   xpEarned: number;
   alreadyFinalized?: boolean;
+  /**
+   * True when this is a retake — the user already had a prior finalized
+   * attempt for this quizId (identified by completedQuizzes containing it),
+   * so no XP is awarded. The client uses this to adjust result-screen copy
+   * ("Practice complete" vs "Quiz complete — you earned N XP").
+   */
+  alreadyAttempted?: boolean;
 }
 
 /**
@@ -179,6 +186,13 @@ export interface FinalizeQuizAttemptResult {
  * Idempotent: a `quizAttempts/{resultId}` marker doc records the outcome the
  * first time this runs; retries (e.g. from the offline-sync path) read that
  * marker back instead of re-incrementing XP or re-issuing the cert/badge.
+ *
+ * Retake policy: XP is only awarded on the very first finalized attempt for
+ * each quizId (pass or fail). Subsequent attempts still score and issue a
+ * certificate if passed, but earn 0 XP. This is enforced server-side by
+ * checking completedQuizzes before the increment — a client cannot influence
+ * this check because completedQuizzes is written only by this function and
+ * is blocked from client writes in firestore.rules.
  *
  * The idempotency check and every write below run inside a single Firestore
  * transaction. Firebase Functions can (and does) receive two concurrent
@@ -255,6 +269,22 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
       );
     }
 
+    // Read the user doc now (before any writes). We need it for two things:
+    //   1. The retake check — has this quizId already appeared in completedQuizzes?
+    //   2. displayName for the certificate (only if passing).
+    // We always read it unconditionally so the retake check never races with
+    // a concurrent first attempt — if two first-attempt calls land in parallel
+    // and both read completedQuizzes before either commits, Firestore will
+    // retry one of them (their read sets overlap on userRef), so only one
+    // ever sees completedQuizzes without this quizId and earns XP.
+    const userSnap = await tx.get(userRef);
+    const userData = (userSnap.data() ?? {}) as { completedQuizzes?: string[]; displayName?: string };
+
+    // XP is awarded only on the first ever finalized attempt for this quiz
+    // (pass or fail). `completedQuizzes` is written here and is blocked from
+    // any client write in firestore.rules, so this cannot be bypassed.
+    const alreadyAttempted = (userData.completedQuizzes ?? []).includes(quizId);
+
     const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
     const passed = percentage >= PASS_PERCENTAGE;
 
@@ -264,23 +294,25 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     // before it's used to compute a score that ends up on the certificate.
     const score = correctResults.reduce((sum, r) => sum + (100 + clampTimeRemaining(r.timeRemaining) * 5), 0);
 
-    const xpEarned = correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
+    const xpEarned = alreadyAttempted
+      ? 0
+      : correctCount * XP_PER_CORRECT_ANSWER + (total > 0 && correctCount === total ? XP_BONUS_PERFECT_SCORE : 0);
 
-    // Any further reads (issuing the certificate needs the user/module/quiz
-    // docs) must also happen before the writes below, so they're gathered
-    // here rather than lazily inside the `if (passed)` write block.
-    const [userSnap, moduleSnap, quizSnap] = passed
+    // Any further reads for the certificate (module/quiz title) must also
+    // happen before the writes below.
+    const [moduleSnap, quizSnap] = passed
       ? await Promise.all([
-          tx.get(userRef),
           moduleId ? tx.get(db.collection("modules").doc(moduleId)) : Promise.resolve(null),
           quizId ? tx.get(db.collection("quizzes").doc(quizId)) : Promise.resolve(null),
         ])
-      : [null, null, null];
+      : [null, null];
 
     // --- writes from here on ---
 
-    tx.update(userRef, { xp: FieldValue.increment(xpEarned) });
-    tx.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
+    if (xpEarned > 0) {
+      tx.update(userRef, { xp: FieldValue.increment(xpEarned) });
+      tx.set(leaderboardRef, { xp: FieldValue.increment(xpEarned) }, { merge: true });
+    }
 
     // completedQuizzes is server-only now, for the same reason completedModules
     // is: it used to be a direct client write (UserRepositoryImpl.markQuizCompleted,
@@ -293,7 +325,6 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
 
     let finalScore = score;
     if (passed) {
-      const userData = (userSnap?.data() ?? {}) as { displayName?: string };
       const displayName = userData.displayName ?? "CyberShield User";
       const moduleName = moduleSnap && moduleSnap.exists ? ((moduleSnap.data() as { title?: string }).title ?? "") : "";
       const quizTitle =
@@ -323,6 +354,7 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
       correctCount,
       percentage,
       xpEarned,
+      alreadyAttempted,
     };
     tx.set(attemptRef, {
       ...attemptResult,
