@@ -6,6 +6,7 @@ import com.example.cybershield.core.database.dao.QuizResultDao
 import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import com.example.cybershield.core.domain.model.AnswerValidation
+import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.QuizScoring
@@ -19,6 +20,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -117,6 +119,38 @@ class QuizRepositoryImplTest {
         createdAt = 1_000_000L,
         provisional = provisional,
     )
+
+    // ── getQuizzesForModule ─────────────────────────────────────────────
+
+    private fun fakeQuestion(id: String) =
+        Question(
+            id = id,
+            moduleId = "module1",
+            moduleName = "Phishing Awareness",
+            quizTitle = "Phishing Quiz",
+            text = "Sample question $id",
+            options = listOf("A", "B", "C", "D"),
+            order = 0,
+        )
+
+    @Test
+    fun `getQuizzesForModule replaces (not merely inserts) the local cache, evicting questions no longer returned remotely`() =
+        runTest {
+            // Regression test: insertAll() alone (REPLACE-by-PK) never removes
+            // a cached question the server no longer returns (deleted or
+            // replaced), so it would linger forever and could resurface via
+            // the offline-fallback cache path. replaceForModule must be used
+            // instead so the cache is fully in sync with the remote list.
+            val remoteQuestions = listOf(fakeQuestion("q1"), fakeQuestion("q2"))
+            coEvery { remoteSource.getQuizzesForModule("module1") } returns remoteQuestions
+            coEvery { quizDao.replaceForModule("module1", any()) } returns Unit
+
+            val results = repository.getQuizzesForModule("module1").toList()
+
+            assertEquals(remoteQuestions, (results.last() as Result.Success).data)
+            coVerify(exactly = 1) { quizDao.replaceForModule("module1", any()) }
+            coVerify(exactly = 0) { quizDao.insertAll(any()) }
+        }
 
     // ── validateAnswerOnline ────────────────────────────────────────────
 

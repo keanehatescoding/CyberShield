@@ -50,7 +50,11 @@ class QuizRepositoryImpl
                 try {
                     val remote = remoteSource.getQuizzesForModule(quizId)
                     if (remote.isNotEmpty()) {
-                        quizDao.insertAll(remote.map { it.toEntity() })
+                        // replaceForModule (not insertAll) so a question removed
+                        // or replaced server-side is evicted from the local
+                        // cache too, instead of lingering forever and
+                        // potentially resurfacing via the offline-fallback path.
+                        quizDao.replaceForModule(quizId, remote.map { it.toEntity() })
                         emit(Result.Success(remote))
                     } else {
                         val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }

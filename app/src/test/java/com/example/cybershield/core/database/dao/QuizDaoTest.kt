@@ -109,4 +109,28 @@ class QuizDaoTest : RoomDbTestBase() {
             assertTrue(dao.getQuizzesForModule("module1").isEmpty())
             assertEquals(1, dao.getQuizzesForModule("module2").size)
         }
+
+    @Test
+    fun `replaceForModule evicts a question no longer present in the new list, unlike insertAll`() =
+        runTest {
+            // Regression coverage: insertAll() alone (REPLACE-by-PK) has no way
+            // to remove a row that simply isn't in the new list — it only
+            // overwrites rows whose id collides. replaceForModule must clear
+            // the module's rows first so a question deleted/replaced
+            // server-side doesn't linger in the local cache forever.
+            dao.insertAll(
+                listOf(
+                    fakeQuestion(id = "q1", moduleId = "module1"),
+                    fakeQuestion(id = "q2", moduleId = "module1"),
+                    fakeQuestion(id = "other", moduleId = "module2"),
+                ),
+            )
+
+            // Server now only returns q1 for module1 — q2 was removed.
+            dao.replaceForModule("module1", listOf(fakeQuestion(id = "q1", moduleId = "module1")))
+
+            assertEquals(setOf("q1"), dao.getQuizzesForModule("module1").map { it.id }.toSet())
+            // A different module's rows are untouched.
+            assertEquals(1, dao.getQuizzesForModule("module2").size)
+        }
 }
