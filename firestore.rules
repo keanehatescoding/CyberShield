@@ -62,8 +62,18 @@ service cloud.firestore {
       // doc (resource.data) and only deny when a guarded key actually
       // changes. On create, resource == null, so there's nothing to diff
       // against — check request.resource.data directly instead.
+      // displayName is mirrored verbatim into the world-readable
+      // leaderboard/{uid} doc by the onUserProfileWritten trigger — bound
+      // its type/length here so a malformed client write can't corrupt a
+      // document every other signed-in user reads. Kept in sync with
+      // MAX_DISPLAY_NAME_LENGTH in functions/src/index.ts.
       allow write: if request.auth != null
                    && request.auth.uid == userId
+                   && (
+                     !('displayName' in request.resource.data)
+                       || (request.resource.data.displayName is string
+                           && request.resource.data.displayName.size() <= 100)
+                   )
                    && (
                      resource == null
                        ? !('badges' in request.resource.data)
@@ -119,10 +129,11 @@ service cloud.firestore {
     // pattern as /users/{userId}), which let them top the public
     // leaderboard with an arbitrary xp value — the doc's own write rule
     // never validated it against a real xp award. The doc is now created
-    // by the onUserProfileCreated trigger at registration and updated only
-    // by finalizeQuizAttemptFn / completeModuleFn via the Admin SDK, which
-    // bypasses these rules entirely. Any signed-in user can still read the
-    // whole collection, since it deliberately contains nothing sensitive.
+    // (and its displayName kept in sync on edits) by the onUserProfileWritten
+    // trigger; xp/badges are updated only by finalizeQuizAttemptFn /
+    // completeModuleFn via the Admin SDK, which bypasses these rules
+    // entirely. Any signed-in user can still read the whole collection,
+    // since it deliberately contains nothing sensitive.
     match /leaderboard/{userId} {
       allow read: if request.auth != null;
       allow write: if false;

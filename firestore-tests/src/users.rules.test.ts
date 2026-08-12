@@ -128,3 +128,31 @@ describe("users/{userId} write guard — server-only fields", () => {
     await assertFails(getDoc(doc(db, "users", OWNER_UID)));
   });
 });
+
+// Regression coverage for the displayName type/length guard added alongside
+// the onUserProfileWritten leaderboard-mirror trigger: displayName is copied
+// verbatim into the world-readable leaderboard/{uid} doc, so a malformed
+// value must be rejected here rather than silently corrupting a document
+// every signed-in user reads.
+describe("users/{userId} write guard — displayName", () => {
+  it("denies a non-string displayName", async () => {
+    const db = ownerDb();
+    await assertFails(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: 12345 }),
+    );
+  });
+
+  it("denies a displayName over 100 characters", async () => {
+    const db = ownerDb();
+    await assertFails(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: "a".repeat(101) }),
+    );
+  });
+
+  it("allows a displayName at exactly the 100-character limit", async () => {
+    const db = ownerDb();
+    await assertSucceeds(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: "a".repeat(100) }),
+    );
+  });
+});
