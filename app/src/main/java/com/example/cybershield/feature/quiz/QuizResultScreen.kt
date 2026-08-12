@@ -102,7 +102,11 @@ private fun QuizResultContent(
             Text(
                 text =
                     if (result.provisional) {
-                        "Some answers are still offline — this score, along with any XP and certificate, will update once they sync."
+                        // Covers two cases: some answers are still offline, or
+                        // (rarer) everything graded fine but the final
+                        // XP/certificate call itself failed — either way this
+                        // score isn't final and a background sync will finish it.
+                        "This score isn't final yet — XP and any certificate will be added once we finish syncing."
                     } else if (result.passed) {
                         "You earned +${result.xpEarned} XP and unlocked a certificate!"
                     } else {

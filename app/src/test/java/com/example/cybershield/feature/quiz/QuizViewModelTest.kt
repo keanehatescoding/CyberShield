@@ -18,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
+import io.mockk.match
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -677,6 +678,63 @@ class QuizViewModelTest {
             // pass or fail, since it's also the only path that awards XP. Only its
             // cert/badge side effects are pass-gated (server-side).
             coVerify { quizRepository.finalizeQuizAttemptServer(any()) }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `finishQuiz saves the attempt as provisional when the finalize call itself fails, even though every answer graded online`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Regression test: previously an attempt where every answer graded
+            // fine online (pendingCount == 0) but the one-shot
+            // finalizeQuizAttemptServer call failed (e.g. a network drop right
+            // at quiz end) was saved with provisional = false. Since
+            // getProvisionalAttempts() is the only retry path and only ever
+            // selects provisional = true rows, that permanently lost the
+            // user's XP/certificate with no way to recover it. The fix marks
+            // such an attempt provisional so the background sync sweep picks
+            // it up — getAttemptsReadyToFinalize() independently re-checks
+            // that every answer already has a server verdict before retrying,
+            // so this doesn't cause answers to be needlessly re-synced.
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { quizRepository.finalizeQuizAttemptServer(any()) } returns
+                Result.Error(IllegalStateException("network drop"))
+
+            val viewModel = buildViewModel()
+
+            viewModel.events.test {
+                viewModel.uiState.test {
+                    awaitItem()
+                    viewModel.selectAnswer(0)
+                    awaitItem()
+                    awaitItem()
+                    advanceUntilIdle()
+
+                    val completed = expectMostRecentItem()
+                    assertTrue(completed is QuizUiState.Completed)
+                    assertTrue((completed as QuizUiState.Completed).result.provisional)
+                    assertEquals(0, completed.result.xpEarned)
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val certFailedEvent = awaitItem()
+                assertTrue(certFailedEvent is QuizUiEvent.CertificateGenerationFailed)
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            coVerify {
+                quizRepository.saveQuizAttempt(
+                    resultId = any(),
+                    userId = any(),
+                    moduleId = any(),
+                    moduleName = any(),
+                    quizTitle = any(),
+                    result = match { it.provisional },
+                )
+            }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)

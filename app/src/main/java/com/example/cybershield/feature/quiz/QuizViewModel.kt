@@ -320,6 +320,16 @@ class QuizViewModel
                 // hole this refactor closes. FinalizeQuizAttemptsUseCase awards
                 // these later, off a recomputed score, once
                 // SyncQuizResultsWorker confirms every answer has synced.
+                //
+                // finalizeCallFailed tracks a *different* case: every answer
+                // graded fine online (provisional = false already), but the
+                // one-shot finalizeQuizAttemptServer call itself failed (e.g. a
+                // network drop right at quiz end). Without tracking this
+                // separately, the attempt would be saved with provisional =
+                // false and getProvisionalAttempts() — the only retry path —
+                // would never select it again, permanently losing the user's
+                // XP/certificate for an otherwise fully-graded attempt.
+                var finalizeCallFailed = false
                 val xpEarned =
                     if (uid.isNotBlank() && !provisional) {
                         // XP, the certificate, and the CyberDefender badge are all
@@ -330,12 +340,15 @@ class QuizViewModel
                         // for every attempt, pass or fail, since XP is awarded
                         // either way; only a passing attempt also gets a cert/badge.
                         val finalizeResult = quizRepository.finalizeQuizAttemptServer(resultId)
-                        if (finalizeResult is Result.Error && passed) {
-                            _events.send(
-                                QuizUiEvent.CertificateGenerationFailed(
-                                    "You passed, but we couldn't issue your certificate. Please try again from your profile.",
-                                ),
-                            )
+                        if (finalizeResult is Result.Error) {
+                            finalizeCallFailed = true
+                            if (passed) {
+                                _events.send(
+                                    QuizUiEvent.CertificateGenerationFailed(
+                                        "You passed — we'll finish issuing your XP and certificate once you're back online.",
+                                    ),
+                                )
+                            }
                         }
                         finalizeResult.dataOrNull?.xpEarned ?: 0
                     } else if (uid.isNotBlank() && provisional) {
@@ -349,6 +362,15 @@ class QuizViewModel
                         0
                     }
 
+                // getAttemptsReadyToFinalize() independently re-checks whether
+                // every answer for this resultId now has a server verdict
+                // before retrying, so it's safe to mark this attempt
+                // provisional purely because the finalize *call* failed, even
+                // though every answer was already graded — the background
+                // sweep will re-attempt finalizeQuizAttemptServer, not re-sync
+                // answers that don't need it.
+                val effectiveProvisional = provisional || finalizeCallFailed
+
                 val quizResult =
                     QuizResult(
                         quizId = quizId,
@@ -359,7 +381,7 @@ class QuizViewModel
                         xpEarned = xpEarned,
                         passed = passed,
                         timeTaken = timeTaken,
-                        provisional = provisional,
+                        provisional = effectiveProvisional,
                     )
                 quizRepository.saveQuizAttempt(
                     resultId = resultId,
