@@ -5,6 +5,7 @@ import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.CrashReporter
+import com.google.firebase.functions.FirebaseFunctionsException
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -126,6 +127,43 @@ class SyncQuizResultsWorkerTest {
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Failure)
+        }
+
+    @Test
+    fun `doWork fails fast on a non-transient FirebaseFunctionsException without burning through retries`() =
+        runTest {
+            // Regression test: isTransient() existed but was never consulted
+            // here, so a permanent error (bad payload, invalid argument) was
+            // retried up to MAX_RETRIES exactly like a transient one before
+            // finally failing — wasting retries and delaying the failure
+            // signal on something no retry could ever fix.
+            every { networkMonitor.isCurrentlyOnline() } returns true
+            val permanentError =
+                mockk<FirebaseFunctionsException> {
+                    every { code } returns FirebaseFunctionsException.Code.INVALID_ARGUMENT
+                }
+            coEvery { quizRepository.syncPendingResults() } returns DomainResult.Error(permanentError)
+
+            val worker = directConstruct(runAttemptCount = 0) // well under MAX_RETRIES
+            val result = worker.doWork()
+
+            assertTrue(result is WorkResult.Failure)
+        }
+
+    @Test
+    fun `doWork still retries a transient FirebaseFunctionsException under max retries`() =
+        runTest {
+            every { networkMonitor.isCurrentlyOnline() } returns true
+            val transientError =
+                mockk<FirebaseFunctionsException> {
+                    every { code } returns FirebaseFunctionsException.Code.UNAVAILABLE
+                }
+            coEvery { quizRepository.syncPendingResults() } returns DomainResult.Error(transientError)
+
+            val worker = directConstruct(runAttemptCount = 1) // < MAX_RETRIES (3)
+            val result = worker.doWork()
+
+            assertTrue(result is WorkResult.Retry)
         }
 
     private fun directConstruct(runAttemptCount: Int): SyncQuizResultsWorker {

@@ -14,6 +14,8 @@ import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.CrashReporter
+import com.example.cybershield.core.firebase.isTransient
+import com.google.firebase.functions.FirebaseFunctionsException
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -82,14 +84,29 @@ class SyncQuizResultsWorker
                 }
 
                 is DomainResult.Error -> {
-                    // Retry on transient errors (network blip, Firestore quota, etc.)
-                    // NOTE: runAttemptCount only tracks attempts within *this* enqueued
-                    // chain. Result.failure() here ends that chain — it does not mean
-                    // the rows are unsyncable, only that this chain gave up on them.
-                    // Whether they ever get synced depends entirely on something else
-                    // enqueueing this worker again later, which is what
-                    // SyncModule.schedulePeriodic() guarantees.
-                    if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+                    val exception = result.exception
+                    if (exception is FirebaseFunctionsException && !exception.isTransient()) {
+                        // A permanent error (bad payload, invalid argument, a
+                        // question that was deleted server-side, etc) will
+                        // fail identically on every retry — isTransient() was
+                        // defined for exactly this but previously never
+                        // consulted here, so this class of failure burned
+                        // through MAX_RETRIES before giving up instead of
+                        // failing fast and letting the periodic safety-net
+                        // worker (or a future fix) pick it up later.
+                        Result.failure()
+                    } else if (runAttemptCount < MAX_RETRIES) {
+                        // Retry on transient errors (network blip, Firestore quota, etc.)
+                        // NOTE: runAttemptCount only tracks attempts within *this* enqueued
+                        // chain. Result.failure() here ends that chain — it does not mean
+                        // the rows are unsyncable, only that this chain gave up on them.
+                        // Whether they ever get synced depends entirely on something else
+                        // enqueueing this worker again later, which is what
+                        // SyncModule.schedulePeriodic() guarantees.
+                        Result.retry()
+                    } else {
+                        Result.failure()
+                    }
                 }
 
                 DomainResult.Loading -> Result.retry() // syncPendingResults never emits this
