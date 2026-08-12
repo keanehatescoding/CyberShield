@@ -52,8 +52,14 @@ fun VideoPlayerComposable(
             }
         }
 
-    // Seek when saved position arrives (may be async-loaded from DB)
-    LaunchedEffect(savedPosition) {
+    // Seek exactly once, when this player instance is (re)created — keyed on
+    // `player`, not `savedPosition`. savedPosition is refreshed continuously
+    // (see ModuleViewModel.savePosition), so keying on it would re-fire this
+    // effect — and re-seek — on every position tick during normal playback.
+    // Keying on `player` still picks up the freshest known position on any
+    // remount, since that's whatever value was passed into this composition
+    // at the moment the new player was created.
+    LaunchedEffect(player) {
         if (savedPosition > 0L) player.seekTo(savedPosition)
     }
 

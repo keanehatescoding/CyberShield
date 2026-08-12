@@ -14,6 +14,7 @@ import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import com.example.cybershield.feature.modules.ModuleViewModel
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -177,6 +178,45 @@ class ModuleViewModelTest {
             assertFalse(viewModel.uiState.value.isLoading)
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a background refresh of an already-loaded module does not flip isLoading`() =
+        runTest {
+            // Regression test: ModuleDetailScreen calls loadModule() again on
+            // every ON_RESUME. Previously that unconditionally set isLoading =
+            // true on the Loading emission, which unmounted (and, on Success,
+            // recreated) VideoPlayerComposable — tearing down and rebuilding
+            // the ExoPlayer, resetting watch position — for a routine
+            // background/foreground cycle, not just the initial load.
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+            userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertEquals(testModule, viewModel.uiState.value.module)
+
+            // A gate lets the assertion run precisely after the refresh's
+            // Loading emission has been processed but before Success arrives.
+            val gate = CompletableDeferred<Unit>()
+            moduleRepository.getModuleByIdFlowProvider = {
+                flow {
+                    emit(Result.Loading)
+                    gate.await()
+                    emit(Result.Success(testModule))
+                }
+            }
+            viewModel.loadModule()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertEquals(testModule, viewModel.uiState.value.module)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertEquals(testModule, viewModel.uiState.value.module)
+        }
+
     // ---------- loadSavedPosition() (runs in init) ----------
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -224,6 +264,25 @@ class ModuleViewModelTest {
                 listOf(Triple(testModule.id, testUid, 9_000L)),
                 moduleRepository.savePlaybackPositionCalls,
             )
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `savePosition updates savedPositionMs immediately, not just Room`() =
+        runTest {
+            // Regression test: savedPositionMs previously was only ever set
+            // once, in loadSavedPosition() at init, so a player instance
+            // recreated later would seek back to a stale (often zero)
+            // position instead of where playback actually was.
+            moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertEquals(0L, viewModel.savedPositionMs.value)
+
+            viewModel.savePosition(9_000L)
+
+            assertEquals(9_000L, viewModel.savedPositionMs.value)
         }
 
     // ---------- onVideoCompleted() ----------

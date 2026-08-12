@@ -70,11 +70,21 @@ fun ModuleDetailScreen(
     var showSpeedMenu by remember { mutableStateOf(false) }
     var videoError by remember { mutableStateOf<String?>(null) }
 
+    // LifecycleEventObserver replays ON_RESUME immediately when added to an
+    // already-resumed lifecycle, so without this guard the very first
+    // composition would trigger a redundant second loadModule() call
+    // (init{} already triggers one) on top of every genuine background/
+    // foreground cycle.
+    var hasResumedBefore by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadModule()
+                    if (hasResumedBefore) {
+                        viewModel.loadModule()
+                    } else {
+                        hasResumedBefore = true
+                    }
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
