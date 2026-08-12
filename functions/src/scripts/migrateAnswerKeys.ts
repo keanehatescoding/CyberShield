@@ -41,7 +41,14 @@ async function migrate() {
           correctIndex: data.correctIndex,
           optionCount: options.length,
           explanation: data.explanation ?? "",
-          moduleId: quizDoc.id,
+          // moduleId is a real, separate field on the question doc (quizId
+          // and moduleId are not interchangeable — see Module.quizId in the
+          // client domain model), not the id of the quiz doc it's nested
+          // under. Using quizDoc.id here previously wrote the wrong
+          // moduleId into every migrated answerKeys doc, which then flowed
+          // into quizResults.moduleId and corrupted certificate module-name
+          // lookups whenever a quiz's id differed from its module's id.
+          moduleId: data.moduleId ?? "",
         },
         { merge: true },
       );
