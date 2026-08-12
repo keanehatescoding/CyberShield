@@ -77,7 +77,7 @@ jobs:
           fi
 
       - name: Upload result to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4.37.4
+        uses: github/codeql-action/upload-sarif@v4.37.6
         if: ${{ always() && env.SNYK_TOKEN != '' && steps.sarif_check.outputs.found == 'true' }}
         with:
           sarif_file: snyk.sarif
