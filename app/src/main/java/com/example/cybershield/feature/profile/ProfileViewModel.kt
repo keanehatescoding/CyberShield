@@ -75,4 +75,13 @@ class ProfileViewModel
                 }
             }
         }
+
+        /**
+         * Re-fetches the certificate list — used by CertificateScreen's
+         * retry affordance. Previously there was no way to recover from a
+         * failed (or indefinitely stuck) certificate load short of leaving
+         * and re-entering the screen, since loadCertificates() only ever ran
+         * once from init.
+         */
+        fun retryLoadCertificates() = loadCertificates()
     }

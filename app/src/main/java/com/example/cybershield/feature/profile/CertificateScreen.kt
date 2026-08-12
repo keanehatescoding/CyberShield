@@ -35,6 +35,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,7 +54,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.cybershield.core.data.CertificateGenerator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +70,21 @@ fun CertificateScreen(
     val scope = rememberCoroutineScope()
     val cert = uiState.certificates.find { it.id == certId }
     val user = uiState.user
+
+    // Previously this screen had no timeout or retry affordance: if the
+    // certificate never showed up (e.g. certificate generation failed
+    // server-side, per QuizViewModel's CertificateGenerationFailed event —
+    // or the fetch itself failed), the user was stuck at an indefinite
+    // spinner with no way out short of leaving the screen.
+    var isLoadTimedOut by remember { mutableStateOf(false) }
+    LaunchedEffect(cert, user) {
+        if (cert == null || user == null) {
+            isLoadTimedOut = false
+            delay(10.seconds)
+            isLoadTimedOut = true
+        }
+    }
+
     var isGenerating by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val generator = remember { CertificateGenerator(context) }
@@ -134,10 +152,29 @@ fun CertificateScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         if (cert == null || user == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    Modifier.semantics { contentDescription = "Loading certificate" },
-                )
+            val loadError = uiState.certificatesError
+            if (loadError != null || isLoadTimedOut) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        loadError ?: "This certificate isn't available yet. It may still be processing.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { viewModel.retryLoadCertificates() }) {
+                        Text("Try again")
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        Modifier.semantics { contentDescription = "Loading certificate" },
+                    )
+                }
             }
         } else {
             Column(
