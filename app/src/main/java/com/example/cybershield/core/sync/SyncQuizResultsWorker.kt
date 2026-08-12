@@ -17,6 +17,8 @@ import com.example.cybershield.core.domain.util.CrashReporter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 import com.example.cybershield.core.domain.util.Result as DomainResult
 
@@ -31,7 +33,22 @@ class SyncQuizResultsWorker
         private val networkMonitor: NetworkMonitor,
         private val crashReporter: CrashReporter,
     ) : CoroutineWorker(context, workerParams) {
-        override suspend fun doWork(): Result {
+        override suspend fun doWork(): Result =
+            // scheduleImmediateSync (WORK_NAME) and SyncModule.schedulePeriodic
+            // (PERIODIC_WORK_NAME) are two separate WorkManager unique-work
+            // queues, so WorkManager itself never deduplicates between them —
+            // a periodic pass and a connectivity-triggered immediate pass can
+            // run truly concurrently. Without this mutex, both bodies could
+            // call quizRepository.syncPendingResults() / finalizeQuizAttempts()
+            // at once, causing duplicate validateAnswersBatch/finalizeQuizAttemptFn
+            // calls and a lost-update race in recordFinalizeFailure (two
+            // concurrent reads of finalizeFailureCount can both write the same
+            // incremented value). syncMutex is on the companion object, so it's
+            // shared across every SyncQuizResultsWorker instance in this
+            // process regardless of which queue created it.
+            syncMutex.withLock { doSync() }
+
+        private suspend fun doSync(): Result {
             // Guard — don't attempt if offline
             if (!networkMonitor.isCurrentlyOnline()) return Result.retry()
             // Chunking, the Firestore batch writes, and per-chunk mark-and-delete
@@ -83,6 +100,9 @@ class SyncQuizResultsWorker
             const val WORK_NAME = "SyncQuizResultsWorker"
             const val PERIODIC_WORK_NAME = "SyncQuizResultsWorker_periodic"
             const val MAX_RETRIES = 3
+
+            /** Serializes doWork() across every instance in this process — see doWork() kdoc. */
+            private val syncMutex = Mutex()
 
             /**
              * Fire-and-forget attempt right after a quiz result is recorded, for
