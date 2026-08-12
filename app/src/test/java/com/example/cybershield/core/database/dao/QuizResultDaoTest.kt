@@ -1,5 +1,6 @@
 package com.example.cybershield.core.database.dao
 
+import com.example.cybershield.core.database.entity.QuizAttemptEntity
 import com.example.cybershield.core.database.entity.QuizResultEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -9,6 +10,31 @@ import org.junit.Test
 
 class QuizResultDaoTest : RoomDbTestBase() {
     private val dao get() = db.quizResultDao()
+    private val attemptDao get() = db.quizAttemptDao()
+
+    private fun fakeAttempt(
+        resultId: String,
+        createdAt: Long,
+        provisional: Boolean = false,
+        abandoned: Boolean = false,
+    ) = QuizAttemptEntity(
+        resultId = resultId,
+        userId = "user1",
+        quizId = "quiz1",
+        moduleId = "module1",
+        moduleName = "Phishing Awareness",
+        quizTitle = "Phishing Quiz",
+        score = 0,
+        totalQuestions = 4,
+        correctCount = 0,
+        percentage = 0,
+        xpEarned = 0,
+        passed = false,
+        timeTaken = 60L,
+        createdAt = createdAt,
+        provisional = provisional,
+        abandoned = abandoned,
+    )
 
     private fun fakeResult(
         resultId: String = "result-1",
@@ -195,5 +221,46 @@ class QuizResultDaoTest : RoomDbTestBase() {
 
             assertEquals(1, dao.countUnsyncedForAttempt("attempt-A"))
             assertEquals(0, dao.countUnsyncedForAttempt("attempt-B"))
+        }
+
+    @Test
+    fun `deleteForFinalizedAttemptsOlderThan removes answers only for old, finalized attempts`() =
+        runTest {
+            attemptDao.insert(fakeAttempt(resultId = "old-final", createdAt = 1_000L, provisional = false))
+            attemptDao.insert(fakeAttempt(resultId = "new-final", createdAt = 5_000L, provisional = false))
+            dao.insert(fakeResult(resultId = "old-final", questionId = "q1"))
+            dao.insert(fakeResult(resultId = "new-final", questionId = "q1"))
+
+            dao.deleteForFinalizedAttemptsOlderThan(cutoff = 3_000L)
+
+            assertTrue(dao.getResultsForAttempt("old-final").isEmpty())
+            assertEquals(1, dao.getResultsForAttempt("new-final").size)
+        }
+
+    @Test
+    fun `deleteForFinalizedAttemptsOlderThan never removes answers for a still-provisional attempt`() =
+        runTest {
+            // Even though it's old, a provisional attempt's answers are still
+            // needed by getAttemptsReadyToFinalize() to recompute its score —
+            // deleting them here would silently strand it half-graded forever.
+            attemptDao.insert(fakeAttempt(resultId = "stuck", createdAt = 1_000L, provisional = true))
+            dao.insert(fakeResult(resultId = "stuck", questionId = "q1", isCorrect = true, synced = true))
+
+            dao.deleteForFinalizedAttemptsOlderThan(cutoff = 3_000L)
+
+            assertEquals(1, dao.getResultsForAttempt("stuck").size)
+        }
+
+    @Test
+    fun `deleteForFinalizedAttemptsOlderThan removes answers for an old abandoned attempt`() =
+        runTest {
+            attemptDao.insert(
+                fakeAttempt(resultId = "abandoned-1", createdAt = 1_000L, provisional = true, abandoned = true),
+            )
+            dao.insert(fakeResult(resultId = "abandoned-1", questionId = "q1"))
+
+            dao.deleteForFinalizedAttemptsOlderThan(cutoff = 3_000L)
+
+            assertTrue(dao.getResultsForAttempt("abandoned-1").isEmpty())
         }
 }

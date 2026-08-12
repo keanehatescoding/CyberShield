@@ -66,7 +66,12 @@ interface QuizAttemptDao {
         abandoned: Boolean,
     )
 
-    // Optional: prune attempts older than a retention window, e.g. from a WorkManager job
-    @Query("DELETE FROM quiz_attempts WHERE createdAt < :cutoff")
+    // Prunes attempts older than a retention window — see PruneQuizHistoryWorker.
+    // Restricted to attempts that are done being processed (finalized, i.e.
+    // provisional = 0, or abandoned): a still-provisional attempt must never
+    // be deleted here, even if it happens to be older than the cutoff (e.g.
+    // stuck offline for a long time), since getProvisionalAttempts() is the
+    // only thing that will ever pick it back up and finish it.
+    @Query("DELETE FROM quiz_attempts WHERE createdAt < :cutoff AND (provisional = 0 OR abandoned = 1)")
     suspend fun deleteOlderThan(cutoff: Long)
 }
