@@ -967,4 +967,60 @@ class QuizViewModelTest {
 
             coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any(), any(), any()) }
         }
+
+    // ---------------------------------------------------------------------
+    // Process-death restore (SavedStateHandle)
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a new ViewModel instance backed by the same SavedStateHandle resumes mid-quiz instead of restarting`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Simulates the OS killing and recreating the process mid-quiz:
+            // Jetpack constructs a fresh QuizViewModel backed by the same
+            // (process-death-surviving) SavedStateHandle instance. Previously
+            // currentIndex/score/resultId lived only in plain fields, so this
+            // recreation would restart at question 1 under a brand-new
+            // resultId, orphaning whatever was already submitted server-side
+            // under the original one.
+            val q1 = question(id = "q1")
+            val q2 = question(id = "q2")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+
+            val firstViewModel = buildViewModel(resultIdProvider = { "result-original" })
+            advanceUntilIdle() // reach q1 active
+            firstViewModel.selectAnswer(0)
+            advanceUntilIdle() // grade q1, advance to q2
+
+            val afterQ1 = firstViewModel.uiState.value
+            assertTrue(afterQ1 is QuizUiState.Active)
+            assertEquals(1, (afterQ1 as QuizUiState.Active).questionIndex)
+
+            // Recreate — same savedStateHandle field, different resultIdProvider
+            // so a fresh-start (bug) and a real restore (fix) are distinguishable.
+            val restoredViewModel = buildViewModel(resultIdProvider = { "result-should-not-be-used" })
+            advanceUntilIdle()
+
+            val restoredState = restoredViewModel.uiState.value
+            assertTrue(restoredState is QuizUiState.Active)
+            assertEquals(1, (restoredState as QuizUiState.Active).questionIndex)
+
+            restoredViewModel.selectAnswer(0)
+            advanceUntilIdle()
+
+            coVerify {
+                submitAnswer(
+                    quizId = any(),
+                    resultId = "result-original",
+                    question = any(),
+                    selectedIndex = any(),
+                    selectedAnswer = any(),
+                    userId = any(),
+                    timeRemaining = any(),
+                )
+            }
+        }
 }
