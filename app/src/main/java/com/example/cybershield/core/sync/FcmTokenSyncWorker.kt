@@ -14,11 +14,11 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.util.CrashReporter
-import com.example.cybershield.core.domain.util.Result as DomainResult
 import com.google.firebase.auth.FirebaseAuth
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
+import com.example.cybershield.core.domain.util.Result as DomainResult
 
 @HiltWorker
 class FcmTokenSyncWorker

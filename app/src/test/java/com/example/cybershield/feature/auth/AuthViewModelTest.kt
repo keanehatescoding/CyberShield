@@ -244,6 +244,7 @@ class AuthViewModelTest {
             coVerify(exactly = 0) { registerUseCase(any(), any(), any()) }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `register ignores a same-frame double-tap while the first call is still in flight`() =
         runTest {
@@ -388,6 +389,7 @@ class AuthViewModelTest {
             assertEquals(before, viewModel.state.value)
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `signIn ignores a same-frame double-tap while the first call is still in flight`() =
         runTest {
@@ -505,6 +507,7 @@ class AuthViewModelTest {
             assertEquals(before, viewModel.state.value)
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `resendVerificationEmail ignores a same-frame double-tap while the first call is still in flight`() =
         runTest {

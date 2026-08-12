@@ -18,7 +18,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
-import io.mockk.match
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +29,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -990,10 +990,18 @@ class QuizViewModelTest {
                 submitAnswer(any(), any(), any(), any(), any(), any(), any())
             } returns Result.Success(validation("q1", isCorrect = true))
 
+            // NOTE: this test deliberately never calls advanceUntilIdle() while
+            // a question is Active — each question starts its own 30s
+            // countdown timer (a real `delay` per tick), and advanceUntilIdle()
+            // drains *all* pending virtual-time work, including that timer.
+            // That would auto-submit -1 and race the quiz to completion before
+            // the test's own selectAnswer() calls ever run. runCurrent() (no
+            // time advancement) and a bounded advanceTimeBy() past just the
+            // grading feedback delay avoid that.
             val firstViewModel = buildViewModel(resultIdProvider = { "result-original" })
-            advanceUntilIdle() // reach q1 active
+            runCurrent() // reach q1 active; its timer suspends on its first tick
             firstViewModel.selectAnswer(0)
-            advanceUntilIdle() // grade q1, advance to q2
+            advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q1, advance to q2
 
             val afterQ1 = firstViewModel.uiState.value
             assertTrue(afterQ1 is QuizUiState.Active)
@@ -1002,14 +1010,14 @@ class QuizViewModelTest {
             // Recreate — same savedStateHandle field, different resultIdProvider
             // so a fresh-start (bug) and a real restore (fix) are distinguishable.
             val restoredViewModel = buildViewModel(resultIdProvider = { "result-should-not-be-used" })
-            advanceUntilIdle()
+            runCurrent()
 
             val restoredState = restoredViewModel.uiState.value
             assertTrue(restoredState is QuizUiState.Active)
             assertEquals(1, (restoredState as QuizUiState.Active).questionIndex)
 
             restoredViewModel.selectAnswer(0)
-            advanceUntilIdle()
+            advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q2, finish the quiz
 
             coVerify {
                 submitAnswer(

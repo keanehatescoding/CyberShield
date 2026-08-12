@@ -293,7 +293,7 @@ class ModuleViewModelTest {
         runTest {
             moduleRepository.getModuleByIdFlowProvider = { flowOf(Result.Success(testModule)) }
             userRepository.fakeUser = userRepository.fakeUser.copy(completedModules = emptyList())
-            userRepository.completeModuleResult = { _ ->
+            userRepository.completeModuleResult = { _, _ ->
                 Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = testModule.xpReward))
             }
 
