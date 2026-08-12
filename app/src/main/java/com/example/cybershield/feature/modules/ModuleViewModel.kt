@@ -116,7 +116,7 @@ class ModuleViewModel
                 }
         }
 
-        fun onVideoCompleted() {
+        fun onVideoCompleted(watchedMs: Long) {
             if (uid.isBlank()) return
             viewModelScope.launch {
                 _uiState.value.module ?: return@launch
@@ -125,8 +125,10 @@ class ModuleViewModel
                     // atomically (and idempotently) via completeModuleFn. See
                     // UserRepository.completeModule kdoc — this used to be two
                     // separate client writes, one of which (addXp) let a
-                    // malicious client award itself arbitrary XP.
-                    userRepository.completeModule(uid, moduleId)
+                    // malicious client award itself arbitrary XP. watchedMs lets
+                    // the server sanity-check that playback actually reached the
+                    // end before crediting XP — see completeModule in modules.ts.
+                    userRepository.completeModule(uid, moduleId, watchedMs)
                     _uiState.update {
                         it.copy(
                             showCompletionDialog = true,

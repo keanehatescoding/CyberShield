@@ -97,10 +97,30 @@ export async function gradeAnswer(input: AnswerInput): Promise<GradedAnswer> {
   };
 }
 
+export interface WriteGradedResultOutcome {
+  /** The isCorrect value actually persisted for this attempt/question — see below. */
+  isCorrect: boolean;
+  /** True when this question already had a graded result for this resultId. */
+  alreadyAnswered: boolean;
+}
+
 /**
- * Persists a graded answer to `users/{uid}/quizResults/{quizId}_{questionId}`.
+ * Persists a graded answer to `users/{uid}/quizResults/{resultId}_{questionId}`.
  * This is the ONLY code path allowed to write `isCorrect` — Firestore rules
  * block client writes to this subcollection entirely (see firestore.rules).
+ *
+ * Keyed by resultId (not quizId) and first-write-wins: validateAnswer always
+ * reveals correctIndex in its response so the UI can show the right answer
+ * after submitting (see index.ts). Without pinning the doc id to resultId and
+ * refusing to overwrite an existing grade, a client could submit a throwaway
+ * guess for a question to read back correctIndex, then call validateAnswer
+ * again for the same question under the same resultId with the now-known
+ * correct index, overwriting isCorrect: false with isCorrect: true before
+ * finalizeQuizAttempt ever runs — guaranteeing a perfect score, XP bonus,
+ * badge, and certificate with no real knowledge of the material. Keying by
+ * resultId also stops two concurrent attempts of the same quiz (e.g. a retake
+ * started while an earlier attempt's offline-sync batch is still landing)
+ * from overwriting each other's answers, since they no longer share a doc id.
  */
 export async function writeGradedResult(
   uid: string,
@@ -109,29 +129,40 @@ export async function writeGradedResult(
   clientAnsweredAt: number | undefined,
   resultId: string,
   timeRemaining?: number,
-): Promise<void> {
+): Promise<WriteGradedResultOutcome> {
   const db = getFirestore();
   const ref = db
     .collection("users")
     .doc(uid)
     .collection("quizResults")
-    .doc(`${graded.quizId}_${graded.questionId}`);
+    .doc(`${resultId}_${graded.questionId}`);
 
-  await ref.set(
-    {
+  return db.runTransaction(async (tx) => {
+    const existing = await tx.get(ref);
+    if (existing.exists) {
+      // Idempotent for legitimate retries (e.g. offline-sync re-sending an
+      // answer whose ack was lost) and immune to the peek-then-correct
+      // exploit: whatever was recorded first stands, regardless of what the
+      // current call's selectedIndex claims.
+      const data = existing.data() as { isCorrect: boolean };
+      return { isCorrect: data.isCorrect, alreadyAnswered: true };
+    }
+
+    tx.set(ref, {
       quizId: graded.quizId,
       questionId: graded.questionId,
       moduleId: graded.moduleId,
-      resultId: resultId ?? "",
+      resultId,
       selectedIndex,
       isCorrect: graded.isCorrect,
       timeRemaining: typeof timeRemaining === "number" ? timeRemaining : null,
       clientAnsweredAt: clientAnsweredAt ?? null,
       validatedAt: FieldValue.serverTimestamp(),
       validatedBy: "cloudFunction",
-    },
-    { merge: true },
-  );
+    });
+
+    return { isCorrect: graded.isCorrect, alreadyAnswered: false };
+  });
 }
 
 export const PASS_PERCENTAGE = 70;

@@ -59,13 +59,24 @@ export const validateAnswer = onCall(
     const input = request.data as AnswerInput;
 
     const graded = await gradeAnswer(input);
-    await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt, input.resultId, input.timeRemaining);
+    const outcome = await writeGradedResult(
+      request.auth.uid,
+      graded,
+      input.selectedIndex,
+      input.answeredAt,
+      input.resultId,
+      input.timeRemaining,
+    );
 
     // correctIndex is only ever sent back AFTER the client has already
     // submitted its selectedIndex — never available to fetch beforehand.
+    // isCorrect reflects what writeGradedResult actually persisted (the
+    // first grade recorded for this question/resultId), NOT necessarily
+    // this call's fresh grade — see writeGradedResult's first-write-wins
+    // doc comment for why re-answering must not flip a stored result.
     return {
       questionId: graded.questionId,
-      isCorrect: graded.isCorrect,
+      isCorrect: outcome.isCorrect,
       correctIndex: graded.correctIndex,
       explanation: graded.explanation,
     };
@@ -101,10 +112,17 @@ export const validateAnswersBatch = onCall(
         assertValidAnswerInput(raw);
         const input = raw as AnswerInput;
         const graded = await gradeAnswer(input);
-        await writeGradedResult(request.auth.uid, graded, input.selectedIndex, input.answeredAt, input.resultId, input.timeRemaining);
+        const outcome = await writeGradedResult(
+          request.auth.uid,
+          graded,
+          input.selectedIndex,
+          input.answeredAt,
+          input.resultId,
+          input.timeRemaining,
+        );
         results.push({
           questionId: graded.questionId,
-          isCorrect: graded.isCorrect,
+          isCorrect: outcome.isCorrect,
           correctIndex: graded.correctIndex,
           explanation: graded.explanation,
           error: null,
@@ -166,10 +184,12 @@ export const completeModuleFn = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign in required.");
     }
-    const moduleId = (request.data as { moduleId?: unknown } | null)?.moduleId;
+    const data = request.data as { moduleId?: unknown; watchedMs?: unknown } | null;
+    const moduleId = data?.moduleId;
     if (typeof moduleId !== "string" || !moduleId) {
       throw new HttpsError("invalid-argument", "moduleId is required.");
     }
-    return completeModule(request.auth.uid, moduleId);
+    const watchedMs = typeof data?.watchedMs === "number" ? data.watchedMs : -1;
+    return completeModule(request.auth.uid, moduleId, watchedMs);
   },
 );

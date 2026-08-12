@@ -241,7 +241,7 @@ class ModuleViewModelTest {
             val viewModel = createViewModel()
             advanceUntilIdle()
 
-            viewModel.onVideoCompleted()
+            viewModel.onVideoCompleted(300_000L)
             advanceUntilIdle()
 
             assertTrue(testModule.id in userRepository.completedModuleIds)
@@ -261,7 +261,7 @@ class ModuleViewModelTest {
             val viewModel = createViewModel()
             advanceUntilIdle()
 
-            viewModel.onVideoCompleted()
+            viewModel.onVideoCompleted(300_000L)
             advanceUntilIdle()
 
             assertFalse(viewModel.uiState.value.showCompletionDialog)
@@ -278,7 +278,7 @@ class ModuleViewModelTest {
             val viewModel = createViewModel()
             advanceUntilIdle()
 
-            viewModel.onVideoCompleted()
+            viewModel.onVideoCompleted(300_000L)
             advanceUntilIdle()
 
             assertFalse(viewModel.uiState.value.showCompletionDialog)
@@ -296,7 +296,7 @@ class ModuleViewModelTest {
 
             val viewModel = createViewModel()
             advanceUntilIdle()
-            viewModel.onVideoCompleted()
+            viewModel.onVideoCompleted(300_000L)
             advanceUntilIdle()
             assertTrue(viewModel.uiState.value.showCompletionDialog)
 

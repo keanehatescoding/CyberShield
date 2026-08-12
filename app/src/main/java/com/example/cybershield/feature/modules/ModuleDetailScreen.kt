@@ -188,7 +188,7 @@ fun ModuleDetailScreen(
                             videoUrl = module.videoUrl,
                             savedPosition = savedPosition,
                             playbackSpeed = playbackSpeed,
-                            onVideoEnded = { viewModel.onVideoCompleted() },
+                            onVideoEnded = { watchedMs -> viewModel.onVideoCompleted(watchedMs) },
                             onPositionChanged = { pos -> viewModel.savePosition(pos) },
                             onPlaybackError = { message -> videoError = message },
                             modifier =

@@ -29,7 +29,7 @@ fun VideoPlayerComposable(
     videoUrl: String,
     savedPosition: Long,
     playbackSpeed: Float,
-    onVideoEnded: () -> Unit,
+    onVideoEnded: (watchedMs: Long) -> Unit,
     onPositionChanged: (Long) -> Unit,
     modifier: Modifier = Modifier,
     // Fired on any playback failure (bad URL, network error, unsupported
@@ -78,7 +78,11 @@ fun VideoPlayerComposable(
             object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_ENDED) {
-                        onVideoEnded()
+                        // duration is the authoritative "how long is this video"
+                        // once playback has actually reached the end; fall back to
+                        // currentPosition for the rare case duration is unknown.
+                        val watchedMs = player.duration.takeIf { it > 0 } ?: player.currentPosition
+                        onVideoEnded(watchedMs)
                     }
                 }
 

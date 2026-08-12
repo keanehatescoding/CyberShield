@@ -123,9 +123,10 @@ class UserRepositoryImpl
         override suspend fun completeModule(
             uid: String,
             moduleId: String,
+            watchedMs: Long,
         ): Result<ModuleCompleteResult> =
             withContext(Dispatchers.IO) {
-                functionsModuleDataSource.completeModule(moduleId)
+                functionsModuleDataSource.completeModule(moduleId, watchedMs)
             }
 
         // ── Save FCM token ─────────────────────────────────────────────────

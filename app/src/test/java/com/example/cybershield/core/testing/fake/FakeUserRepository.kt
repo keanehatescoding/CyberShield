@@ -20,7 +20,8 @@ class FakeUserRepository : UserRepository {
     /** Result returned by [completeModule]; override in tests to simulate failure. */
     var completeModuleResult: (
         moduleId: String,
-    ) -> Result<ModuleCompleteResult> = { Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = 0)) }
+        watchedMs: Long,
+    ) -> Result<ModuleCompleteResult> = { _, _ -> Result.Success(ModuleCompleteResult(alreadyCompleted = false, xpEarned = 0)) }
 
     // ── getUserProfile() override controls ─────────────────────────────
     // Default (null) preserves the original behavior exactly: a fixed one-shot
@@ -145,8 +146,9 @@ class FakeUserRepository : UserRepository {
     override suspend fun completeModule(
         uid: String,
         moduleId: String,
+        watchedMs: Long,
     ): Result<ModuleCompleteResult> {
-        val result = completeModuleResult(moduleId)
+        val result = completeModuleResult(moduleId, watchedMs)
         if (result is Result.Success && !result.data.alreadyCompleted) {
             completedModuleIds.add(moduleId)
             fakeUser = fakeUser.copy(xp = fakeUser.xp + result.data.xpEarned)
