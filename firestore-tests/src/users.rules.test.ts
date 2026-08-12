@@ -155,4 +155,35 @@ describe("users/{userId} write guard — displayName", () => {
       updateDoc(doc(db, "users", OWNER_UID), { displayName: "a".repeat(100) }),
     );
   });
+
+  // The rule has a separate resource == null branch for brand-new documents
+  // (see firestore.rules) — the update-path cases above never exercise it,
+  // since beforeEach always seeds users/{OWNER_UID} first. These cover
+  // profile creation (registration) through that branch specifically.
+  const NEW_UID = "new-user-uid";
+
+  function newUserDb() {
+    return testEnv.authenticatedContext(NEW_UID).firestore();
+  }
+
+  it("denies creating a profile with a non-string displayName", async () => {
+    const db = newUserDb();
+    await assertFails(
+      setDoc(doc(db, "users", NEW_UID), { displayName: 12345 }),
+    );
+  });
+
+  it("denies creating a profile with a displayName over 100 characters", async () => {
+    const db = newUserDb();
+    await assertFails(
+      setDoc(doc(db, "users", NEW_UID), { displayName: "a".repeat(101) }),
+    );
+  });
+
+  it("allows creating a profile with a displayName at exactly the 100-character limit", async () => {
+    const db = newUserDb();
+    await assertSucceeds(
+      setDoc(doc(db, "users", NEW_UID), { displayName: "a".repeat(100) }),
+    );
+  });
 });

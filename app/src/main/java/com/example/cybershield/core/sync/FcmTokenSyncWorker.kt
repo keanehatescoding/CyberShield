@@ -43,7 +43,7 @@ class FcmTokenSyncWorker
             // never actually caught anything — every failed write was
             // silently treated as WorkManager success, with no retry and no
             // telemetry. Check the returned Result instead.
-            return when (userRepository.updateFcmToken(uid, token)) {
+            return when (val result = userRepository.updateFcmToken(uid, token)) {
                 is DomainResult.Success -> Result.success()
                 is DomainResult.Error -> {
                     if (runAttemptCount < MAX_RETRIES) {
@@ -54,8 +54,14 @@ class FcmTokenSyncWorker
                         // a systemic token-registration failure (e.g. a bad
                         // Firestore rule change) would silently break push
                         // notification delivery with zero signal in Crashlytics.
+                        // The original repository failure is preserved as the
+                        // cause so Crashlytics can identify what actually broke
+                        // token registration, not just that retries ran out.
                         crashReporter.recordException(
-                            IllegalStateException("FCM token sync failed after $runAttemptCount attempts"),
+                            IllegalStateException(
+                                "FCM token sync failed after $runAttemptCount attempts",
+                                result.exception,
+                            ),
                         )
                         Result.failure()
                     }

@@ -15,10 +15,18 @@ const MAX_DISPLAY_NAME_LENGTH = 100;
 
 /** Same shape/length bound as firestore.rules enforces for direct client writes to users/{uid}.displayName. */
 function sanitizeDisplayName(raw: unknown): string {
-  if (typeof raw !== "string" || raw.trim().length === 0) {
+  if (typeof raw !== "string") {
     return DEFAULT_DISPLAY_NAME;
   }
-  return raw.slice(0, MAX_DISPLAY_NAME_LENGTH);
+  // Trim before slicing, not just for the emptiness check — otherwise a
+  // value like "   Ann   " (100 chars including padding) reaches the
+  // world-readable leaderboard doc with its whitespace intact, affecting
+  // display and sort order in the leaderboard list.
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return DEFAULT_DISPLAY_NAME;
+  }
+  return trimmed.slice(0, MAX_DISPLAY_NAME_LENGTH);
 }
 
 /**
@@ -50,15 +58,44 @@ export const onUserProfileWritten = onDocumentWritten(
   async (event) => {
     const before = event.data?.before;
     const after = event.data?.after;
-    if (!after || !after.exists) return; // deletion — nothing to mirror
+    const db = getFirestore();
+    const leaderboardRef = db.collection("leaderboard").doc(event.params.uid);
+
+    if (!after || !after.exists) {
+      // users/{uid} was deleted — remove the public mirror too, rather than
+      // leaving a stale entry (with a now-nonexistent user's last-known
+      // name/xp/badges) permanently visible on the leaderboard.
+      try {
+        await leaderboardRef.delete();
+      } catch (e) {
+        logger.error("Failed to remove leaderboard entry for deleted profile", { uid: event.params.uid, error: e });
+        throw e;
+      }
+      return;
+    }
 
     const afterData = after.data() as { displayName?: unknown } | undefined;
     const displayName = sanitizeDisplayName(afterData?.displayName);
-    const leaderboardRef = getFirestore().collection("leaderboard").doc(event.params.uid);
 
     try {
       if (!before || !before.exists) {
-        await leaderboardRef.set({ displayName, xp: 0, badges: [] }, { merge: true });
+        // retry: true means Eventarc can redeliver this same create event
+        // (with or without an earlier error), so this must not
+        // unconditionally re-seed xp/badges — if the redelivery happens
+        // after finalizeQuizAttempt / completeModuleFn already incremented
+        // the mirror (or a deleted-and-recreated users/{uid} doc lands
+        // here after awards existed under the old doc), a bare merge-set of
+        // xp: 0, badges: [] would silently wipe them. A transaction that
+        // only initializes when the leaderboard doc doesn't yet exist makes
+        // repeated/concurrent deliveries safe.
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(leaderboardRef);
+          if (!snap.exists) {
+            tx.set(leaderboardRef, { displayName, xp: 0, badges: [] });
+          } else {
+            tx.set(leaderboardRef, { displayName }, { merge: true });
+          }
+        });
         return;
       }
 

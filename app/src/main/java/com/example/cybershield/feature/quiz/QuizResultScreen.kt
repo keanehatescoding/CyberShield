@@ -104,9 +104,11 @@ private fun QuizResultContent(
                     if (result.provisional) {
                         // Covers two cases: some answers are still offline, or
                         // (rarer) everything graded fine but the final
-                        // XP/certificate call itself failed — either way this
-                        // score isn't final and a background sync will finish it.
-                        "This score isn't final yet — XP and any certificate will be added once we finish syncing."
+                        // XP/certificate call itself failed. Deliberately
+                        // doesn't claim the *score* is unfinished — in the
+                        // second case it's already correct, only XP/cert/badge
+                        // finalization is pending.
+                        "We're still finalizing this result — XP and any certificate will be added once we finish syncing."
                     } else if (result.passed) {
                         "You earned +${result.xpEarned} XP and unlocked a certificate!"
                     } else {

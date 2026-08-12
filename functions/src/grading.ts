@@ -104,6 +104,11 @@ export interface WriteGradedResultOutcome {
   alreadyAnswered: boolean;
 }
 
+/** `users/{uid}/quizFirstAttempts/{quizId}` doc shape — see writeGradedResult. */
+interface FirstAttemptDoc {
+  resultId: string;
+}
+
 /**
  * Persists a graded answer to `users/{uid}/quizResults/{resultId}_{questionId}`.
  * This is the ONLY code path allowed to write `isCorrect` — Firestore rules
@@ -116,11 +121,23 @@ export interface WriteGradedResultOutcome {
  * guess for a question to read back correctIndex, then call validateAnswer
  * again for the same question under the same resultId with the now-known
  * correct index, overwriting isCorrect: false with isCorrect: true before
- * finalizeQuizAttempt ever runs — guaranteeing a perfect score, XP bonus,
- * badge, and certificate with no real knowledge of the material. Keying by
- * resultId also stops two concurrent attempts of the same quiz (e.g. a retake
- * started while an earlier attempt's offline-sync batch is still landing)
- * from overwriting each other's answers, since they no longer share a doc id.
+ * finalizeQuizAttempt ever runs. Keying by resultId also stops two concurrent
+ * attempts of the same quiz (e.g. a retake started while an earlier attempt's
+ * offline-sync batch is still landing) from overwriting each other's answers,
+ * since they no longer share a doc id.
+ *
+ * That alone is NOT sufficient, though: resultId is entirely client-chosen,
+ * so a client could still submit a throwaway guess under resultId A (reading
+ * back correctIndex), then submit the now-known correct answer under a
+ * brand-new resultId B, and finalize B instead — laundering the leaked
+ * answer into a fresh, unpolluted attempt. To close that, this also claims
+ * `quizFirstAttempts/{quizId}` the first time this user ever gets a graded
+ * answer for a given quiz: whichever resultId gets there first is the only
+ * one finalizeQuizAttempt will ever award XP for (see there). The claim is
+ * set-if-absent and happens here — at grading/reveal time, not at finalize
+ * time — because the exploit hinges on laundering a reveal that already
+ * happened; claiming only at finalize would be too late (A, the peeked
+ * attempt, is never finalized, so nothing would ever bind quizId to A).
  */
 export async function writeGradedResult(
   uid: string,
@@ -136,9 +153,15 @@ export async function writeGradedResult(
     .doc(uid)
     .collection("quizResults")
     .doc(`${resultId}_${graded.questionId}`);
+  const firstAttemptRef = graded.quizId
+    ? db.collection("users").doc(uid).collection("quizFirstAttempts").doc(graded.quizId)
+    : null;
 
   return db.runTransaction(async (tx) => {
-    const existing = await tx.get(ref);
+    const [existing, firstAttemptSnap] = await Promise.all([
+      tx.get(ref),
+      firstAttemptRef ? tx.get(firstAttemptRef) : Promise.resolve(null),
+    ]);
     if (existing.exists) {
       // Idempotent for legitimate retries (e.g. offline-sync re-sending an
       // answer whose ack was lost) and immune to the peek-then-correct
@@ -146,6 +169,11 @@ export async function writeGradedResult(
       // current call's selectedIndex claims.
       const data = existing.data() as { isCorrect: boolean };
       return { isCorrect: data.isCorrect, alreadyAnswered: true };
+    }
+
+    if (firstAttemptRef && firstAttemptSnap && !firstAttemptSnap.exists) {
+      const claim: FirstAttemptDoc = { resultId };
+      tx.set(firstAttemptRef, claim);
     }
 
     tx.set(ref, {
@@ -249,6 +277,9 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     // All reads must happen before any writes within a Firestore
     // transaction, so every get()/query this function needs is gathered
     // up front via tx.get(), and the batch.* calls below become tx.* calls.
+    // NOTE: quizId isn't known yet at this point (it's read from quizResults
+    // below), so the quizFirstAttempts lookup happens further down, once
+    // quizId is available — still before any writes.
     const existingAttempt = await tx.get(attemptRef);
     if (existingAttempt.exists) {
       const data = existingAttempt.data() as FinalizeQuizAttemptResult;
@@ -270,6 +301,19 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     if (!quizId) {
       throw new HttpsError("failed-precondition", "Attempt has no associated quiz.");
     }
+
+    // See writeGradedResult's doc comment: the first resultId that ever got
+    // a graded answer for this quiz is the only one eligible for XP. Without
+    // this, first-write-wins (which only locks a single resultId) wouldn't
+    // stop a client from peeking at correctIndex under a throwaway resultId,
+    // then submitting correct answers under a brand-new resultId and
+    // finalizing that "clean" one instead. A quizFirstAttempts doc always
+    // exists by the time finalize is reachable here — finalizing requires
+    // every question to already have a graded quizResults doc (checked
+    // below), and grading a question is exactly what claims this doc.
+    const firstAttemptSnap = await tx.get(userRef.collection("quizFirstAttempts").doc(quizId));
+    const firstAttemptResultId = (firstAttemptSnap.data() as { resultId?: string } | undefined)?.resultId;
+    const isLaunderedResultId = firstAttemptResultId !== undefined && firstAttemptResultId !== resultId;
 
     // resultId is client-supplied and validateAnswer will grade *any*
     // question under *any* resultId, so a client could otherwise submit
@@ -314,7 +358,12 @@ export async function finalizeQuizAttempt(uid: string, resultId: string): Promis
     // XP is awarded only on the first ever finalized attempt for this quiz
     // (pass or fail). `completedQuizzes` is written here and is blocked from
     // any client write in firestore.rules, so this cannot be bypassed.
-    const alreadyAttempted = (userData.completedQuizzes ?? []).includes(quizId);
+    // isLaunderedResultId (see above) closes the remaining gap: even a
+    // resultId that's genuinely this user's first *finalized* attempt
+    // (completedQuizzes doesn't have quizId yet) is only genuinely their
+    // first *attempt* — and thus XP-eligible — if it's also the resultId
+    // that was first ever graded for this quiz.
+    const alreadyAttempted = (userData.completedQuizzes ?? []).includes(quizId) || isLaunderedResultId;
 
     const percentage = total > 0 ? Math.round((correctCount * 100) / total) : 0;
     const passed = percentage >= PASS_PERCENTAGE;

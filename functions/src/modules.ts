@@ -63,7 +63,11 @@ export async function completeModule(
     }
 
     const moduleData = moduleSnap.data() as { xpReward?: number; durationMins?: number };
-    const durationMins = typeof moduleData.durationMins === "number" ? moduleData.durationMins : 0;
+    // Number.isFinite (not just typeof), because NaN passes typeof === "number"
+    // but every comparison against it (durationMins <= 0, watchedMs < ...)
+    // evaluates to false — without this, an admin-side NaN in durationMins
+    // would silently bypass the check below instead of failing closed.
+    const durationMins = Number.isFinite(moduleData.durationMins) ? (moduleData.durationMins as number) : 0;
     const expectedMs = durationMins * 60_000;
 
     // Fail closed (like the expectedQuestionCount check in

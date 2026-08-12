@@ -22,14 +22,35 @@ const db = getFirestore();
 async function migrate() {
   const quizzes = await db.collection("quizzes").get();
   let migrated = 0;
+  let repaired = 0;
 
   for (const quizDoc of quizzes.docs) {
     const questions = await quizDoc.ref.collection("questions").get();
 
     for (const q of questions.docs) {
       const data = q.data();
+      // moduleId is a real, separate field on the question doc (quizId and
+      // moduleId are not interchangeable — see Module.quizId in the client
+      // domain model). It survives migration (only correctIndex/explanation
+      // are deleted from the question doc below), so it's available to
+      // repair an already-migrated answerKeys doc too, not just to migrate
+      // a fresh one.
+      const moduleId = typeof data.moduleId === "string" ? data.moduleId : undefined;
+
       if (data.correctIndex === undefined) {
-        continue; // already migrated
+        // Already migrated — but an earlier version of this script wrote
+        // quizDoc.id (the wrong value) into moduleId instead of the
+        // question's own moduleId field. Repair it in place rather than
+        // silently leaving the corrupted value forever: this branch used to
+        // just `continue`, which meant re-running the fixed script could
+        // never fix answerKeys docs a prior buggy run had already touched.
+        if (moduleId === undefined) {
+          console.warn(`Question ${quizDoc.id}/${q.id} has already been migrated but has no moduleId; skipping repair.`);
+          continue;
+        }
+        await db.collection("answerKeys").doc(`${quizDoc.id}_${q.id}`).set({ moduleId }, { merge: true });
+        repaired++;
+        continue;
       }
 
       const options: unknown[] = data.options ?? [];
@@ -41,14 +62,10 @@ async function migrate() {
           correctIndex: data.correctIndex,
           optionCount: options.length,
           explanation: data.explanation ?? "",
-          // moduleId is a real, separate field on the question doc (quizId
-          // and moduleId are not interchangeable — see Module.quizId in the
-          // client domain model), not the id of the quiz doc it's nested
-          // under. Using quizDoc.id here previously wrote the wrong
-          // moduleId into every migrated answerKeys doc, which then flowed
-          // into quizResults.moduleId and corrupted certificate module-name
-          // lookups whenever a quiz's id differed from its module's id.
-          moduleId: data.moduleId ?? "",
+          // Omit moduleId entirely when the question doc doesn't have one,
+          // rather than writing an empty string over (and masking) whatever
+          // might already be there from a previous partial write.
+          ...(moduleId !== undefined ? { moduleId } : {}),
         },
         { merge: true },
       );
@@ -63,7 +80,7 @@ async function migrate() {
     }
   }
 
-  console.log(`Migrated ${migrated} question(s) into answerKeys.`);
+  console.log(`Migrated ${migrated} question(s) into answerKeys, repaired ${repaired} already-migrated answerKeys doc(s).`);
 }
 
 migrate()

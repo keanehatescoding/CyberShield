@@ -1019,10 +1019,24 @@ class QuizViewModelTest {
             restoredViewModel.selectAnswer(0)
             advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q2, finish the quiz
 
-            coVerify {
+            // The restored q2 submission must go out tagged with the original
+            // resultId, exactly once — and never under the fresh provider's id,
+            // which would mean the restore silently started a new attempt.
+            coVerify(exactly = 1) {
                 submitAnswer(
                     quizId = any(),
                     resultId = "result-original",
+                    question = q2,
+                    selectedIndex = any(),
+                    selectedAnswer = any(),
+                    userId = any(),
+                    timeRemaining = any(),
+                )
+            }
+            coVerify(exactly = 0) {
+                submitAnswer(
+                    quizId = any(),
+                    resultId = "result-should-not-be-used",
                     question = any(),
                     selectedIndex = any(),
                     selectedAnswer = any(),
