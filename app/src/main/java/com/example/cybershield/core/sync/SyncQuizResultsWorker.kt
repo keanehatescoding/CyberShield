@@ -56,7 +56,7 @@ class SyncQuizResultsWorker
             // Chunking, the Firestore batch writes, and per-chunk mark-and-delete
             // all live in QuizRepository now — the worker just triggers it and
             // maps the outcome to a WorkManager Result.
-            return when (quizRepository.syncPendingResults()) {
+            return when (val result = quizRepository.syncPendingResults()) {
                 is DomainResult.Success -> {
                     // Now that some (maybe all) pending answers have a verdict,
                     // check whether any provisional attempt is fully graded and
