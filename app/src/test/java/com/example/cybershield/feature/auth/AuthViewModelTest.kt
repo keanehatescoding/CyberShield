@@ -244,6 +244,27 @@ class AuthViewModelTest {
             coVerify(exactly = 0) { registerUseCase(any(), any(), any()) }
         }
 
+    @Test
+    fun `register ignores a same-frame double-tap while the first call is still in flight`() =
+        runTest {
+            // Regression test: register() previously only checked the state's
+            // *type* (is SignedOut), not isLoading — SignedOut(isLoading =
+            // true) is still a SignedOut, so a same-frame double-tap (before
+            // Compose disables the button on the next recomposition) fired
+            // two concurrent register() calls, and whichever response landed
+            // second silently overwrote the other's outcome in _state.
+            every { observeAuthState.currentSession() } returns null
+            coEvery { registerUseCase(any(), any(), any()) } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel()
+
+            viewModel.register("Jane", "jane@example.com", "pw123456")
+            viewModel.register("Jane", "jane@example.com", "pw123456") // same-frame double-tap
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { registerUseCase(any(), any(), any()) }
+        }
+
     // ---------------------------------------------------------------------
     // signIn()
     // ---------------------------------------------------------------------
@@ -367,6 +388,22 @@ class AuthViewModelTest {
             assertEquals(before, viewModel.state.value)
         }
 
+    @Test
+    fun `signIn ignores a same-frame double-tap while the first call is still in flight`() =
+        runTest {
+            // See register()'s matching regression test for the failure mode.
+            every { observeAuthState.currentSession() } returns null
+            coEvery { signInUseCase(any(), any()) } returns Result.Success(session(isEmailVerified = true))
+
+            val viewModel = buildViewModel()
+
+            viewModel.signIn("a@b.com", "pw123456")
+            viewModel.signIn("a@b.com", "pw123456") // same-frame double-tap
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { signInUseCase(any(), any()) }
+        }
+
     // ---------------------------------------------------------------------
     // resendVerificationEmail() + cooldown timer
     // ---------------------------------------------------------------------
@@ -466,6 +503,25 @@ class AuthViewModelTest {
             advanceUntilIdle()
 
             assertEquals(before, viewModel.state.value)
+        }
+
+    @Test
+    fun `resendVerificationEmail ignores a same-frame double-tap while the first call is still in flight`() =
+        runTest {
+            // Regression test: previously only the state's type was checked,
+            // not isResending, so a same-frame double-tap could send two
+            // verification emails.
+            every { observeAuthState.currentSession() } returns
+                session(email = "a@b.com", isEmailVerified = false)
+            coEvery { resendVerificationEmailUseCase() } returns Result.Success(Unit)
+
+            val viewModel = buildViewModel()
+
+            viewModel.resendVerificationEmail()
+            viewModel.resendVerificationEmail() // same-frame double-tap
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { resendVerificationEmailUseCase() }
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
