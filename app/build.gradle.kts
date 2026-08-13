@@ -1,3 +1,4 @@
+import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
 plugins {
     alias(libs.plugins.android.application) // this is an app, not a library
     alias(libs.plugins.kotlin.serialization) // for @Serializable nav routes
@@ -34,7 +35,7 @@ android {
     signingConfigs {
         create("release") {
             val localPropsFile = rootProject.file("local.properties")
-	    val props = gradleLocalProperties(rootDir, providers)
+            val props = gradleLocalProperties(rootDir, providers)
             val keystorePath = props["KEYSTORE_PATH"] as String?
             if (keystorePath != null) {
                 val storePass = props["KEYSTORE_PASSWORD"] as String?
