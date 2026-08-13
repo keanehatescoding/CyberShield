@@ -14,9 +14,13 @@ import androidx.work.WorkerParameters
 import com.example.cybershield.core.domain.repository.QuizRepository
 import com.example.cybershield.core.domain.usecase.FinalizeQuizAttemptsUseCase
 import com.example.cybershield.core.domain.util.CrashReporter
+import com.example.cybershield.core.firebase.isTransient
+import com.google.firebase.functions.FirebaseFunctionsException
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 import com.example.cybershield.core.domain.util.Result as DomainResult
 
@@ -31,13 +35,28 @@ class SyncQuizResultsWorker
         private val networkMonitor: NetworkMonitor,
         private val crashReporter: CrashReporter,
     ) : CoroutineWorker(context, workerParams) {
-        override suspend fun doWork(): Result {
+        override suspend fun doWork(): Result =
+            // scheduleImmediateSync (WORK_NAME) and SyncModule.schedulePeriodic
+            // (PERIODIC_WORK_NAME) are two separate WorkManager unique-work
+            // queues, so WorkManager itself never deduplicates between them —
+            // a periodic pass and a connectivity-triggered immediate pass can
+            // run truly concurrently. Without this mutex, both bodies could
+            // call quizRepository.syncPendingResults() / finalizeQuizAttempts()
+            // at once, causing duplicate validateAnswersBatch/finalizeQuizAttemptFn
+            // calls and a lost-update race in recordFinalizeFailure (two
+            // concurrent reads of finalizeFailureCount can both write the same
+            // incremented value). syncMutex is on the companion object, so it's
+            // shared across every SyncQuizResultsWorker instance in this
+            // process regardless of which queue created it.
+            syncMutex.withLock { doSync() }
+
+        private suspend fun doSync(): Result {
             // Guard — don't attempt if offline
             if (!networkMonitor.isCurrentlyOnline()) return Result.retry()
             // Chunking, the Firestore batch writes, and per-chunk mark-and-delete
             // all live in QuizRepository now — the worker just triggers it and
             // maps the outcome to a WorkManager Result.
-            return when (quizRepository.syncPendingResults()) {
+            return when (val result = quizRepository.syncPendingResults()) {
                 is DomainResult.Success -> {
                     // Now that some (maybe all) pending answers have a verdict,
                     // check whether any provisional attempt is fully graded and
@@ -65,14 +84,29 @@ class SyncQuizResultsWorker
                 }
 
                 is DomainResult.Error -> {
-                    // Retry on transient errors (network blip, Firestore quota, etc.)
-                    // NOTE: runAttemptCount only tracks attempts within *this* enqueued
-                    // chain. Result.failure() here ends that chain — it does not mean
-                    // the rows are unsyncable, only that this chain gave up on them.
-                    // Whether they ever get synced depends entirely on something else
-                    // enqueueing this worker again later, which is what
-                    // SyncModule.schedulePeriodic() guarantees.
-                    if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+                    val exception = result.exception
+                    if (exception is FirebaseFunctionsException && !exception.isTransient()) {
+                        // A permanent error (bad payload, invalid argument, a
+                        // question that was deleted server-side, etc) will
+                        // fail identically on every retry — isTransient() was
+                        // defined for exactly this but previously never
+                        // consulted here, so this class of failure burned
+                        // through MAX_RETRIES before giving up instead of
+                        // failing fast and letting the periodic safety-net
+                        // worker (or a future fix) pick it up later.
+                        Result.failure()
+                    } else if (runAttemptCount < MAX_RETRIES) {
+                        // Retry on transient errors (network blip, Firestore quota, etc.)
+                        // NOTE: runAttemptCount only tracks attempts within *this* enqueued
+                        // chain. Result.failure() here ends that chain — it does not mean
+                        // the rows are unsyncable, only that this chain gave up on them.
+                        // Whether they ever get synced depends entirely on something else
+                        // enqueueing this worker again later, which is what
+                        // SyncModule.schedulePeriodic() guarantees.
+                        Result.retry()
+                    } else {
+                        Result.failure()
+                    }
                 }
 
                 DomainResult.Loading -> Result.retry() // syncPendingResults never emits this
@@ -83,6 +117,9 @@ class SyncQuizResultsWorker
             const val WORK_NAME = "SyncQuizResultsWorker"
             const val PERIODIC_WORK_NAME = "SyncQuizResultsWorker_periodic"
             const val MAX_RETRIES = 3
+
+            /** Serializes doWork() across every instance in this process — see doWork() kdoc. */
+            private val syncMutex = Mutex()
 
             /**
              * Fire-and-forget attempt right after a quiz result is recorded, for

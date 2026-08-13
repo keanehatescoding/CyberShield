@@ -29,6 +29,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -681,6 +682,63 @@ class QuizViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `finishQuiz saves the attempt as provisional when the finalize call itself fails, even though every answer graded online`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Regression test: previously an attempt where every answer graded
+            // fine online (pendingCount == 0) but the one-shot
+            // finalizeQuizAttemptServer call failed (e.g. a network drop right
+            // at quiz end) was saved with provisional = false. Since
+            // getProvisionalAttempts() is the only retry path and only ever
+            // selects provisional = true rows, that permanently lost the
+            // user's XP/certificate with no way to recover it. The fix marks
+            // such an attempt provisional so the background sync sweep picks
+            // it up — getAttemptsReadyToFinalize() independently re-checks
+            // that every answer already has a server verdict before retrying,
+            // so this doesn't cause answers to be needlessly re-synced.
+            val q1 = question(id = "q1")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+            coEvery { quizRepository.finalizeQuizAttemptServer(any()) } returns
+                Result.Error(IllegalStateException("network drop"))
+
+            val viewModel = buildViewModel()
+
+            viewModel.events.test {
+                viewModel.uiState.test {
+                    awaitItem()
+                    viewModel.selectAnswer(0)
+                    awaitItem()
+                    awaitItem()
+                    advanceUntilIdle()
+
+                    val completed = expectMostRecentItem()
+                    assertTrue(completed is QuizUiState.Completed)
+                    assertTrue((completed as QuizUiState.Completed).result.provisional)
+                    assertEquals(0, completed.result.xpEarned)
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val certFailedEvent = awaitItem()
+                assertTrue(certFailedEvent is QuizUiEvent.CertificateGenerationFailed)
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            coVerify {
+                quizRepository.saveQuizAttempt(
+                    resultId = any(),
+                    userId = any(),
+                    moduleId = any(),
+                    moduleName = any(),
+                    quizTitle = any(),
+                    result = match { it.provisional },
+                )
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `finishQuiz asks server to finalize a passing attempt even when the profile would be unavailable`() =
         runTest(coroutineRule.testDispatcher) {
             val q1 = question(id = "q1")
@@ -908,5 +966,83 @@ class QuizViewModelTest {
             advanceUntilIdle()
 
             coVerify(exactly = 1) { submitAnswer(any(), any(), any(), any(), any(), any(), any()) }
+        }
+
+    // ---------------------------------------------------------------------
+    // Process-death restore (SavedStateHandle)
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a new ViewModel instance backed by the same SavedStateHandle resumes mid-quiz instead of restarting`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Simulates the OS killing and recreating the process mid-quiz:
+            // Jetpack constructs a fresh QuizViewModel backed by the same
+            // (process-death-surviving) SavedStateHandle instance. Previously
+            // currentIndex/score/resultId lived only in plain fields, so this
+            // recreation would restart at question 1 under a brand-new
+            // resultId, orphaning whatever was already submitted server-side
+            // under the original one.
+            val q1 = question(id = "q1")
+            val q2 = question(id = "q2")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+
+            // NOTE: this test deliberately never calls advanceUntilIdle() while
+            // a question is Active — each question starts its own 30s
+            // countdown timer (a real `delay` per tick), and advanceUntilIdle()
+            // drains *all* pending virtual-time work, including that timer.
+            // That would auto-submit -1 and race the quiz to completion before
+            // the test's own selectAnswer() calls ever run. runCurrent() (no
+            // time advancement) and a bounded advanceTimeBy() past just the
+            // grading feedback delay avoid that.
+            val firstViewModel = buildViewModel(resultIdProvider = { "result-original" })
+            runCurrent() // reach q1 active; its timer suspends on its first tick
+            firstViewModel.selectAnswer(0)
+            advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q1, advance to q2
+
+            val afterQ1 = firstViewModel.uiState.value
+            assertTrue(afterQ1 is QuizUiState.Active)
+            assertEquals(1, (afterQ1 as QuizUiState.Active).questionIndex)
+
+            // Recreate — same savedStateHandle field, different resultIdProvider
+            // so a fresh-start (bug) and a real restore (fix) are distinguishable.
+            val restoredViewModel = buildViewModel(resultIdProvider = { "result-should-not-be-used" })
+            runCurrent()
+
+            val restoredState = restoredViewModel.uiState.value
+            assertTrue(restoredState is QuizUiState.Active)
+            assertEquals(1, (restoredState as QuizUiState.Active).questionIndex)
+
+            restoredViewModel.selectAnswer(0)
+            advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q2, finish the quiz
+
+            // The restored q2 submission must go out tagged with the original
+            // resultId, exactly once — and never under the fresh provider's id,
+            // which would mean the restore silently started a new attempt.
+            coVerify(exactly = 1) {
+                submitAnswer(
+                    quizId = any(),
+                    resultId = "result-original",
+                    question = q2,
+                    selectedIndex = any(),
+                    selectedAnswer = any(),
+                    userId = any(),
+                    timeRemaining = any(),
+                )
+            }
+            coVerify(exactly = 0) {
+                submitAnswer(
+                    quizId = any(),
+                    resultId = "result-should-not-be-used",
+                    question = any(),
+                    selectedIndex = any(),
+                    selectedAnswer = any(),
+                    userId = any(),
+                    timeRemaining = any(),
+                )
+            }
         }
 }

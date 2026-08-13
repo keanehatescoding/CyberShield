@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.example.cybershield.core.data.di.SyncModule
 import com.example.cybershield.core.firebase.AppCheckInstaller
 import com.example.cybershield.core.sync.NetworkMonitor
+import com.example.cybershield.core.sync.PruneQuizHistoryWorker
 import com.example.cybershield.core.sync.SyncQuizResultsWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,7 @@ class CyberShieldApp :
         // depending on build type — see app/src/debug and app/src/release.
         AppCheckInstaller.install()
         SyncModule.schedulePeriodic(WorkManager.getInstance(this))
+        PruneQuizHistoryWorker.schedulePeriodic(WorkManager.getInstance(this))
         observeConnectivityForSync()
     }
 

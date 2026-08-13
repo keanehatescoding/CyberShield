@@ -164,6 +164,30 @@ class ProfileViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `retryLoadCertificates recovers after an initial failure`() =
+        runTest {
+            // Regression test: loadCertificates() previously only ran once
+            // from init, so a failed (or, on CertificateScreen, indefinitely
+            // stuck) certificate load had no way to recover short of leaving
+            // and re-entering the screen.
+            userRepository.setUserProfile(testUid, testUser)
+            certificateRepository.setCertificatesError(testUid, RuntimeException("firestore unavailable"))
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.certificatesError != null)
+            assertEquals(emptyList<Certificate>(), viewModel.uiState.value.certificates)
+
+            certificateRepository.setCertificates(testUid, testCertificates)
+            viewModel.retryLoadCertificates()
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.certificatesError)
+            assertEquals(testCertificates, viewModel.uiState.value.certificates)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `missing session falls back to empty uid and surfaces not-found error`() =
         runTest {
             every { authRepository.currentSession() } returns null

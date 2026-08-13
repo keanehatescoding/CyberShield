@@ -2,6 +2,16 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { isValidFirestoreDocId } from "./validation";
 
+// completeModule only credits xp if the client-reported watch time covers at
+// least this fraction of the module's declared duration. This does not stop
+// a fully scripted client from fabricating a plausible watchedMs (any
+// client-reported value can be lied about — see clampTimeRemaining in
+// grading.ts for the same tradeoff), but it closes the zero-effort version
+// of the exploit: without this, a signed-in client could loop over every
+// `modules/{id}` (world-readable) and call this callable directly to farm
+// the XP of the entire catalog without ever opening a lesson.
+const MIN_WATCH_FRACTION = 0.85;
+
 /**
  * Marks a module as completed for a user and awards its xpReward, entirely
  * server-side. Previously the client (ModuleViewModel.onVideoCompleted)
@@ -17,9 +27,13 @@ import { isValidFirestoreDocId } from "./validation";
 export async function completeModule(
   uid: string,
   moduleId: string,
+  watchedMs: number,
 ): Promise<{ alreadyCompleted: boolean; xpEarned: number }> {
   if (!isValidFirestoreDocId(moduleId)) {
     throw new HttpsError("invalid-argument", "moduleId must be a non-empty, valid document id.");
+  }
+  if (typeof watchedMs !== "number" || !Number.isFinite(watchedMs) || watchedMs < 0) {
+    throw new HttpsError("invalid-argument", "watchedMs must be a non-negative number.");
   }
 
   const db = getFirestore();
@@ -48,7 +62,24 @@ export async function completeModule(
       return { alreadyCompleted: true, xpEarned: 0 };
     }
 
-    const moduleData = moduleSnap.data() as { xpReward?: number };
+    const moduleData = moduleSnap.data() as { xpReward?: number; durationMins?: number };
+    // Number.isFinite (not just typeof), because NaN passes typeof === "number"
+    // but every comparison against it (durationMins <= 0, watchedMs < ...)
+    // evaluates to false — without this, an admin-side NaN in durationMins
+    // would silently bypass the check below instead of failing closed.
+    const durationMins = Number.isFinite(moduleData.durationMins) ? (moduleData.durationMins as number) : 0;
+    const expectedMs = durationMins * 60_000;
+
+    // Fail closed (like the expectedQuestionCount check in
+    // finalizeQuizAttempt) rather than skipping the check when durationMins
+    // is missing/zero — an admin-side data gap shouldn't turn into free XP.
+    if (durationMins <= 0 || watchedMs < expectedMs * MIN_WATCH_FRACTION) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Module must be watched to completion before it can be marked complete.",
+      );
+    }
+
     const xpEarned = typeof moduleData.xpReward === "number" ? moduleData.xpReward : 0;
 
     tx.update(userRef, {

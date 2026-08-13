@@ -4,12 +4,14 @@ import android.content.Context
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -20,11 +22,15 @@ import com.example.cybershield.core.domain.util.Result as DomainResult
 /**
  * Covers FcmTokenSyncWorker.doWork(): the missing-token guard, the
  * not-signed-in-yet no-op path, the success path, and the retry/failure
- * cutoff at MAX_RETRIES (3) when UserRepository.updateFcmToken() throws.
+ * cutoff at MAX_RETRIES (3) when UserRepository.updateFcmToken() returns
+ * Result.Error. updateFcmToken catches its own exceptions internally (see
+ * UserRepositoryImpl) and never throws, so these tests stub a returned
+ * Result.Error rather than a thrown exception — matching the real contract.
  */
 class FcmTokenSyncWorkerTest {
     private lateinit var userRepository: UserRepository
     private lateinit var firebaseAuth: FirebaseAuth
+    private lateinit var crashReporter: CrashReporter
     private lateinit var context: Context
 
     @Before
@@ -32,6 +38,7 @@ class FcmTokenSyncWorkerTest {
         context = mockk(relaxed = true)
         userRepository = mockk()
         firebaseAuth = mockk()
+        crashReporter = mockk(relaxed = true)
     }
 
     @Test
@@ -73,31 +80,40 @@ class FcmTokenSyncWorkerTest {
         }
 
     @Test
-    fun `doWork retries when updateFcmToken throws and under max retries`() =
+    fun `doWork retries when updateFcmToken returns Error and under max retries`() =
         runTest {
             val firebaseUser = mockk<FirebaseUser>()
             every { firebaseUser.uid } returns "uid-1"
             every { firebaseAuth.currentUser } returns firebaseUser
-            coEvery { userRepository.updateFcmToken(any(), any()) } throws RuntimeException("network error")
+            coEvery { userRepository.updateFcmToken(any(), any()) } returns
+                DomainResult.Error(RuntimeException("network error"))
 
             val worker = directConstruct(runAttemptCount = 1, token = "token-123") // < MAX_RETRIES (3)
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Retry)
+            verify(exactly = 0) { crashReporter.recordException(any(), any()) }
         }
 
     @Test
-    fun `doWork returns failure when updateFcmToken throws at max retries`() =
+    fun `doWork returns failure and reports to CrashReporter when updateFcmToken errors at max retries`() =
         runTest {
+            // Regression test: previously a try/catch around a call that
+            // never throws meant every failure was silently treated as
+            // WorkManager success — no retry, no telemetry. A systemic
+            // failure (e.g. a bad Firestore rule change) would silently
+            // break push notification delivery with zero signal.
             val firebaseUser = mockk<FirebaseUser>()
             every { firebaseUser.uid } returns "uid-1"
             every { firebaseAuth.currentUser } returns firebaseUser
-            coEvery { userRepository.updateFcmToken(any(), any()) } throws RuntimeException("network error")
+            coEvery { userRepository.updateFcmToken(any(), any()) } returns
+                DomainResult.Error(RuntimeException("network error"))
 
             val worker = directConstruct(runAttemptCount = 3, token = "token-123") // == MAX_RETRIES
             val result = worker.doWork()
 
             assertTrue(result is WorkResult.Failure)
+            verify(exactly = 1) { crashReporter.recordException(any()) }
         }
 
     private fun directConstruct(
@@ -113,6 +129,7 @@ class FcmTokenSyncWorkerTest {
             workerParams = workerParams,
             userRepository = userRepository,
             firebaseAuth = firebaseAuth,
+            crashReporter = crashReporter,
         )
     }
 }

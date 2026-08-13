@@ -46,6 +46,7 @@ interface UserRepository {
     suspend fun completeModule(
         uid: String,
         moduleId: String,
+        watchedMs: Long,
     ): Result<ModuleCompleteResult>
 
     /** Saves the FCM token for push notifications. */

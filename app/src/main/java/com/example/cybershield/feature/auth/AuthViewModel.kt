@@ -56,7 +56,12 @@ class AuthViewModel
             email: String,
             password: String,
         ) {
-            val current = _state.value as? AuthState.SignedOut ?: return
+            // isLoading is checked (not just the state type) so a same-frame
+            // double-tap can't fire two concurrent register() calls before
+            // Compose disables the button on the next recomposition — the
+            // second call's whichever response lands last would otherwise
+            // silently overwrite _state.
+            val current = (_state.value as? AuthState.SignedOut)?.takeIf { !it.isLoading } ?: return
             _state.value = current.copy(isLoading = true, error = null)
 
             viewModelScope.launch {
@@ -72,7 +77,8 @@ class AuthViewModel
             email: String,
             password: String,
         ) {
-            val s = _state.value as? AuthState.SignedOut ?: return
+            // See register()'s comment on the isLoading check.
+            val s = (_state.value as? AuthState.SignedOut)?.takeIf { !it.isLoading } ?: return
             _state.value = s.copy(isLoading = true, error = null)
 
             viewModelScope.launch {
@@ -98,7 +104,10 @@ class AuthViewModel
         }
 
         fun resendVerificationEmail() {
-            val s = _state.value as? AuthState.AwaitingEmailVerification ?: return
+            // isResending is checked so a same-frame double-tap can't fire two
+            // concurrent resend calls (and send two verification emails)
+            // before Compose disables the button on the next recomposition.
+            val s = (_state.value as? AuthState.AwaitingEmailVerification)?.takeIf { !it.isResending } ?: return
             _state.value = s.copy(isResending = true, error = null)
 
             viewModelScope.launch {

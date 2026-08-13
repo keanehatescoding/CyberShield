@@ -29,7 +29,7 @@ fun VideoPlayerComposable(
     videoUrl: String,
     savedPosition: Long,
     playbackSpeed: Float,
-    onVideoEnded: () -> Unit,
+    onVideoEnded: (watchedMs: Long) -> Unit,
     onPositionChanged: (Long) -> Unit,
     modifier: Modifier = Modifier,
     // Fired on any playback failure (bad URL, network error, unsupported
@@ -52,8 +52,14 @@ fun VideoPlayerComposable(
             }
         }
 
-    // Seek when saved position arrives (may be async-loaded from DB)
-    LaunchedEffect(savedPosition) {
+    // Seek exactly once, when this player instance is (re)created — keyed on
+    // `player`, not `savedPosition`. savedPosition is refreshed continuously
+    // (see ModuleViewModel.savePosition), so keying on it would re-fire this
+    // effect — and re-seek — on every position tick during normal playback.
+    // Keying on `player` still picks up the freshest known position on any
+    // remount, since that's whatever value was passed into this composition
+    // at the moment the new player was created.
+    LaunchedEffect(player) {
         if (savedPosition > 0L) player.seekTo(savedPosition)
     }
 
@@ -78,7 +84,11 @@ fun VideoPlayerComposable(
             object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_ENDED) {
-                        onVideoEnded()
+                        // duration is the authoritative "how long is this video"
+                        // once playback has actually reached the end; fall back to
+                        // currentPosition for the rare case duration is unknown.
+                        val watchedMs = player.duration.takeIf { it > 0 } ?: player.currentPosition
+                        onVideoEnded(watchedMs)
                     }
                 }
 

@@ -49,13 +49,15 @@ class QuizRepositoryImpl
                 emit(Result.Loading)
                 try {
                     val remote = remoteSource.getQuizzesForModule(quizId)
-                    if (remote.isNotEmpty()) {
-                        quizDao.insertAll(remote.map { it.toEntity() })
-                        emit(Result.Success(remote))
-                    } else {
-                        val cached = quizDao.getQuizzesForModule(quizId).map { it.toDomain() }
-                        emit(Result.Success(cached))
-                    }
+                    // replaceForModule (not insertAll) on every successful fetch —
+                    // including an empty one — so a question (or every question)
+                    // removed server-side is evicted from the local cache too.
+                    // The old remote.isNotEmpty() guard skipped this for an empty
+                    // response and fell back to the stale local cache instead,
+                    // so a module whose remote questions were all removed could
+                    // keep showing the old (deleted) questions indefinitely.
+                    quizDao.replaceForModule(quizId, remote.map { it.toEntity() })
+                    emit(Result.Success(remote))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

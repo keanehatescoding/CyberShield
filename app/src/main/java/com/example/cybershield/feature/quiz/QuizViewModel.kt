@@ -42,12 +42,24 @@ class QuizViewModel
         private val userRepository: UserRepository,
         private val quizRepository: QuizRepository,
         private val getCurrentSession: GetCurrentSessionUseCase,
-        savedStateHandle: SavedStateHandle,
+        private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         companion object {
             const val QUESTION_TIME_SECONDS = 30
             const val FEEDBACK_DELAY_MS = 1_500L
             const val LOAD_TIMEOUT_MS = 15_000L
+
+            // SavedStateHandle keys — persisting these lets a quiz resume from
+            // where it left off if the process is killed mid-quiz (e.g. the OS
+            // reclaiming memory while the screen is locked), instead of
+            // silently restarting at question 1 under a brand-new resultId and
+            // orphaning whatever was already submitted under the old one.
+            private const val KEY_RESULT_ID = "quiz_resultId"
+            private const val KEY_CURRENT_INDEX = "quiz_currentIndex"
+            private const val KEY_SCORE = "quiz_score"
+            private const val KEY_CORRECT_COUNT = "quiz_correctCount"
+            private const val KEY_PENDING_COUNT = "quiz_pendingCount"
+            private const val KEY_QUIZ_START_ELAPSED = "quiz_startElapsed"
         }
 
         // Test seams. These are intentionally NOT constructor parameters: Hilt's generated
@@ -74,19 +86,25 @@ class QuizViewModel
         private val _events = Channel<QuizUiEvent>(Channel.BUFFERED)
         val events: Flow<QuizUiEvent> = _events.receiveAsFlow()
         private var questions: List<Question> = emptyList()
-        private var currentIndex: Int = 0
-        private var score: Int = 0
-        private var correctCount: Int = 0
-        private var pendingCount: Int = 0
+
+        // Restored from SavedStateHandle if this ViewModel is being recreated
+        // after process death mid-quiz; otherwise these all start at their
+        // zero values and get populated (and persisted) as the quiz begins.
+        private var currentIndex: Int = savedStateHandle[KEY_CURRENT_INDEX] ?: 0
+        private var score: Int = savedStateHandle[KEY_SCORE] ?: 0
+        private var correctCount: Int = savedStateHandle[KEY_CORRECT_COUNT] ?: 0
+        private var pendingCount: Int = savedStateHandle[KEY_PENDING_COUNT] ?: 0
         private var timerJob: Job? = null
-        private var quizStartElapsed: Long = 0L
+        private var quizStartElapsed: Long = savedStateHandle[KEY_QUIZ_START_ELAPSED] ?: 0L
 
         // Generated once, when the quiz starts loading — not at completion — so
         // every answer (including the very first one) can be tagged with the
         // same id. That's what lets FinalizeQuizAttemptsUseCase later recompute
         // a single attempt's score from Room, and what stops a retake of the
         // same quizId from blurring into a previous attempt's answers.
-        private var resultId: String = ""
+        // Persisted so a process-death restore reuses it rather than orphaning
+        // answers already submitted under it — see loadQuiz().
+        private var resultId: String = savedStateHandle[KEY_RESULT_ID] ?: ""
 
         @OptIn(ExperimentalAtomicApi::class)
         private val hasAnswered = AtomicBoolean(false)
@@ -121,9 +139,20 @@ class QuizViewModel
                                     }
                                     if (questions.isEmpty()) {
                                         questions = quizList
-                                        quizStartElapsed = elapsedRealtimeProvider()
-                                        resultId = resultIdProvider()
-                                        showQuestion(0)
+                                        if (resultId.isBlank()) {
+                                            // Fresh start.
+                                            quizStartElapsed = elapsedRealtimeProvider()
+                                            resultId = resultIdProvider()
+                                            savedStateHandle[KEY_RESULT_ID] = resultId
+                                            savedStateHandle[KEY_QUIZ_START_ELAPSED] = quizStartElapsed
+                                            showQuestion(0)
+                                        } else {
+                                            // Restoring after process death: resume at the
+                                            // saved question instead of restarting at 0, and
+                                            // keep the existing resultId so answers already
+                                            // submitted under it aren't orphaned.
+                                            showQuestion(currentIndex.coerceIn(0, quizList.size - 1))
+                                        }
                                     }
                                 }
 
@@ -150,6 +179,7 @@ class QuizViewModel
             timerJob?.cancel()
             hasAnswered.store(false)
             currentIndex = index
+            savedStateHandle[KEY_CURRENT_INDEX] = index
             val question = questions[index]
             _timeLeft.value = QUESTION_TIME_SECONDS
 
@@ -246,6 +276,8 @@ class QuizViewModel
                             val points = QuizScoring.pointsFor(isCorrect = validation.isCorrect, timeRemaining = timeRemaining)
                             score += points
                             if (validation.isCorrect) correctCount++
+                            savedStateHandle[KEY_SCORE] = score
+                            savedStateHandle[KEY_CORRECT_COUNT] = correctCount
 
                             _uiState.value =
                                 (_uiState.value as? QuizUiState.Active)?.copy(
@@ -257,6 +289,7 @@ class QuizViewModel
                         } else {
                             // Offline path — cached locally, no verdict yet.
                             pendingCount++
+                            savedStateHandle[KEY_PENDING_COUNT] = pendingCount
                             _uiState.value =
                                 (_uiState.value as? QuizUiState.Active)?.copy(
                                     isCorrect = null,
@@ -320,6 +353,16 @@ class QuizViewModel
                 // hole this refactor closes. FinalizeQuizAttemptsUseCase awards
                 // these later, off a recomputed score, once
                 // SyncQuizResultsWorker confirms every answer has synced.
+                //
+                // finalizeCallFailed tracks a *different* case: every answer
+                // graded fine online (provisional = false already), but the
+                // one-shot finalizeQuizAttemptServer call itself failed (e.g. a
+                // network drop right at quiz end). Without tracking this
+                // separately, the attempt would be saved with provisional =
+                // false and getProvisionalAttempts() — the only retry path —
+                // would never select it again, permanently losing the user's
+                // XP/certificate for an otherwise fully-graded attempt.
+                var finalizeCallFailed = false
                 val xpEarned =
                     if (uid.isNotBlank() && !provisional) {
                         // XP, the certificate, and the CyberDefender badge are all
@@ -330,12 +373,15 @@ class QuizViewModel
                         // for every attempt, pass or fail, since XP is awarded
                         // either way; only a passing attempt also gets a cert/badge.
                         val finalizeResult = quizRepository.finalizeQuizAttemptServer(resultId)
-                        if (finalizeResult is Result.Error && passed) {
-                            _events.send(
-                                QuizUiEvent.CertificateGenerationFailed(
-                                    "You passed, but we couldn't issue your certificate. Please try again from your profile.",
-                                ),
-                            )
+                        if (finalizeResult is Result.Error) {
+                            finalizeCallFailed = true
+                            if (passed) {
+                                _events.send(
+                                    QuizUiEvent.CertificateGenerationFailed(
+                                        "You passed — we'll finish issuing your XP and certificate once you're back online.",
+                                    ),
+                                )
+                            }
                         }
                         finalizeResult.dataOrNull?.xpEarned ?: 0
                     } else if (uid.isNotBlank() && provisional) {
@@ -349,6 +395,15 @@ class QuizViewModel
                         0
                     }
 
+                // getAttemptsReadyToFinalize() independently re-checks whether
+                // every answer for this resultId now has a server verdict
+                // before retrying, so it's safe to mark this attempt
+                // provisional purely because the finalize *call* failed, even
+                // though every answer was already graded — the background
+                // sweep will re-attempt finalizeQuizAttemptServer, not re-sync
+                // answers that don't need it.
+                val effectiveProvisional = provisional || finalizeCallFailed
+
                 val quizResult =
                     QuizResult(
                         quizId = quizId,
@@ -359,7 +414,7 @@ class QuizViewModel
                         xpEarned = xpEarned,
                         passed = passed,
                         timeTaken = timeTaken,
-                        provisional = provisional,
+                        provisional = effectiveProvisional,
                     )
                 quizRepository.saveQuizAttempt(
                     resultId = resultId,

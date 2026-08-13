@@ -87,6 +87,18 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // Some Android SDK classes we mock in JVM unit tests (e.g.
+    // FirebaseFunctionsException, whose Code enum's static initializer
+    // touches android.util.SparseArray) hit an unmocked android.jar stub
+    // during mockk's instantiation, which throws by default — see
+    // https://developer.android.com/r/studio-ui/build/not-mocked. This is
+    // the standard fix: unmocked stub calls return a default value instead.
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 // Room schema history — required now that CyberShieldDatabase sets

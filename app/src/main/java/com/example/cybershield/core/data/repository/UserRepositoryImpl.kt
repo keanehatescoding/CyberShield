@@ -81,10 +81,10 @@ class UserRepositoryImpl
                 remoteSource.userDoc(uid).set(profile).await()
 
                 // leaderboard/{uid} is no longer written from the client — the
-                // onUserProfileCreated Cloud Function trigger mirrors
+                // onUserProfileWritten Cloud Function trigger mirrors
                 // displayName/xp:0/badges:[] the moment these users/{uid} doc is
-                // created. See firestore.rules for why: leaderboard is
-                // client-read-only now.
+                // created (and displayName on later edits). See firestore.rules
+                // for why: leaderboard is client-read-only now.
 
                 Result.Success(Unit)
             }
@@ -109,12 +109,11 @@ class UserRepositoryImpl
                 // if exists — never overwrites xp, badges, completedQuizzes
                 remoteSource.userDoc(uid).set(profile, SetOptions.merge()).await()
 
-                // leaderboard/{uid} is no longer written from the client. For a
-                // genuinely new user these users/{uid} doc creation fires
-                // onUserProfileCreated, which mirrors displayName there. For a
-                // returning user the doc already exists (merge = update, not
-                // create), so no trigger fires and their existing leaderboard
-                // entry is correctly left untouched.
+                // leaderboard/{uid} is no longer written from the client — the
+                // onUserProfileWritten trigger mirrors displayName there on both
+                // create (new user, xp/badges seeded at 0/[]) and update (e.g. a
+                // returning Google SSO user whose Google display name changed),
+                // leaving xp/badges untouched on updates.
 
                 Result.Success(Unit)
             }
@@ -123,9 +122,10 @@ class UserRepositoryImpl
         override suspend fun completeModule(
             uid: String,
             moduleId: String,
+            watchedMs: Long,
         ): Result<ModuleCompleteResult> =
             withContext(Dispatchers.IO) {
-                functionsModuleDataSource.completeModule(moduleId)
+                functionsModuleDataSource.completeModule(moduleId, watchedMs)
             }
 
         // ── Save FCM token ─────────────────────────────────────────────────

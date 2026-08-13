@@ -26,9 +26,16 @@ class FunctionsModuleDataSource
             { name, payload -> functions.getHttpsCallable(name).call(payload).await() },
         )
 
-        suspend fun completeModule(moduleId: String): Result<ModuleCompleteResult> =
+        suspend fun completeModule(
+            moduleId: String,
+            watchedMs: Long,
+        ): Result<ModuleCompleteResult> =
             try {
-                val response = httpsCallable("completeModuleFn", hashMapOf("moduleId" to moduleId))
+                val response =
+                    httpsCallable(
+                        "completeModuleFn",
+                        hashMapOf("moduleId" to moduleId, "watchedMs" to watchedMs),
+                    )
 
                 val data = response.data.asCallableData("completeModuleFn")
                 Result.Success(

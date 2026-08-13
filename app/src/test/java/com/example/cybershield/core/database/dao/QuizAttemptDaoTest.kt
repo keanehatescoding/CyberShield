@@ -128,6 +128,20 @@ class QuizAttemptDaoTest : RoomDbTestBase() {
         }
 
     @Test
+    fun `deleteOlderThan never removes a still-provisional attempt even if older than the cutoff`() =
+        runTest {
+            // getProvisionalAttempts() is the only thing that will ever pick a
+            // provisional attempt back up and finish it — deleting it here
+            // just because it's old (e.g. stuck offline for a long time)
+            // would silently lose it forever instead of letting it finish.
+            dao.insert(fakeAttempt(resultId = "stuck", createdAt = 1_000L, provisional = true))
+
+            dao.deleteOlderThan(cutoff = 3_000L)
+
+            assertEquals("stuck", dao.getById("stuck")?.resultId)
+        }
+
+    @Test
     fun `updateFinalizeFailure records the count without abandoning below the caller's threshold`() =
         runTest {
             dao.insert(fakeAttempt(resultId = "result-1", provisional = true))

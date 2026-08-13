@@ -128,3 +128,62 @@ describe("users/{userId} write guard — server-only fields", () => {
     await assertFails(getDoc(doc(db, "users", OWNER_UID)));
   });
 });
+
+// Regression coverage for the displayName type/length guard added alongside
+// the onUserProfileWritten leaderboard-mirror trigger: displayName is copied
+// verbatim into the world-readable leaderboard/{uid} doc, so a malformed
+// value must be rejected here rather than silently corrupting a document
+// every signed-in user reads.
+describe("users/{userId} write guard — displayName", () => {
+  it("denies a non-string displayName", async () => {
+    const db = ownerDb();
+    await assertFails(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: 12345 }),
+    );
+  });
+
+  it("denies a displayName over 100 characters", async () => {
+    const db = ownerDb();
+    await assertFails(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: "a".repeat(101) }),
+    );
+  });
+
+  it("allows a displayName at exactly the 100-character limit", async () => {
+    const db = ownerDb();
+    await assertSucceeds(
+      updateDoc(doc(db, "users", OWNER_UID), { displayName: "a".repeat(100) }),
+    );
+  });
+
+  // The rule has a separate resource == null branch for brand-new documents
+  // (see firestore.rules) — the update-path cases above never exercise it,
+  // since beforeEach always seeds users/{OWNER_UID} first. These cover
+  // profile creation (registration) through that branch specifically.
+  const NEW_UID = "new-user-uid";
+
+  function newUserDb() {
+    return testEnv.authenticatedContext(NEW_UID).firestore();
+  }
+
+  it("denies creating a profile with a non-string displayName", async () => {
+    const db = newUserDb();
+    await assertFails(
+      setDoc(doc(db, "users", NEW_UID), { displayName: 12345 }),
+    );
+  });
+
+  it("denies creating a profile with a displayName over 100 characters", async () => {
+    const db = newUserDb();
+    await assertFails(
+      setDoc(doc(db, "users", NEW_UID), { displayName: "a".repeat(101) }),
+    );
+  });
+
+  it("allows creating a profile with a displayName at exactly the 100-character limit", async () => {
+    const db = newUserDb();
+    await assertSucceeds(
+      setDoc(doc(db, "users", NEW_UID), { displayName: "a".repeat(100) }),
+    );
+  });
+});

@@ -13,11 +13,12 @@ import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.cybershield.core.domain.repository.UserRepository
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.google.firebase.auth.FirebaseAuth
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.cancellation.CancellationException
+import com.example.cybershield.core.domain.util.Result as DomainResult
 
 @HiltWorker
 class FcmTokenSyncWorker
@@ -27,6 +28,7 @@ class FcmTokenSyncWorker
         @Assisted workerParams: WorkerParameters,
         private val userRepository: UserRepository,
         private val firebaseAuth: FirebaseAuth,
+        private val crashReporter: CrashReporter,
     ) : CoroutineWorker(context, workerParams) {
         override suspend fun doWork(): Result {
             val token = inputData.getString(KEY_TOKEN) ?: return Result.failure()
@@ -35,13 +37,36 @@ class FcmTokenSyncWorker
             // attach it to yet, so this isn't a failure — just nothing to do.
             val uid = firebaseAuth.currentUser?.uid ?: return Result.success()
 
-            return try {
-                userRepository.updateFcmToken(uid, token)
-                Result.success()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+            // updateFcmToken catches its own exceptions internally (see
+            // UserRepositoryImpl.updateFcmToken's resultOf wrapper) and
+            // returns Result.Error rather than throwing, so a try/catch here
+            // never actually caught anything — every failed write was
+            // silently treated as WorkManager success, with no retry and no
+            // telemetry. Check the returned Result instead.
+            return when (val result = userRepository.updateFcmToken(uid, token)) {
+                is DomainResult.Success -> Result.success()
+                is DomainResult.Error -> {
+                    if (runAttemptCount < MAX_RETRIES) {
+                        Result.retry()
+                    } else {
+                        // Unlike SyncQuizResultsWorker/FinalizeQuizAttemptsUseCase,
+                        // this previously reported nothing on terminal failure —
+                        // a systemic token-registration failure (e.g. a bad
+                        // Firestore rule change) would silently break push
+                        // notification delivery with zero signal in Crashlytics.
+                        // The original repository failure is preserved as the
+                        // cause so Crashlytics can identify what actually broke
+                        // token registration, not just that retries ran out.
+                        crashReporter.recordException(
+                            IllegalStateException(
+                                "FCM token sync failed after $runAttemptCount attempts",
+                                result.exception,
+                            ),
+                        )
+                        Result.failure()
+                    }
+                }
+                DomainResult.Loading -> Result.retry() // updateFcmToken never emits this
             }
         }
 

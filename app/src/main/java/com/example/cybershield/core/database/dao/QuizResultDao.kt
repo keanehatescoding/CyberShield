@@ -112,4 +112,22 @@ interface QuizResultDao {
 
     @Query("DELETE FROM quiz_results WHERE localId IN (:ids)")
     suspend fun deleteByLocalIds(ids: List<Long>)
+
+    // Prunes per-question answer rows belonging to old, done-processing
+    // attempts — see PruneQuizHistoryWorker. Deliberately scoped through
+    // quiz_attempts (by resultId) rather than a blind age/synced check on
+    // quiz_results itself: a still-provisional attempt's answers must
+    // survive even if individually already graded/synced, since
+    // getAttemptsReadyToFinalize() needs the *complete* set of them to
+    // recompute a score. Only an attempt that's finalized (provisional = 0)
+    // or abandoned is "done" and safe to prune the answers of.
+    @Query(
+        """
+        DELETE FROM quiz_results WHERE resultId IN (
+            SELECT resultId FROM quiz_attempts
+            WHERE createdAt < :cutoff AND (provisional = 0 OR abandoned = 1)
+        )
+        """,
+    )
+    suspend fun deleteForFinalizedAttemptsOlderThan(cutoff: Long)
 }
