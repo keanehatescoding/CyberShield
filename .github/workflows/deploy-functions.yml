@@ -93,9 +93,15 @@ jobs:
           GCLOUD_PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
         run: node lib/scripts/migrateAnswerKeys.js
 
+      # --force: onUserProfileWritten has retry: true (see functions/src/index.ts),
+      # and firebase-tools requires interactive confirmation the first time a
+      # function's failure policy is set. --non-interactive can't answer that
+      # prompt, so deploys fail with "Pass the --force option to deploy
+      # functions with a failure policy" until this is set explicitly.
       - name: Deploy functions + Firestore rules
         run: |
           npx --yes firebase-tools@15.23.0 deploy \
             --only functions,firestore:rules \
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
-            --non-interactive
+            --non-interactive \
+            --force
