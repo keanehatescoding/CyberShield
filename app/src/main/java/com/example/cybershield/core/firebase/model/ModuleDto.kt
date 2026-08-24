@@ -2,9 +2,11 @@ package com.example.cybershield.core.firebase.model
 
 import androidx.annotation.Keep
 import com.example.cybershield.core.domain.model.Module
+import com.google.firebase.firestore.DocumentId
 
 @Keep
 data class ModuleDto(
+    @DocumentId
     val id: String = "",
     val title: String = "",
     val description: String = "",

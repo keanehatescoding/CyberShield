@@ -35,7 +35,7 @@ class FirestoreQuizDataSource
                 val order = doc.getLong("order")?.toInt() ?: return@mapNotNull null
                 Question(
                     id = doc.id,
-                    moduleId = quizId,
+                    moduleId = doc.getString("moduleId") ?: quizId,
                     text = doc.getString("text") ?: "",
                     options = options,
                     moduleName = doc.getString("moduleName") ?: "",
