@@ -1045,4 +1045,41 @@ class QuizViewModelTest {
                 )
             }
         }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `SavedStateHandle advances past the answered question as soon as it's persisted, not only once the next question shows`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Regression test: KEY_CURRENT_INDEX previously only advanced
+            // inside showQuestion(), which runs after the feedback delay and
+            // advanceQuiz() — i.e. well after submitAnswer() already
+            // committed a quiz_results row for the just-answered question. A
+            // process death in that window resumed on the SAME question with
+            // hasAnswered reset, letting the user answer it again under the
+            // same resultId (see MIGRATION_9_10 / the new unique index for
+            // the DB-level backstop). SavedStateHandle must instead reflect
+            // the advance the moment submitAnswer() succeeds.
+            val q1 = question(id = "q1")
+            val q2 = question(id = "q2")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+
+            val viewModel = buildViewModel()
+            runCurrent() // reach q1 active; its timer suspends on its first tick
+
+            viewModel.selectAnswer(0)
+            runCurrent() // lets submitJob.await() resolve, without advancing past the feedback delay
+
+            // The UI is still showing feedback for q1 — showQuestion(1) (and
+            // its own KEY_CURRENT_INDEX write) hasn't run yet.
+            val stillOnQ1 = viewModel.uiState.value
+            assertTrue(stillOnQ1 is QuizUiState.Active)
+            assertEquals(0, (stillOnQ1 as QuizUiState.Active).questionIndex)
+
+            // But SavedStateHandle already reflects the advance, closing the
+            // window before the OS could kill the process mid-feedback-delay.
+            assertEquals(1, savedStateHandle.get<Int>("quiz_currentIndex"))
+        }
 }

@@ -266,6 +266,22 @@ class QuizViewModel
                 val feedbackDelay = async { delay(FEEDBACK_DELAY_MS.milliseconds) }
 
                 val result = submitJob.await()
+                if (result is Result.Success) {
+                    // The answer for currentIndex is now durably persisted —
+                    // submitAnswer() always writes a quiz_results row on
+                    // Result.Success, either graded online or cached offline.
+                    // Persist the *next* position now rather than waiting for
+                    // showQuestion() to do it after the feedback delay and
+                    // advanceQuiz() below: otherwise a process death in that
+                    // window resumes this same question with hasAnswered
+                    // reset, letting the user answer it again under the same
+                    // resultId. The unique index on quiz_results(resultId,
+                    // questionId) (see MIGRATION_9_10) backstops this at the
+                    // DB level regardless, but closing the window here means
+                    // a resumed quiz never re-shows an already-answered
+                    // question in the first place.
+                    savedStateHandle[KEY_CURRENT_INDEX] = currentIndex + 1
+                }
                 feedbackDelay.await()
 
                 when (result) {

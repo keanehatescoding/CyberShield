@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.cybershield.core.database.CyberShieldDatabase
 import com.example.cybershield.core.database.MIGRATION_8_9
+import com.example.cybershield.core.database.MIGRATION_9_10
 import com.example.cybershield.core.database.dao.ModuleDao
 import com.example.cybershield.core.database.dao.PlaybackPositionDao
 import com.example.cybershield.core.database.dao.QuizAttemptDao
@@ -29,7 +30,7 @@ object DatabaseModule {
                 context,
                 CyberShieldDatabase::class.java,
                 "cybershield.db",
-            ).addMigrations(MIGRATION_8_9)
+            ).addMigrations(MIGRATION_8_9, MIGRATION_9_10)
             // NOTE: this used to be fallbackToDestructiveMigration(dropAllTables = true),
             // which drops every table — including quiz_results rows with
             // synced = false and quiz_attempts rows with provisional = true,

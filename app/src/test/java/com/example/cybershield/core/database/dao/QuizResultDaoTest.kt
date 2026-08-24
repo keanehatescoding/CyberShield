@@ -61,8 +61,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `insert autogenerates localId`() =
         runTest {
-            dao.insert(fakeResult())
-            dao.insert(fakeResult())
+            dao.insert(fakeResult(questionId = "q1"))
+            dao.insert(fakeResult(questionId = "q2"))
 
             val pending = dao.getPendingResults()
 
@@ -74,8 +74,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `insert returns the generated localId`() =
         runTest {
-            val id1 = dao.insert(fakeResult())
-            val id2 = dao.insert(fakeResult())
+            val id1 = dao.insert(fakeResult(questionId = "q1"))
+            val id2 = dao.insert(fakeResult(questionId = "q2"))
 
             assertTrue(id1 != id2)
         }
@@ -83,8 +83,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `getPendingResults returns only unsynced rows`() =
         runTest {
-            dao.insert(fakeResult(synced = false))
-            dao.insert(fakeResult(isCorrect = true, synced = true))
+            dao.insert(fakeResult(questionId = "q1", synced = false))
+            dao.insert(fakeResult(questionId = "q2", isCorrect = true, synced = true))
 
             val pending = dao.getPendingResults()
 
@@ -129,8 +129,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `markGraded only affects the targeted row`() =
         runTest {
-            val idToGrade = dao.insert(fakeResult(synced = false))
-            dao.insert(fakeResult(synced = false))
+            val idToGrade = dao.insert(fakeResult(questionId = "q1", synced = false))
+            dao.insert(fakeResult(questionId = "q2", synced = false))
 
             dao.markGraded(localId = idToGrade, isCorrect = false, explanation = "Nope.")
 
@@ -142,8 +142,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `getResultsForUser returns only that user's results`() =
         runTest {
-            dao.insert(fakeResult(userId = "user1"))
-            dao.insert(fakeResult(userId = "user2"))
+            dao.insert(fakeResult(questionId = "q1", userId = "user1"))
+            dao.insert(fakeResult(questionId = "q2", userId = "user2"))
 
             val result = dao.getResultsForUser("user1")
 
@@ -154,8 +154,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `deleteSyncedResults removes only synced rows`() =
         runTest {
-            dao.insert(fakeResult(isCorrect = true, synced = true))
-            dao.insert(fakeResult(synced = false))
+            dao.insert(fakeResult(questionId = "q1", isCorrect = true, synced = true))
+            dao.insert(fakeResult(questionId = "q2", synced = false))
 
             dao.deleteSyncedResults()
 
@@ -167,8 +167,8 @@ class QuizResultDaoTest : RoomDbTestBase() {
     @Test
     fun `deleteByLocalIds removes only specified rows`() =
         runTest {
-            dao.insert(fakeResult())
-            dao.insert(fakeResult())
+            dao.insert(fakeResult(questionId = "q1"))
+            dao.insert(fakeResult(questionId = "q2"))
             val ids = dao.getPendingResults().map { it.localId }
             val toDelete = listOf(ids.first())
 
@@ -189,6 +189,36 @@ class QuizResultDaoTest : RoomDbTestBase() {
 
             assertEquals(1, result.size)
             assertEquals("B", result.single().selectedAnswer)
+        }
+
+    @Test
+    fun `insert with REPLACE on duplicate resultId+questionId overwrites row instead of duplicating`() =
+        runTest {
+            // Regression test: a resubmission for the same question within the
+            // same attempt (e.g. a process-death resume replaying an
+            // already-answered question — see QuizViewModel.processAnswer())
+            // previously always got a fresh autogenerate localId, so the
+            // question was scored/shown twice instead of once. The unique
+            // index on (resultId, questionId) makes REPLACE actually dedupe.
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1").copy(selectedAnswer = "A"))
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1").copy(selectedAnswer = "B"))
+
+            val forAttempt = dao.getResultsForAttempt("attempt-A")
+
+            assertEquals(1, forAttempt.size)
+            assertEquals("B", forAttempt.single().selectedAnswer)
+        }
+
+    @Test
+    fun `insert does not dedupe across different resultIds for the same question`() =
+        runTest {
+            // A retake of the same quiz (different resultId) answering the
+            // same questionId must not collide with the original attempt.
+            dao.insert(fakeResult(resultId = "attempt-A", questionId = "q1"))
+            dao.insert(fakeResult(resultId = "attempt-B", questionId = "q1"))
+
+            assertEquals(1, dao.getResultsForAttempt("attempt-A").size)
+            assertEquals(1, dao.getResultsForAttempt("attempt-B").size)
         }
 
     @Test
