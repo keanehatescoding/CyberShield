@@ -6,11 +6,13 @@ import com.example.cybershield.core.domain.model.Certificate
 import com.example.cybershield.core.domain.model.User
 import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.testing.fake.FakeCertificateRepository
 import com.example.cybershield.core.testing.fake.FakeUserRepository
 import com.example.cybershield.core.testing.fake.TestCoroutineRule
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -35,6 +37,7 @@ class ProfileViewModelTest {
     private lateinit var certificateRepository: FakeCertificateRepository
     private lateinit var authRepository: AuthRepository
     private lateinit var getCurrentSession: GetCurrentSessionUseCase
+    private val crashReporter: CrashReporter = mockk(relaxed = true)
 
     private val testUid = "user-123"
     private val testSession =
@@ -90,6 +93,7 @@ class ProfileViewModelTest {
             userRepository = userRepository,
             certificateRepository = certificateRepository,
             getCurrentSession = getCurrentSession,
+            crashReporter = crashReporter,
         )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -248,4 +252,21 @@ class ProfileViewModelTest {
             assertEquals(true, viewModel.uiState.value.isLoading)
             assertNull(viewModel.uiState.value.user)
         }
+
+    @Test
+    fun `recordCertificateActionFailure forwards to CrashReporter with certId`() {
+        // Regression test: CertificateScreen's save/share catch blocks
+        // previously only showed a snackbar — the exception left no signal
+        // anywhere once it was dismissed. See CrashReporter's kdoc.
+        userRepository.setUserProfile(testUid, testUser)
+        certificateRepository.setCertificates(testUid, testCertificates)
+        val viewModel = createViewModel()
+        val exception = RuntimeException("insert() returned null")
+
+        viewModel.recordCertificateActionFailure("cert-1", exception)
+
+        verify(exactly = 1) {
+            crashReporter.recordException(exception, mapOf("certId" to "cert-1"))
+        }
+    }
 }

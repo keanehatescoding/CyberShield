@@ -34,6 +34,18 @@ class CertificateGenerator(
             "WRITE_EXTERNAL_STORAGE permission is required to save files on this Android version.",
         )
 
+    /**
+     * Thrown when saveToDownloads() could not actually write the file — e.g.
+     * the MediaStore insert was rejected, or the resulting content Uri could
+     * not be opened for writing. Without this, either failure was silently
+     * swallowed: the function returned normally having written nothing, and
+     * the caller (CertificateScreen) told the user "Saved to Downloads"
+     * regardless.
+     */
+    class SaveFailedException(
+        message: String,
+    ) : Exception(message)
+
     // ── Generate PDF and save to cache ─────────────────────────────────
     suspend fun generate(
         userName: String,
@@ -44,19 +56,24 @@ class CertificateGenerator(
     ): File =
         withContext(Dispatchers.IO) {
             val document = PdfDocument()
-            val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
-            val page = document.startPage(pageInfo)
-            val canvas = page.canvas
+            try {
+                val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
+                val page = document.startPage(pageInfo)
 
-            drawCertificate(canvas, userName, quizTitle, score, date, certId)
+                drawCertificate(page.canvas, userName, quizTitle, score, date, certId)
 
-            document.finishPage(page)
+                document.finishPage(page)
 
-            val subDir = File(context.cacheDir, "certificates").apply { mkdirs() }
-            val file = File(subDir, CertificateFormatting.cacheFileName(certId))
-            file.outputStream().use { document.writeTo(it) }
-            document.close()
-            file
+                val subDir = File(context.cacheDir, "certificates").apply { mkdirs() }
+                val file = File(subDir, CertificateFormatting.cacheFileName(certId))
+                file.outputStream().use { document.writeTo(it) }
+                file
+            } finally {
+                // Always released, even if drawCertificate()/writeTo() throws —
+                // previously document.close() only ran on the success path, so
+                // an exception mid-generation leaked the native PdfDocument.
+                document.close()
+            }
         }
 
     // ── Draw certificate content onto canvas ───────────────────────────
@@ -228,12 +245,11 @@ class CertificateGenerator(
                 context.contentResolver.insert(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     values,
-                )
-            uri?.let {
-                context.contentResolver.openOutputStream(it)?.use { os ->
-                    file.inputStream().copyTo(os)
-                }
-            }
+                ) ?: throw SaveFailedException("Couldn't create a Downloads entry for the certificate.")
+            val outputStream =
+                context.contentResolver.openOutputStream(uri)
+                    ?: throw SaveFailedException("Couldn't open the Downloads entry to write the certificate.")
+            outputStream.use { os -> file.inputStream().copyTo(os) }
         } else {
             // Pre-Q: writing to the public Downloads dir is a dangerous-permission
             // operation and must be checked at runtime, not just declared in the manifest.
