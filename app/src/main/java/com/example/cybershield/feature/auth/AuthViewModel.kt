@@ -2,6 +2,7 @@ package com.example.cybershield.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.usecase.auth.CheckEmailVerifiedUseCase
 import com.example.cybershield.core.domain.usecase.auth.ObserveAuthStateUseCase
 import com.example.cybershield.core.domain.usecase.auth.RegisterUseCase
@@ -16,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
@@ -38,18 +40,41 @@ class AuthViewModel
         private var cooldownJob: Job? = null
 
         init {
-            val session = observeAuthState.currentSession()
-            _state.value =
-                when {
-                    session == null -> AuthState.SignedOut()
-                    !session.isEmailVerified -> AuthState.AwaitingEmailVerification(email = session.email ?: "")
-                    else -> AuthState.Authenticated(session.uid)
-                }
+            _state.value = deriveState(observeAuthState.currentSession())
             // Covers an already-authenticated cold start (e.g. a token issued
             // pre-login on a previous run never got attached — see
             // FcmTokenSyncTrigger). No-ops harmlessly otherwise.
             if (_state.value is AuthState.Authenticated) syncFcmToken()
+            observeAuthSession()
         }
+
+        // Reacts to auth-state transitions that happen after init — a revoked
+        // refresh token, a disabled/deleted account, or a sign-out triggered
+        // from elsewhere. Previously _state only ever reflected a one-shot
+        // currentSession() read from init and never updated again on its own,
+        // so any of those events left the UI stuck showing stale state (e.g.
+        // still Authenticated after Firebase force-signed the user out).
+        //
+        // The first emission is dropped: addAuthStateListener (which backs
+        // observeAuthState.observe()) fires immediately on subscription with
+        // the *current* session — the same one init already derived _state
+        // from synchronously above — so passing it through here would just
+        // be a redundant, no-op re-write of the state we just set.
+        private fun observeAuthSession() {
+            viewModelScope.launch {
+                observeAuthState.observe().drop(1).collect { session ->
+                    _state.value = deriveState(session)
+                    if (_state.value is AuthState.Authenticated) syncFcmToken()
+                }
+            }
+        }
+
+        private fun deriveState(session: AuthRepository.AuthSession?): AuthState =
+            when {
+                session == null -> AuthState.SignedOut()
+                !session.isEmailVerified -> AuthState.AwaitingEmailVerification(email = session.email ?: "")
+                else -> AuthState.Authenticated(session.uid)
+            }
 
         fun register(
             name: String,
@@ -144,7 +169,12 @@ class AuthViewModel
                 val session = observeAuthState.currentSession() ?: return@launch
                 when (val result = checkEmailVerifiedUseCase()) {
                     is Result.Success ->
-                        if (result.data) {
+                        // Re-check _state (not just result.data) before applying: this
+                        // call is polled every few seconds while AwaitingEmailVerification
+                        // is on screen (see EmailVerificationScreen), so a sign-out that
+                        // lands while a check is still in flight must not have its stale
+                        // "verified" result flip _state back to Authenticated afterwards.
+                        if (result.data && _state.value is AuthState.AwaitingEmailVerification) {
                             _state.value = AuthState.Authenticated(session.uid)
                             syncFcmToken()
                         }

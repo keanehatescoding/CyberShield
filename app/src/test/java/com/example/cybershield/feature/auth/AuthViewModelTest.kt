@@ -16,7 +16,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -63,9 +67,18 @@ class AuthViewModelTest {
     /**
      * Builds the ViewModel. [observeAuthState.currentSession()] must be stubbed by the
      * caller *before* invoking this, since it's read synchronously inside init {}.
+     *
+     * [authStateFlow] backs [observeAuthState.observe] — the live auth-state stream
+     * collected (after dropping its first, redundant emission) for the lifetime of the
+     * ViewModel. It defaults to [emptyFlow], which is enough for every test that doesn't
+     * care about live updates: init's synchronous currentSession() read already sets the
+     * initial state, and an empty flow's collector completes immediately without touching
+     * _state again. Pass a real flow (e.g. a [MutableStateFlow]) only for tests exercising
+     * a *later* auth-state transition.
      */
-    private fun buildViewModel(): AuthViewModel =
-        AuthViewModel(
+    private fun buildViewModel(authStateFlow: Flow<AuthRepository.AuthSession?> = emptyFlow()): AuthViewModel {
+        every { observeAuthState.observe() } returns authStateFlow
+        return AuthViewModel(
             observeAuthState = observeAuthState,
             registerUseCase = registerUseCase,
             signInUseCase = signInUseCase,
@@ -74,6 +87,7 @@ class AuthViewModelTest {
             signOutUseCase = signOutUseCase,
             fcmTokenSyncTrigger = fcmTokenSyncTrigger,
         )
+    }
 
     // ---------------------------------------------------------------------
     // init { } — initial state resolution from currentSession()
@@ -636,6 +650,77 @@ class AuthViewModelTest {
 
             assertEquals(before, viewModel.state.value)
             coVerify(exactly = 0) { checkEmailVerifiedUseCase() }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `checkEmailVerified does not resurrect Authenticated if a sign-out lands while the check is in flight`() =
+        runTest {
+            // Regression test: checkEmailVerified() is polled every few seconds while
+            // AwaitingEmailVerification is on screen. Previously it applied a Success
+            // result unconditionally, so a sign-out racing an in-flight check could have
+            // its stale "verified" result flip _state back to Authenticated afterwards.
+            every { observeAuthState.currentSession() } returns
+                session(uid = "uid-7", email = "a@b.com", isEmailVerified = false)
+            coEvery { signOutUseCase() } returns Unit
+            val pendingCheck = CompletableDeferred<Result<Boolean>>()
+            coEvery { checkEmailVerifiedUseCase() } coAnswers { pendingCheck.await() }
+
+            val viewModel = buildViewModel()
+            viewModel.checkEmailVerified() // in flight, suspended on pendingCheck
+
+            viewModel.signOut()
+            advanceUntilIdle()
+            assertEquals(AuthState.SignedOut(), viewModel.state.value)
+
+            pendingCheck.complete(Result.Success(true)) // the stale check finally resolves
+            advanceUntilIdle()
+
+            assertEquals(AuthState.SignedOut(), viewModel.state.value)
+        }
+
+    // ---------------------------------------------------------------------
+    // live auth-state observation (post-init transitions)
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a live sign-out after init transitions Authenticated to SignedOut`() =
+        runTest {
+            // Regression test: init previously only ever read currentSession() once, so a
+            // background sign-out (revoked token, disabled/deleted account, sign-out
+            // elsewhere) never updated _state — it stayed Authenticated forever.
+            every { observeAuthState.currentSession() } returns session(uid = "uid-7", isEmailVerified = true)
+            val authStateFlow =
+                MutableStateFlow<AuthRepository.AuthSession?>(session(uid = "uid-7", isEmailVerified = true))
+
+            val viewModel = buildViewModel(authStateFlow = authStateFlow)
+            assertEquals(AuthState.Authenticated("uid-7"), viewModel.state.value)
+
+            // Let the live collector attach; its first emission (the same session init
+            // already derived _state from) is dropped as redundant.
+            advanceUntilIdle()
+
+            authStateFlow.value = null // a later transition, e.g. a revoked token
+            advanceUntilIdle()
+
+            assertEquals(AuthState.SignedOut(), viewModel.state.value)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a live re-authentication after a background sign-out syncs the FCM token`() =
+        runTest {
+            every { observeAuthState.currentSession() } returns null
+            val authStateFlow = MutableStateFlow<AuthRepository.AuthSession?>(null)
+
+            buildViewModel(authStateFlow = authStateFlow)
+            advanceUntilIdle()
+
+            authStateFlow.value = session(uid = "uid-42", isEmailVerified = true)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { fcmTokenSyncTrigger.syncCurrentToken() }
         }
 
     // ---------------------------------------------------------------------
