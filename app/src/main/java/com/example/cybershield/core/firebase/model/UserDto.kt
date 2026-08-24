@@ -8,8 +8,11 @@ import java.util.Date
 
 @Keep
 data class UserDto(
-    @DocumentId
-    val uid: String = "",
+    // See ModuleDto.id: @DocumentId only actually populates on a writable
+    // property. @DocumentId val silently never gets set by
+    // toObject()/toObjects() — it takes a settable @set:DocumentId var.
+    @set:DocumentId
+    var uid: String = "",
     val displayName: String = "",
     val email: String = "",
     val photoUrl: String? = null,

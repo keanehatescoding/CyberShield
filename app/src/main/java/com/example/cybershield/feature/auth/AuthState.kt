@@ -9,6 +9,11 @@ sealed class AuthState {
     ) : AuthState()
 
     data class AwaitingEmailVerification(
+        // The uid this verification wait is for — checkEmailVerified()'s result
+        // is only ever applied if it still matches this, so a stale in-flight
+        // check for a previous account can't authenticate a different one that
+        // becomes AwaitingEmailVerification in the meantime.
+        val uid: String,
         val email: String,
         val isResending: Boolean = false,
         val resendCooldownSeconds: Int = 0,

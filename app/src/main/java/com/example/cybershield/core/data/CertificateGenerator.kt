@@ -246,10 +246,18 @@ class CertificateGenerator(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     values,
                 ) ?: throw SaveFailedException("Couldn't create a Downloads entry for the certificate.")
-            val outputStream =
-                context.contentResolver.openOutputStream(uri)
-                    ?: throw SaveFailedException("Couldn't open the Downloads entry to write the certificate.")
-            outputStream.use { os -> file.inputStream().copyTo(os) }
+            try {
+                val outputStream =
+                    context.contentResolver.openOutputStream(uri)
+                        ?: throw SaveFailedException("Couldn't open the Downloads entry to write the certificate.")
+                outputStream.use { os -> file.inputStream().use { input -> input.copyTo(os) } }
+            } catch (e: Exception) {
+                // insert() already created a real (now empty/partial) entry —
+                // clean it up on any write failure so a retry doesn't leave
+                // orphaned certificate entries accumulating in Downloads.
+                context.contentResolver.delete(uri, null, null)
+                throw e
+            }
         } else {
             // Pre-Q: writing to the public Downloads dir is a dangerous-permission
             // operation and must be checked at runtime, not just declared in the manifest.

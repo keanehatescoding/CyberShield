@@ -113,7 +113,7 @@ class AuthViewModelTest {
         val viewModel = buildViewModel()
 
         assertEquals(
-            AuthState.AwaitingEmailVerification(email = "person@example.com"),
+            AuthState.AwaitingEmailVerification(uid = "uid-123", email = "person@example.com"),
             viewModel.state.value,
         )
     }
@@ -129,7 +129,7 @@ class AuthViewModelTest {
         val viewModel = buildViewModel()
 
         assertEquals(
-            AuthState.AwaitingEmailVerification(email = ""),
+            AuthState.AwaitingEmailVerification(uid = "uid-123", email = ""),
             viewModel.state.value,
         )
     }
@@ -181,7 +181,11 @@ class AuthViewModelTest {
     @Test
     fun `register success transitions SignedOut to AwaitingEmailVerification`() =
         runTest {
-            every { observeAuthState.currentSession() } returns null
+            // First call (init) has no session yet; second call (register()'s
+            // success branch, fetching the newly created session's uid) sees
+            // the account registerUseCase just created.
+            every { observeAuthState.currentSession() } returnsMany
+                listOf(null, session(uid = "uid-new", email = "jane@example.com", isEmailVerified = false))
             coEvery { registerUseCase("Jane", "jane@example.com", "pw123456") } returns Result.Success(Unit)
 
             val viewModel = buildViewModel()
@@ -194,7 +198,10 @@ class AuthViewModelTest {
                 assertEquals(AuthState.SignedOut(isLoading = true, error = null), loading)
 
                 val success = awaitItem()
-                assertEquals(AuthState.AwaitingEmailVerification(email = "jane@example.com"), success)
+                assertEquals(
+                    AuthState.AwaitingEmailVerification(uid = "uid-new", email = "jane@example.com"),
+                    success,
+                )
             }
         }
 
@@ -313,7 +320,7 @@ class AuthViewModelTest {
                 viewModel.signIn("a@b.com", "pw")
                 awaitItem() // loading
                 assertEquals(
-                    AuthState.AwaitingEmailVerification(email = "a@b.com"),
+                    AuthState.AwaitingEmailVerification(uid = "uid-123", email = "a@b.com"),
                     awaitItem(),
                 )
             }
@@ -332,7 +339,7 @@ class AuthViewModelTest {
                 viewModel.signIn("a@b.com", "pw")
                 awaitItem() // loading
                 assertEquals(
-                    AuthState.AwaitingEmailVerification(email = "a@b.com"),
+                    AuthState.AwaitingEmailVerification(uid = "uid-123", email = "a@b.com"),
                     awaitItem(),
                 )
             }
@@ -759,5 +766,76 @@ class AuthViewModelTest {
             val state = viewModel.state.value as AuthState.SignedOut
             assertEquals(false, state.isLoading)
             assertNull(state.error)
+        }
+
+    // ---------------------------------------------------------------------
+    // Races identified in review: listener-registration gap, stale account
+    // ---------------------------------------------------------------------
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a sign-out landing before the live listener attaches is not dropped as a redundant echo`() =
+        runTest {
+            // Regression test: the live collector used to unconditionally
+            // drop its first emission, assuming it always echoes whatever
+            // currentSession() already read synchronously in init. But
+            // listener registration happens on a later coroutine dispatch,
+            // not synchronously — if the real auth state changes in that
+            // gap, the "first" emission is the real sign-out, not an echo,
+            // and must not be dropped.
+            every { observeAuthState.currentSession() } returns session(uid = "uid-123", isEmailVerified = true)
+            val authStateFlow = MutableStateFlow<AuthRepository.AuthSession?>(null)
+
+            val viewModel = buildViewModel(authStateFlow = authStateFlow)
+            assertEquals(AuthState.Authenticated("uid-123"), viewModel.state.value)
+
+            advanceUntilIdle() // let the live collector attach and process this differing "first" emission
+
+            assertEquals(AuthState.SignedOut(), viewModel.state.value)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `checkEmailVerified does not authenticate a stale account after the active user switches to a different one`() =
+        runTest {
+            // Regression test: the guard previously only checked _state's
+            // TYPE (is AwaitingEmailVerification), not its uid — a stale
+            // in-flight check for user A could authenticate user A's uid
+            // even after the active session switched to a different,
+            // also-unverified user B.
+            every { observeAuthState.currentSession() } returns
+                session(uid = "uid-A", email = "a@example.com", isEmailVerified = false)
+            val authStateFlow =
+                MutableStateFlow<AuthRepository.AuthSession?>(
+                    session(uid = "uid-A", email = "a@example.com", isEmailVerified = false),
+                )
+            val pendingCheck = CompletableDeferred<Result<Boolean>>()
+            coEvery { checkEmailVerifiedUseCase() } coAnswers { pendingCheck.await() }
+
+            val viewModel = buildViewModel(authStateFlow = authStateFlow)
+            assertEquals(
+                AuthState.AwaitingEmailVerification(uid = "uid-A", email = "a@example.com"),
+                viewModel.state.value,
+            )
+            advanceUntilIdle() // let the live collector attach (drops the redundant echo of the same session)
+
+            viewModel.checkEmailVerified() // captures session = uid-A, blocked on pendingCheck
+
+            // The active user switches to a different, also-unverified account.
+            authStateFlow.value = session(uid = "uid-B", email = "b@example.com", isEmailVerified = false)
+            advanceUntilIdle()
+            assertEquals(
+                AuthState.AwaitingEmailVerification(uid = "uid-B", email = "b@example.com"),
+                viewModel.state.value,
+            )
+
+            pendingCheck.complete(Result.Success(true)) // uid-A's stale check finally resolves as "verified"
+            advanceUntilIdle()
+
+            // Must NOT have authenticated uid-A — the active user is still B, still awaiting.
+            assertEquals(
+                AuthState.AwaitingEmailVerification(uid = "uid-B", email = "b@example.com"),
+                viewModel.state.value,
+            )
         }
 }

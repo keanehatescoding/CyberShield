@@ -6,8 +6,14 @@ import com.google.firebase.firestore.DocumentId
 
 @Keep
 data class ModuleDto(
-    @DocumentId
-    val id: String = "",
+    // The doc-path id isn't part of a document's own field data, so
+    // toObject()/toObjects() can't fill it in via constructor matching —
+    // it's set reflectively after construction, which requires a writable
+    // property. @DocumentId on a `val` (no setter) silently never gets
+    // populated; the SDK's own docs specify @set:DocumentId var for exactly
+    // this reason: https://firebase.google.com/docs/reference/kotlin/com/google/firebase/firestore/DocumentId
+    @set:DocumentId
+    var id: String = "",
     val title: String = "",
     val description: String = "",
     val videoUrl: String = "",
