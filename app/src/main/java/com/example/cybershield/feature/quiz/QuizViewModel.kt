@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
 import com.example.cybershield.core.domain.model.QuizResult
 import com.example.cybershield.core.domain.repository.QuizRepository
@@ -146,6 +147,21 @@ class QuizViewModel
                                             savedStateHandle[KEY_RESULT_ID] = resultId
                                             savedStateHandle[KEY_QUIZ_START_ELAPSED] = quizStartElapsed
                                             showQuestion(0)
+                                        } else if (currentIndex >= quizList.size) {
+                                            // Restoring after process death, but every
+                                            // question was already answered and durably
+                                            // committed before it died (processAnswer()
+                                            // advances KEY_CURRENT_INDEX past the last
+                                            // question as soon as its row is written) —
+                                            // there's nothing left to show. Re-run the
+                                            // finish logic instead of clamping this back
+                                            // into a valid index and letting the last
+                                            // question be shown (and answered) again.
+                                            // Idempotent either way: hasFinished guards a
+                                            // same-instance re-entry, and
+                                            // finalizeQuizAttemptServer is idempotent
+                                            // server-side.
+                                            finishQuiz()
                                         } else {
                                             // Restoring after process death: resume at the
                                             // saved question instead of restarting at 0, and
@@ -266,19 +282,43 @@ class QuizViewModel
                 val feedbackDelay = async { delay(FEEDBACK_DELAY_MS.milliseconds) }
 
                 val result = submitJob.await()
+                // The answer for currentIndex is now durably persisted —
+                // submitAnswer() always writes a quiz_results row on
+                // Result.Success, either graded online or cached offline.
+                // Update and persist score/correctCount/pendingCount together
+                // with the advanced position now, rather than waiting for the
+                // feedback delay and advanceQuiz() below: a process death in
+                // that later window previously left SavedStateHandle either
+                // still pointing at this now-answered question (letting it
+                // be answered again under the same resultId — the unique
+                // index on quiz_results(resultId, questionId), see
+                // MIGRATION_9_10, backstops that at the DB level regardless)
+                // or, on the last question, resuming straight into
+                // finishQuiz() (see loadQuiz()) with a stale score/count that
+                // hadn't yet counted this answer.
+                var onlineValidation: AnswerValidation? = null
+                if (result is Result.Success) {
+                    val validation = result.data
+                    if (validation != null) {
+                        onlineValidation = validation
+                        val points = QuizScoring.pointsFor(isCorrect = validation.isCorrect, timeRemaining = timeRemaining)
+                        score += points
+                        if (validation.isCorrect) correctCount++
+                        savedStateHandle[KEY_SCORE] = score
+                        savedStateHandle[KEY_CORRECT_COUNT] = correctCount
+                    } else {
+                        pendingCount++
+                        savedStateHandle[KEY_PENDING_COUNT] = pendingCount
+                    }
+                    savedStateHandle[KEY_CURRENT_INDEX] = currentIndex + 1
+                }
                 feedbackDelay.await()
 
                 when (result) {
                     is Result.Success -> {
-                        val validation = result.data
+                        val validation = onlineValidation
                         if (validation != null) {
                             // Online path — server graded it immediately.
-                            val points = QuizScoring.pointsFor(isCorrect = validation.isCorrect, timeRemaining = timeRemaining)
-                            score += points
-                            if (validation.isCorrect) correctCount++
-                            savedStateHandle[KEY_SCORE] = score
-                            savedStateHandle[KEY_CORRECT_COUNT] = correctCount
-
                             _uiState.value =
                                 (_uiState.value as? QuizUiState.Active)?.copy(
                                     isCorrect = validation.isCorrect,
@@ -288,8 +328,6 @@ class QuizViewModel
                                 ) ?: _uiState.value
                         } else {
                             // Offline path — cached locally, no verdict yet.
-                            pendingCount++
-                            savedStateHandle[KEY_PENDING_COUNT] = pendingCount
                             _uiState.value =
                                 (_uiState.value as? QuizUiState.Active)?.copy(
                                     isCorrect = null,

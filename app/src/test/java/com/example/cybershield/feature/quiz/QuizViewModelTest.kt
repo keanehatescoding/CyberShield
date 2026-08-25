@@ -1,6 +1,7 @@
 package com.example.cybershield.feature.quiz
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import app.cash.turbine.test
 import com.example.cybershield.core.domain.model.AnswerValidation
 import com.example.cybershield.core.domain.model.Question
@@ -1044,5 +1045,92 @@ class QuizViewModelTest {
                     timeRemaining = any(),
                 )
             }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `SavedStateHandle advances past the answered question as soon as it's persisted, not only once the next question shows`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Regression test: KEY_CURRENT_INDEX previously only advanced
+            // inside showQuestion(), which runs after the feedback delay and
+            // advanceQuiz() — i.e. well after submitAnswer() already
+            // committed a quiz_results row for the just-answered question. A
+            // process death in that window resumed on the SAME question with
+            // hasAnswered reset, letting the user answer it again under the
+            // same resultId (see MIGRATION_9_10 / the new unique index for
+            // the DB-level backstop). SavedStateHandle must instead reflect
+            // the advance the moment submitAnswer() succeeds.
+            val q1 = question(id = "q1")
+            val q2 = question(id = "q2")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+
+            val viewModel = buildViewModel()
+            runCurrent() // reach q1 active; its timer suspends on its first tick
+
+            viewModel.selectAnswer(0)
+            runCurrent() // lets submitJob.await() resolve, without advancing past the feedback delay
+
+            // The UI is still showing feedback for q1 — showQuestion(1) (and
+            // its own KEY_CURRENT_INDEX write) hasn't run yet.
+            val stillOnQ1 = viewModel.uiState.value
+            assertTrue(stillOnQ1 is QuizUiState.Active)
+            assertEquals(0, (stillOnQ1 as QuizUiState.Active).questionIndex)
+
+            // But SavedStateHandle already reflects the advance, closing the
+            // window before the OS could kill the process mid-feedback-delay.
+            assertEquals(1, savedStateHandle.get<Int>("quiz_currentIndex"))
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `process death after the final answer commits but before finishQuiz completes resumes by finishing`() =
+        runTest(coroutineRule.testDispatcher) {
+            // Regression test: for the *last* question, advanceQuiz() calls
+            // finishQuiz() directly and never calls showQuestion() again —
+            // so before this fix, KEY_CURRENT_INDEX ended up one past the
+            // last valid index (questions.size), and loadQuiz()'s restore
+            // path coerced that back down to the last question, re-showing
+            // it (and letting it be answered a second time) even though its
+            // row was already durably committed. It must instead finish the
+            // quiz, not re-show the last question.
+            val q1 = question(id = "q1")
+            val q2 = question(id = "q2")
+            coEvery { getQuiz(testQuizId) } returns flowOf(Result.Success(listOf(q1, q2)))
+            coEvery {
+                submitAnswer(any(), any(), any(), any(), any(), any(), any())
+            } returns Result.Success(validation("q1", isCorrect = true))
+
+            val store = ViewModelStore()
+            val firstViewModel = buildViewModel(resultIdProvider = { "result-original" })
+            store.put("quiz", firstViewModel)
+            runCurrent() // reach q1 active
+            firstViewModel.selectAnswer(0)
+            advanceTimeBy((QuizViewModel.FEEDBACK_DELAY_MS + 100).milliseconds) // grade q1, advance to q2
+
+            firstViewModel.selectAnswer(0) // answer q2 — the last question
+            runCurrent() // lets submitJob.await() resolve (committing + advancing
+            // SavedStateHandle past the last index), without advancing past
+            // the feedback delay — finishQuiz() never runs on this instance.
+
+            // Simulate the process dying right here: cancel firstViewModel's
+            // viewModelScope so its still-pending feedback-delay/finishQuiz()
+            // coroutine never resumes, the same as a real process death would
+            // never let it — advanceUntilIdle() below is shared across both
+            // instances' coroutines, so without this, "restoring" would also
+            // let the original instance's own pending work run to completion.
+            store.clear()
+
+            // Recreate — simulates the process dying before finishQuiz() completed.
+            val restoredViewModel = buildViewModel(resultIdProvider = { "result-should-not-be-used" })
+            advanceUntilIdle()
+
+            assertTrue(restoredViewModel.uiState.value is QuizUiState.Completed)
+            coVerify(exactly = 1) { quizRepository.finalizeQuizAttemptServer("result-original") }
+            coVerify(exactly = 0) { quizRepository.finalizeQuizAttemptServer("result-should-not-be-used") }
+            // The last question must never have been re-submitted.
+            coVerify(exactly = 2) { submitAnswer(any(), any(), any(), any(), any(), any(), any()) }
         }
 }

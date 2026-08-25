@@ -1,9 +1,21 @@
 package com.example.cybershield.core.database.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "quiz_results")
+@Entity(
+    tableName = "quiz_results",
+    // A question can only ever be answered once per attempt — this is what
+    // makes OnConflictStrategy.REPLACE on insert() actually dedupe a
+    // resubmission (e.g. a process-death resume replaying the same
+    // question) instead of silently adding a second row, since REPLACE
+    // resolves against *any* unique constraint on the table, not just the
+    // primary key. See MIGRATION_9_10.
+    indices = [
+        Index(value = ["resultId", "questionId"], unique = true),
+    ],
+)
 data class QuizResultEntity(
     @PrimaryKey(autoGenerate = true)
     val localId: Long = 0,

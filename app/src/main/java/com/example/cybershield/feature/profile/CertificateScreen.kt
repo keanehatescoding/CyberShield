@@ -133,6 +133,7 @@ fun CertificateScreen(
                 throw e
             } catch (e: Exception) {
                 isGenerating = false
+                viewModel.recordCertificateActionFailure(id, e)
                 snackbarHostState.showSnackbar("Couldn't save certificate: ${e.message}")
             }
         }
@@ -217,6 +218,7 @@ fun CertificateScreen(
                                 throw e
                             } catch (e: Exception) {
                                 isGenerating = false
+                                viewModel.recordCertificateActionFailure(cert.id, e)
                                 snackbarHostState.showSnackbar("Couldn't share certificate: ${e.message}")
                             }
                         }

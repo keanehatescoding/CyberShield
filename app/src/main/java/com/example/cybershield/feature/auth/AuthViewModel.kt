@@ -2,6 +2,7 @@ package com.example.cybershield.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.cybershield.core.domain.repository.AuthRepository
 import com.example.cybershield.core.domain.usecase.auth.CheckEmailVerifiedUseCase
 import com.example.cybershield.core.domain.usecase.auth.ObserveAuthStateUseCase
 import com.example.cybershield.core.domain.usecase.auth.RegisterUseCase
@@ -38,18 +39,52 @@ class AuthViewModel
         private var cooldownJob: Job? = null
 
         init {
-            val session = observeAuthState.currentSession()
-            _state.value =
-                when {
-                    session == null -> AuthState.SignedOut()
-                    !session.isEmailVerified -> AuthState.AwaitingEmailVerification(email = session.email ?: "")
-                    else -> AuthState.Authenticated(session.uid)
-                }
+            val initialSession = observeAuthState.currentSession()
+            _state.value = deriveState(initialSession)
             // Covers an already-authenticated cold start (e.g. a token issued
             // pre-login on a previous run never got attached — see
             // FcmTokenSyncTrigger). No-ops harmlessly otherwise.
             if (_state.value is AuthState.Authenticated) syncFcmToken()
+            observeAuthSession(initialSession)
         }
+
+        // Reacts to auth-state transitions that happen after init — a revoked
+        // refresh token, a disabled/deleted account, or a sign-out triggered
+        // from elsewhere. Previously _state only ever reflected a one-shot
+        // currentSession() read from init and never updated again on its own,
+        // so any of those events left the UI stuck showing stale state (e.g.
+        // still Authenticated after Firebase force-signed the user out).
+        //
+        // [initialSession] is the exact value init already derived _state
+        // from synchronously above — NOT re-read here, since a second,
+        // independent currentSession() call could itself race a real change
+        // landing between the two reads. Every live emission is compared
+        // against it (not against a fixed "drop the first item" position):
+        // addAuthStateListener fires immediately on subscription with
+        // whatever the *current* session is at that moment, which is usually
+        // — but not guaranteed to be — initialSession, since subscription
+        // happens on a later coroutine dispatch, not synchronously inside
+        // init. A sign-out landing in that gap must still be applied, not
+        // unconditionally dropped as if it were the redundant echo.
+        private fun observeAuthSession(initialSession: AuthRepository.AuthSession?) {
+            viewModelScope.launch {
+                var lastSeenSession = initialSession
+                observeAuthState.observe().collect { session ->
+                    if (session == lastSeenSession) return@collect
+                    lastSeenSession = session
+                    _state.value = deriveState(session)
+                    if (_state.value is AuthState.Authenticated) syncFcmToken()
+                }
+            }
+        }
+
+        private fun deriveState(session: AuthRepository.AuthSession?): AuthState =
+            when {
+                session == null -> AuthState.SignedOut()
+                !session.isEmailVerified ->
+                    AuthState.AwaitingEmailVerification(uid = session.uid, email = session.email ?: "")
+                else -> AuthState.Authenticated(session.uid)
+            }
 
         fun register(
             name: String,
@@ -66,7 +101,14 @@ class AuthViewModel
 
             viewModelScope.launch {
                 when (val result = registerUseCase(name, email, password)) {
-                    is Result.Success -> _state.value = AuthState.AwaitingEmailVerification(email = email)
+                    is Result.Success -> {
+                        // registerUseCase() only returns Result<Unit> (its Firebase
+                        // Auth + Firestore profile side effects are the point, not a
+                        // return value) — the newly created session's uid is fetched
+                        // fresh here rather than threaded through the use case.
+                        val uid = observeAuthState.currentSession()?.uid ?: ""
+                        _state.value = AuthState.AwaitingEmailVerification(uid = uid, email = email)
+                    }
                     is Result.Error -> fail(result.exception.message ?: "Something went wrong. Please try again.")
                     is Result.Loading -> Unit
                 }
@@ -89,7 +131,7 @@ class AuthViewModel
                             if (session.isEmailVerified) {
                                 AuthState.Authenticated(session.uid).also { syncFcmToken() }
                             } else {
-                                AuthState.AwaitingEmailVerification(email = session.email ?: email)
+                                AuthState.AwaitingEmailVerification(uid = session.uid, email = session.email ?: email)
                             }
                     }
                     is Result.Error ->
@@ -145,8 +187,19 @@ class AuthViewModel
                 when (val result = checkEmailVerifiedUseCase()) {
                     is Result.Success ->
                         if (result.data) {
-                            _state.value = AuthState.Authenticated(session.uid)
-                            syncFcmToken()
+                            // Re-check _state (not just result.data) before applying: this
+                            // call is polled every few seconds while AwaitingEmailVerification
+                            // is on screen (see EmailVerificationScreen), so a sign-out that
+                            // lands while a check is still in flight must not have its stale
+                            // "verified" result flip _state back to Authenticated afterwards.
+                            // The uid must also still match: a type-only check would let a
+                            // stale result for a previous account authenticate a different
+                            // one that became AwaitingEmailVerification in the meantime.
+                            val awaiting = _state.value as? AuthState.AwaitingEmailVerification
+                            if (awaiting != null && awaiting.uid == session.uid) {
+                                _state.value = AuthState.Authenticated(session.uid)
+                                syncFcmToken()
+                            }
                         }
                     is Result.Error -> Unit // stay, user can retry
                     is Result.Loading -> Unit

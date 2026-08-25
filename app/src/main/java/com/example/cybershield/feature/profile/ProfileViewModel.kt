@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.cybershield.core.domain.repository.CertificateRepository
 import com.example.cybershield.core.domain.repository.UserRepository
 import com.example.cybershield.core.domain.usecase.auth.GetCurrentSessionUseCase
+import com.example.cybershield.core.domain.util.CrashReporter
 import com.example.cybershield.core.domain.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -22,6 +23,7 @@ class ProfileViewModel
         private val userRepository: UserRepository,
         private val certificateRepository: CertificateRepository,
         private val getCurrentSession: GetCurrentSessionUseCase,
+        private val crashReporter: CrashReporter,
     ) : ViewModel() {
         private val uid: String
             get() = getCurrentSession()?.uid ?: ""
@@ -84,4 +86,17 @@ class ProfileViewModel
          * once from init.
          */
         fun retryLoadCertificates() = loadCertificates()
+
+        /**
+         * Records a certificate share/save failure that CertificateScreen
+         * caught and handled locally (it already shows the user a snackbar
+         * with [throwable]'s message). Without this, that failure otherwise
+         * left no signal anywhere once the snackbar was dismissed — see
+         * CrashReporter's kdoc on exactly this "caught and handled, but
+         * would otherwise vanish silently" case.
+         */
+        fun recordCertificateActionFailure(
+            certId: String,
+            throwable: Throwable,
+        ) = crashReporter.recordException(throwable, mapOf("certId" to certId))
     }

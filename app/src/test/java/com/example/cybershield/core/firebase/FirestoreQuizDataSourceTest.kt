@@ -60,6 +60,7 @@ class FirestoreQuizDataSourceTest {
         options: List<String>?,
         order: Long?,
         text: String = "What is phishing?",
+        moduleId: String? = "module1",
         moduleName: String = "Module 1",
         title: String = "Quiz Title",
     ): DocumentSnapshot {
@@ -68,6 +69,7 @@ class FirestoreQuizDataSourceTest {
         every { doc.get("options") } returns options
         every { doc.getLong("order") } returns order
         every { doc.getString("text") } returns text
+        every { doc.getString("moduleId") } returns moduleId
         every { doc.getString("moduleName") } returns moduleName
         every { doc.getString("title") } returns title
         return doc
@@ -88,11 +90,28 @@ class FirestoreQuizDataSourceTest {
             assertEquals(1, result.size)
             val question = result.single()
             assertEquals("q1", question.id)
-            assertEquals("quiz1", question.moduleId)
+            assertEquals("module1", question.moduleId)
             assertEquals(listOf("A", "B", "C"), question.options)
             assertEquals(0, question.order)
             assertEquals("Module 1", question.moduleName)
             assertEquals("Quiz Title", question.quizTitle)
+        }
+
+    @Test
+    fun `getQuizzesForModule falls back to quizId when the moduleId field is missing`() =
+        runTest {
+            // Regression guard: moduleId must come from the question doc's own
+            // field (a real, separate value from quizId — see
+            // functions/src/scripts/migrateAnswerKeys.ts), falling back to
+            // quizId only when a doc predates that field.
+            val doc = fakeQuestionDoc(id = "q1", options = listOf("A", "B"), order = 0L, moduleId = null)
+            val snapshot = mockk<QuerySnapshot>()
+            every { snapshot.documents } returns listOf(doc)
+            every { orderedQuery.get() } returns completedTask(snapshot)
+
+            val result = dataSource.getQuizzesForModule("quiz1")
+
+            assertEquals("quiz1", result.single().moduleId)
         }
 
     @Test

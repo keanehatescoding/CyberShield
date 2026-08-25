@@ -28,3 +28,40 @@ val MIGRATION_8_9 =
             db.execSQL("ALTER TABLE quiz_attempts ADD COLUMN abandoned INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+/**
+ * v9 -> v10: adds a UNIQUE index on quiz_results(resultId, questionId).
+ *
+ * quiz_results' primary key is an autoincrement surrogate (localId), so
+ * QuizResultDao.insert()'s OnConflictStrategy.REPLACE never had anything to
+ * conflict against — a second insert for a question already answered under
+ * the same resultId (e.g. a process death between the Room write for that
+ * answer and QuizViewModel persisting its advanced position, which then
+ * resumes on the same question with hasAnswered reset) just added a second
+ * row instead of replacing the first. That duplicate was then counted twice
+ * by getAttemptsReadyToFinalize()'s score/correctCount sum and shown twice
+ * in paged quiz history.
+ *
+ * Existing duplicates (if a device already hit this) are collapsed to the
+ * most recent row per (resultId, questionId) — the highest localId, i.e.
+ * whichever answer was submitted last for that question — before the
+ * unique index is created, since SQLite refuses to build a UNIQUE index
+ * over data that already violates it.
+ */
+val MIGRATION_9_10 =
+    object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                DELETE FROM quiz_results
+                WHERE localId NOT IN (
+                    SELECT MAX(localId) FROM quiz_results GROUP BY resultId, questionId
+                )
+                """,
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_quiz_results_resultId_questionId " +
+                    "ON quiz_results (resultId, questionId)",
+            )
+        }
+    }

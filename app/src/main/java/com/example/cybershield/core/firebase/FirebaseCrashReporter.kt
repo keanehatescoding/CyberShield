@@ -32,6 +32,6 @@ class FirebaseCrashReporter
              * Add new key names here when a new call site introduces one, so they
              * get cleared too instead of silently leaking into future reports.
              */
-            private val KNOWN_KEYS = setOf("quizId", "resultId")
+            private val KNOWN_KEYS = setOf("quizId", "resultId", "certId")
         }
     }
