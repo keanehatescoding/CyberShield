@@ -1,5 +1,5 @@
 [versions]
-agp                     = "9.3.1"
+agp                     = "9.3.2"
 androidx-test-runner    = "1.7.0"
 androidx-test-ext-junit = "1.3.0"
 androidx-test-rules     = "1.7.0"
@@ -7,7 +7,7 @@ coil                    = "2.7.0"
 compose-bom             = "2026.08.00"
 coroutines              = "1.11.0"
 credentials             = "1.6.0"
-firebase-bom            = "34.17.0"
+firebase-bom            = "34.18.0"
 foundation              = "1.12.0"
 google-id               = "1.2.0"
 hilt                    = "2.60.1"
@@ -114,4 +114,4 @@ hilt                    = { id = "com.google.dagger.hilt.android",              
 ksp                     = { id = "com.google.devtools.ksp",                                version.ref = "ksp" }
 ktlint                  = { id = "org.jlleitschuh.gradle.ktlint",                          version.ref = "ktlint" }
 google-services         = { id = "com.google.gms.google-services",                        version = "4.5.0" }
-firebase-crashlytics    = { id = "com.google.firebase.crashlytics",                       version = "3.0.7" }
+firebase-crashlytics    = { id = "com.google.firebase.crashlytics",                       version = "3.0.8" }
