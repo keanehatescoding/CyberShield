@@ -14,7 +14,7 @@
     "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^24.13.3",
     "firebase": "^12.16.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "protobufjs@7.6.5": true,
