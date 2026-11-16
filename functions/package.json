@@ -18,13 +18,13 @@
     "migrate:answerKeys": "npm run build && node lib/scripts/migrateAnswerKeys.js"
   },
   "dependencies": {
-    "firebase-admin": "^14.5.0",
+    "firebase-admin": "^14.5.1",
     "firebase-functions": "^7.4.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
-    "eslint": "^10.14.0",
-    "typescript-eslint": "^8.72.1",
+    "eslint": "^10.15.0",
+    "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0"
   },
   "allowScripts": {
