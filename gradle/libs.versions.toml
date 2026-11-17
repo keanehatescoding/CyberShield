@@ -7,13 +7,13 @@ coil                    = "2.7.0"
 compose-bom             = "2026.09.00"
 coroutines              = "1.11.0"
 credentials             = "1.6.0"
-firebase-bom            = "35.1.0"
+firebase-bom            = "35.2.0"
 foundation              = "1.12.0"
 google-id               = "1.2.1"
 hilt                    = "2.60.1"
 hilt-ext                = "1.4.0"
 kotlin                  = "2.4.21"
-ksp                     = "2.3.13"
+ksp                     = "2.3.14"
 ktlint                  = "14.2.0"
 lifecycle               = "2.11.0"
 material                = "1.14.0"
@@ -21,9 +21,9 @@ media3                  = "1.11.1"
 navigation              = "2.10.2"
 paging                  = "3.5.3"
 room                    = "2.8.5"
-robolectric             = "4.17"
+robolectric             = "4.18"
 roomTesting             = "2.8.5"
-serialization-json      = "1.12.0"
+serialization-json      = "1.13.0"
 splashscreen            = "1.2.0"
 ui-text                 = "1.12.0"
 work-runtime            = "2.12.0"
@@ -90,7 +90,7 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 work-runtime            = { module = "androidx.work:work-runtime-ktx",                  version.ref = "work-runtime" }
 # Testing
 junit                   = { module = "junit:junit",                                        version = "4.13.2" }
-mockk                   = { module = "io.mockk:mockk",                                     version = "1.14.11" }
+mockk                   = { module = "io.mockk:mockk",                                     version = "1.14.12" }
 turbine                 = { module = "app.cash.turbine:turbine",                           version = "1.2.1" }
 compose-test            = { module = "androidx.compose.ui:ui-test-junit4" }
 hilt-testing            = { module = "com.google.dagger:hilt-android-testing",            version.ref = "hilt" }
@@ -113,5 +113,5 @@ kotlin-serialization    = { id = "org.jetbrains.kotlin.plugin.serialization",   
 hilt                    = { id = "com.google.dagger.hilt.android",                        version.ref = "hilt" }
 ksp                     = { id = "com.google.devtools.ksp",                                version.ref = "ksp" }
 ktlint                  = { id = "org.jlleitschuh.gradle.ktlint",                          version.ref = "ktlint" }
-google-services         = { id = "com.google.gms.google-services",                        version = "4.5.0" }
+google-services         = { id = "com.google.gms.google-services",                        version = "4.6.0" }
 firebase-crashlytics    = { id = "com.google.firebase.crashlytics",                       version = "3.0.8" }
